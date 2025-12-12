@@ -9,8 +9,25 @@ load_dotenv()
 
 # --- CONFIGURATION ---
 TOKEN = os.getenv('DISCORD_TOKEN')
-FORUM_CHANNEL_ID = int(os.getenv('FORUM_CHANNEL_ID'))
-ANNOUNCE_CHANNEL_ID = int(os.getenv('ANNOUNCE_CHANNEL_ID'))
+FORUM_CHANNEL_ID = os.getenv('FORUM_CHANNEL_ID')
+ANNOUNCE_CHANNEL_ID = os.getenv('ANNOUNCE_CHANNEL_ID')
+
+# Vérification des variables d'environnement
+if not TOKEN:
+    raise ValueError("❌ ERREUR : La variable DISCORD_TOKEN n'est pas définie !\n"
+                     "Sur Railway : Allez dans Variables → Add Variable → DISCORD_TOKEN")
+
+if not FORUM_CHANNEL_ID:
+    raise ValueError("❌ ERREUR : La variable FORUM_CHANNEL_ID n'est pas définie !\n"
+                     "Sur Railway : Allez dans Variables → Add Variable → FORUM_CHANNEL_ID = 1427703869844230317")
+
+if not ANNOUNCE_CHANNEL_ID:
+    raise ValueError("❌ ERREUR : La variable ANNOUNCE_CHANNEL_ID n'est pas définie !\n"
+                     "Sur Railway : Allez dans Variables → Add Variable → ANNOUNCE_CHANNEL_ID = 1449148521084096695")
+
+# Conversion en int après vérification
+FORUM_CHANNEL_ID = int(FORUM_CHANNEL_ID)
+ANNOUNCE_CHANNEL_ID = int(ANNOUNCE_CHANNEL_ID)
 
 # Permissions
 intents = discord.Intents.default()
