@@ -43,9 +43,12 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Dictionnaire pour gérer les tâches en attente
 pending_announcements = {}
 
+# Dictionnaire pour suivre les threads récemment créés (éviter les doublons)
+recent_threads = {}
+
 # --- OUTILS ---
 
-async def planifier_annonce(thread, tags_actuels):
+async def planifier_annonce(thread, tags_actuels, source=""):
     """
     Planifie l'envoi d'une annonce après un délai.
     Si une nouvelle modification arrive, annule l'ancienne tâche et repart de zéro.
@@ -55,7 +58,7 @@ async def planifier_annonce(thread, tags_actuels):
     # Si une tâche est déjà en attente pour ce thread, on l'annule
     if thread_id in pending_announcements:
         pending_announcements[thread_id].cancel()
-        print(f"⏱️ Annulation de l'annonce précédente pour : {thread.name}")
+        print(f"⏱️ Annulation de l'annonce précédente pour : {thread.name} (source: {source})")
     
     # Fonction qui sera exécutée après le délai
     async def envoyer_apres_delai():
@@ -72,12 +75,12 @@ async def planifier_annonce(thread, tags_actuels):
                 del pending_announcements[thread_id]
         except asyncio.CancelledError:
             # La tâche a été annulée, c'est normal
-            pass
+            print(f"❌ Tâche annulée pour : {thread.name}")
     
     # On crée et stocke la nouvelle tâche
     task = asyncio.create_task(envoyer_apres_delai())
     pending_announcements[thread_id] = task
-    print(f"⏱️ Annonce planifiée dans {ANNOUNCE_DELAY}s pour : {thread.name}")
+    print(f"⏱️ Annonce planifiée dans {ANNOUNCE_DELAY}s pour : {thread.name} (source: {source})")
 
 def trier_tags(tags):
     """ Récupère les tags avec leurs EMOJIS (Terminé, En cours, etc.) """
@@ -208,17 +211,33 @@ async def on_ready():
 async def on_thread_create(thread):
     """Détecte la création d'un nouveau thread"""
     if thread.parent_id != FORUM_CHANNEL_ID: return
+    
+    # Marquer ce thread comme récemment créé (pour éviter les doublons avec on_thread_update)
+    import time
+    recent_threads[thread.id] = time.time()
+    
     await discord.utils.sleep_until(discord.utils.utcnow()) 
     
     trads = trier_tags(thread.applied_tags)
     # On envoie l'annonce seulement si des tags sont présents
     if len(trads) > 0:
-        await planifier_annonce(thread, trads)
+        await planifier_annonce(thread, trads, source="thread_create")
 
 @bot.event
 async def on_thread_update(before, after):
     """Détecte les modifications des tags d'un thread"""
     if after.parent_id != FORUM_CHANNEL_ID: return
+    
+    # Ignorer les mises à jour dans les 10 premières secondes après création (éviter doublons)
+    import time
+    if after.id in recent_threads:
+        temps_ecoule = time.time() - recent_threads[after.id]
+        if temps_ecoule < 10:
+            print(f"⏭️ Thread récent ({temps_ecoule:.1f}s), on_thread_update ignoré pour : {after.name}")
+            return
+        else:
+            # Nettoyer le dictionnaire après 10 secondes
+            del recent_threads[after.id]
 
     trads_after = trier_tags(after.applied_tags)
     trads_before = trier_tags(before.applied_tags)
@@ -234,7 +253,7 @@ async def on_thread_update(before, after):
     if len(tags_ajoutes) > 0:
         # Des tags ont été ajoutés, on planifie l'annonce
         print(f"✅ Tags ajoutés sur {after.name} : {tags_ajoutes}")
-        await planifier_annonce(after, trads_after)
+        await planifier_annonce(after, trads_after, source="thread_update")
     else:
         # Seulement des tags retirés, on ignore
         print(f"⏭️ Tags retirés uniquement sur {after.name} - Annonce ignorée")
@@ -257,12 +276,20 @@ async def on_message_edit(before, after):
     if before.content == after.content:
         return
     
+    # Ignorer les modifications dans les 10 premières secondes après création (éviter doublons)
+    import time
+    if after.channel.id in recent_threads:
+        temps_ecoule = time.time() - recent_threads[after.channel.id]
+        if temps_ecoule < 10:
+            print(f"⏭️ Thread récent ({temps_ecoule:.1f}s), on_message_edit ignoré pour : {after.channel.name}")
+            return
+    
     # Récupérer les tags actuels
     trads = trier_tags(after.channel.applied_tags)
     
     # Si il y a des tags, on planifie l'annonce
     if len(trads) > 0:
         print(f"📝 Modification du contenu détectée pour : {after.channel.name}")
-        await planifier_annonce(after.channel, trads)
+        await planifier_annonce(after.channel, trads, source="message_edit")
 
 bot.run(TOKEN)
