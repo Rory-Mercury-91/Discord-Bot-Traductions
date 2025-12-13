@@ -195,11 +195,10 @@ async def envoyer_annonce(thread, liste_tags_trads):
     prefixe = "🔄 **Mise à jour d'une traduction**" if is_update else "🎮 **Publication d'une nouvelle traduction**"
     
     msg_content = f"{prefixe}\n\n"
-    msg_content += f"**Nom du jeu :** {titre_jeu}\n"
+    msg_content += f"**Nom du jeu :** [{titre_jeu}]({thread.jump_url})\n"
     msg_content += f"**Version du jeu :** {version_jeu}\n"
     msg_content += f"**Version de la traduction :** {version_traduction}\n"
-    msg_content += f"**État :** {etat_txt}\n"
-    msg_content += f"**Lien :** {thread.jump_url}"
+    msg_content += f"**État :** {etat_txt}"
 
     # 8. Envoi du message
     if image_url:

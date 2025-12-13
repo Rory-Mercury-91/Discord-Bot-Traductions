@@ -86,11 +86,10 @@ Le bot extrait automatiquement les informations des posts qui suivent ce format 
 ```
 
 Le bot génère alors une annonce avec :
-- Nom du jeu (titre du thread)
+- Nom du jeu (titre du thread, cliquable vers le thread)
 - Version du jeu (extraite du titre ou du contenu)
 - Version de la traduction
 - État (basé sur les tags : Terminé, En cours)
-- Lien vers le thread
 - Image du post (si présente)
 
 ### Déclenchement des annonces
