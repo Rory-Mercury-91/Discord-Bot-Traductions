@@ -1,6 +1,6 @@
 # Bot Discord - Annonces de Traductions
 
-Bot Discord qui surveille un forum de traductions de jeux et envoie automatiquement des annonces dans un canal dédié.
+Bot Discord qui surveille un salon de type **Forum** sur Discord et envoie automatiquement des annonces dans un canal dédié lorsque de nouveaux threads sont créés ou modifiés.
 
 ## 🚀 Fonctionnalités
 
@@ -21,50 +21,64 @@ Bot Discord qui surveille un forum de traductions de jeux et envoie automatiquem
 pip install -r requirements.txt
 ```
 
-3. Crée un fichier `.env` à partir de `.env.example` :
-```bash
-copy .env.example .env
-```
-
-4. Remplis le fichier `.env` avec tes vraies valeurs :
+3. Crée un fichier `.env` à la racine du projet avec le contenu suivant :
 ```env
 DISCORD_TOKEN=ton_token_discord
-FORUM_CHANNEL_ID=1427703869844230317
-ANNOUNCE_CHANNEL_ID=1449148521084096695
+FORUM_CHANNEL_ID=id_du_salon_forum
+ANNOUNCE_CHANNEL_ID=id_du_salon_annonces
 ```
 
-5. Lance le bot :
+**Important** : Remplace les valeurs par tes propres informations :
+- `ton_token_discord` : Le token de ton bot Discord (obtenu depuis le [Discord Developer Portal](https://discord.com/developers/applications))
+- `id_du_salon_forum` : L'ID du salon de type **Forum** que tu veux surveiller (clic droit sur le salon → Copier l'identifiant)
+- `id_du_salon_annonces` : L'ID du salon textuel où le bot enverra les annonces (clic droit sur le salon → Copier l'identifiant)
+
+4. Lance le bot :
 ```bash
 python bot_discord.py
 ```
 
 ## 🌐 Déploiement sur Railway.app
 
-### Étape 1 : Préparer GitHub
-1. Va sur https://github.com/Rory-Mercury-91/Stockage
-2. Supprime tous les fichiers existants (ou crée un nouveau repo)
-3. Upload tous les fichiers de ce dossier SAUF le fichier `.env`
+### 💰 Coûts Railway
+Railway offre un plan gratuit avec :
+- **Essai gratuit** : 30 jours avec **5$ de crédits**
+- **Après l'essai** : **1$ par mois** de crédits inclus
+- Limites : jusqu'à 0.5 GB RAM, 1 vCPU par service, 0.5 GB de stockage
+
+Ce bot consomme très peu de ressources, le plan gratuit est donc largement suffisant ! 🎉
+
+### Étape 1 : Préparer ton repo GitHub
+1. Crée un nouveau repo GitHub (ou utilise un repo existant)
+2. Upload tous les fichiers de ce projet **SAUF le fichier `.env`**
+   - ⚠️ **IMPORTANT** : Ne jamais commit le fichier `.env` (il contient ton token Discord secret)
+   - Les fichiers nécessaires : `bot_discord.py`, `requirements.txt`, `Procfile`, `README.md`
 
 ### Étape 2 : Configurer Railway
 1. Va sur [railway.app](https://railway.app) et connecte-toi avec GitHub
 2. Clique sur "New Project" → "Deploy from GitHub repo"
-3. Sélectionne ton repo `Stockage`
-4. Dans "Variables", ajoute ces 3 variables :
-   - `DISCORD_TOKEN` = ton token Discord
-   - `FORUM_CHANNEL_ID` = 1427703869844230317
-   - `ANNOUNCE_CHANNEL_ID` = 1449148521084096695
-5. Railway va automatiquement détecter le `Procfile` et lancer ton bot ! 🚀
+3. Sélectionne ton repo GitHub
+4. Dans l'onglet "Variables", ajoute ces 3 variables d'environnement :
+   - `DISCORD_TOKEN` = ton token Discord (obtenu depuis le [Discord Developer Portal](https://discord.com/developers/applications))
+   - `FORUM_CHANNEL_ID` = l'ID de ton salon de type **Forum** (clic droit sur le salon → Copier l'identifiant)
+   - `ANNOUNCE_CHANNEL_ID` = l'ID de ton salon d'annonces (clic droit sur le salon → Copier l'identifiant)
+5. Railway va automatiquement détecter le `Procfile` et déployer ton bot ! 🚀
 
 ### Étape 3 : Vérifier que ça marche
-- Va dans les "Logs" de Railway
+- Va dans l'onglet "Logs" de ton projet Railway
 - Tu devrais voir : "Bot prêt : [nom de ton bot]"
+- Le bot devrait maintenant surveiller le forum et envoyer des annonces automatiquement
 
 ## ⚙️ Configuration
 
 Les variables d'environnement nécessaires :
-- `DISCORD_TOKEN` : Token de ton bot Discord
-- `FORUM_CHANNEL_ID` : ID du canal forum à surveiller (1427703869844230317)
-- `ANNOUNCE_CHANNEL_ID` : ID du canal où envoyer les annonces (1449148521084096695)
+- `DISCORD_TOKEN` : Token de ton bot Discord (obtenu depuis le Discord Developer Portal)
+- `FORUM_CHANNEL_ID` : ID du salon de type **Forum** à surveiller sur ton serveur Discord
+- `ANNOUNCE_CHANNEL_ID` : ID du salon textuel où envoyer les annonces sur ton serveur Discord
+
+**Comment obtenir les IDs de salons :**
+1. Active le "Mode développeur" dans Discord (Paramètres utilisateur → Avancés → Mode développeur)
+2. Fais un clic droit sur le salon → "Copier l'identifiant"
 
 ## 📋 Format attendu des posts
 
@@ -161,7 +175,6 @@ Bot_Discord/
 ├── requirements.txt    # Dépendances Python
 ├── Procfile           # Configuration pour Railway
 ├── .env               # Tes secrets (NE PAS COMMIT)
-├── .env.example       # Modèle de configuration
 ├── .gitignore         # Fichiers à ignorer par Git
 └── README.md          # Ce fichier
 ```
