@@ -3,6 +3,7 @@ from discord.ext import commands
 import re
 import os
 import asyncio
+import datetime
 from dotenv import load_dotenv
 
 # Charger les variables d'environnement depuis le fichier .env
@@ -10,8 +11,16 @@ load_dotenv()
 
 # --- CONFIGURATION ---
 TOKEN = os.getenv('DISCORD_TOKEN')
+
+# Discord 1 : Annonces de traductions (existant)
 FORUM_CHANNEL_ID = os.getenv('FORUM_CHANNEL_ID')
 ANNOUNCE_CHANNEL_ID = os.getenv('ANNOUNCE_CHANNEL_ID')
+
+# Discord 2 : Rappels F95fr (nouveau)
+FORUM_SEMI_AUTO_ID = os.getenv('FORUM_SEMI_AUTO_ID')
+FORUM_AUTO_ID = os.getenv('FORUM_AUTO_ID')
+NOTIFICATION_CHANNEL_F95_ID = os.getenv('NOTIFICATION_CHANNEL_F95_ID')
+DAYS_BEFORE_PUBLICATION = int(os.getenv('DAYS_BEFORE_PUBLICATION', '14'))
 
 # Vérification des variables d'environnement
 if not TOKEN:
@@ -29,6 +38,14 @@ if not ANNOUNCE_CHANNEL_ID:
 # Conversion en int après vérification
 FORUM_CHANNEL_ID = int(FORUM_CHANNEL_ID)
 ANNOUNCE_CHANNEL_ID = int(ANNOUNCE_CHANNEL_ID)
+
+# Conversion pour Discord 2 (optionnel, ne génère pas d'erreur si absent)
+if FORUM_SEMI_AUTO_ID:
+    FORUM_SEMI_AUTO_ID = int(FORUM_SEMI_AUTO_ID)
+if FORUM_AUTO_ID:
+    FORUM_AUTO_ID = int(FORUM_AUTO_ID)
+if NOTIFICATION_CHANNEL_F95_ID:
+    NOTIFICATION_CHANNEL_F95_ID = int(NOTIFICATION_CHANNEL_F95_ID)
 
 # Délai avant d'envoyer l'annonce (en secondes)
 ANNOUNCE_DELAY = 5
@@ -210,39 +227,92 @@ async def envoyer_annonce(thread, liste_tags_trads):
         
     print(f"Annonce envoyée ({prefixe}) : {titre_jeu}")
 
+# ✨ NOUVELLE FONCTION : Notification pour F95fr
+async def envoyer_notification_f95(thread):
+    """Envoie une notification simple pour rappel de publication F95fr"""
+    if not NOTIFICATION_CHANNEL_F95_ID:
+        return  # Pas configuré, on ne fait rien
+    
+    channel = bot.get_channel(NOTIFICATION_CHANNEL_F95_ID)
+    if not channel:
+        print(f"❌ Salon de notification F95 introuvable")
+        return
+    
+    # Attendre que le thread soit complètement créé
+    await asyncio.sleep(2)
+    
+    # Calculer le timestamp Discord pour la date de publication
+    date_publication = datetime.datetime.now() + datetime.timedelta(days=DAYS_BEFORE_PUBLICATION)
+    timestamp = int(date_publication.timestamp())
+    
+    # Récupérer le nom du forum parent
+    forum = bot.get_channel(thread.parent_id)
+    nom_forum = forum.name if forum else "Forum"
+    
+    # Récupérer l'auteur du thread
+    try:
+        owner = await bot.fetch_user(thread.owner_id) if thread.owner_id else None
+        pseudo = owner.name if owner else "Inconnu"
+    except:
+        pseudo = "Inconnu"
+    
+    # Construction du message simple
+    message = f"**Pseudo :** {pseudo}\n"
+    message += f"**{nom_forum} :**\n"
+    message += f"{thread.name} <t:{timestamp}:R>"
+    
+    await channel.send(message)
+    print(f"📅 Notification F95 envoyée : {thread.name}")
+
 
 # --- ÉVÉNEMENTS ---
 
 @bot.event
 async def on_ready():
     print(f'Bot prêt : {bot.user}')
+    print(f'📊 Discord 1 - Forum surveillé : {FORUM_CHANNEL_ID}')
+    if FORUM_SEMI_AUTO_ID:
+        print(f'📊 Discord 2 - Forum Semi-Auto surveillé : {FORUM_SEMI_AUTO_ID}')
+    if FORUM_AUTO_ID:
+        print(f'📊 Discord 2 - Forum Auto surveillé : {FORUM_AUTO_ID}')
 
 @bot.event
 async def on_thread_create(thread):
     """Détecte la création d'un nouveau thread"""
-    if thread.parent_id != FORUM_CHANNEL_ID: return
     
-    # Marquer ce thread comme récemment créé (pour éviter COMPLÈTEMENT les autres événements)
-    import time
-    recent_threads[thread.id] = time.time()
+    # Discord 1 : Annonces de traductions (existant)
+    if thread.parent_id == FORUM_CHANNEL_ID:
+        # Marquer ce thread comme récemment créé (pour éviter COMPLÈTEMENT les autres événements)
+        import time
+        recent_threads[thread.id] = time.time()
+        
+        # Attendre 2 secondes pour que Discord finisse de créer le thread avec tous ses tags
+        await asyncio.sleep(2)
+        
+        # Récupérer le thread à jour avec tous ses tags
+        thread_actuel = bot.get_channel(thread.id)
+        if not thread_actuel:
+            print(f"❌ Thread introuvable : {thread.id}")
+            return
+        
+        trads = trier_tags(thread_actuel.applied_tags)
+        # On envoie l'annonce seulement si des tags sont présents
+        if len(trads) > 0:
+            print(f"🆕 Nouveau thread créé : {thread_actuel.name} avec tags : {trads}")
+            # Envoyer directement sans délai pour les nouveaux threads
+            await envoyer_annonce(thread_actuel, trads)
+        else:
+            print(f"⏭️ Nouveau thread sans tags : {thread_actuel.name}")
     
-    # Attendre 2 secondes pour que Discord finisse de créer le thread avec tous ses tags
-    await asyncio.sleep(2)
+    # Discord 2 : Rappels F95fr (nouveau) - Forum Semi-Auto
+    elif FORUM_SEMI_AUTO_ID and thread.parent_id == FORUM_SEMI_AUTO_ID:
+        print(f"📅 Nouveau thread F95 Semi-Auto détecté : {thread.name}")
+        await envoyer_notification_f95(thread)
     
-    # Récupérer le thread à jour avec tous ses tags
-    thread_actuel = bot.get_channel(thread.id)
-    if not thread_actuel:
-        print(f"❌ Thread introuvable : {thread.id}")
-        return
-    
-    trads = trier_tags(thread_actuel.applied_tags)
-    # On envoie l'annonce seulement si des tags sont présents
-    if len(trads) > 0:
-        print(f"🆕 Nouveau thread créé : {thread_actuel.name} avec tags : {trads}")
-        # Envoyer directement sans délai pour les nouveaux threads
-        await envoyer_annonce(thread_actuel, trads)
-    else:
-        print(f"⏭️ Nouveau thread sans tags : {thread_actuel.name}")
+    # Discord 2 : Rappels F95fr (nouveau) - Forum Auto
+    elif FORUM_AUTO_ID and thread.parent_id == FORUM_AUTO_ID:
+        print(f"📅 Nouveau thread F95 Auto détecté : {thread.name}")
+        await envoyer_notification_f95(thread)
 
 @bot.event
 async def on_thread_update(before, after):
