@@ -122,6 +122,13 @@ def trier_tags(tags):
     
     return sorted(tags_formatted)
 
+def a_tag_maj(thread):
+    """Vérifie si le thread a le tag 'MAJ' (insensible à la casse)"""
+    for tag in thread.applied_tags:
+        if tag.name.upper() == "MAJ":
+            return True
+    return False
+
 async def nettoyer_doublons_et_verifier_historique(channel, thread_id):
     """
     1. Cherche si ce jeu a déjà été annoncé (pour savoir si c'est une MAJ).
@@ -315,48 +322,83 @@ async def on_thread_create(thread):
     
     # Discord 2 : Rappels F95fr (nouveau) - Forum Semi-Auto
     elif FORUM_SEMI_AUTO_ID and thread.parent_id == FORUM_SEMI_AUTO_ID:
-        print(f"📅 Nouveau thread F95 Semi-Auto détecté : {thread.name}")
-        await envoyer_notification_f95(thread)
+        # Attendre que le thread soit complètement créé avec tous ses tags
+        await asyncio.sleep(2)
+        thread_actuel = bot.get_channel(thread.id)
+        if thread_actuel and a_tag_maj(thread_actuel):
+            print(f"📅 Nouveau thread F95 Semi-Auto détecté avec tag MAJ : {thread_actuel.name}")
+            await envoyer_notification_f95(thread_actuel)
+        else:
+            print(f"⏭️ Nouveau thread F95 Semi-Auto sans tag MAJ : {thread.name}")
     
     # Discord 2 : Rappels F95fr (nouveau) - Forum Auto
     elif FORUM_AUTO_ID and thread.parent_id == FORUM_AUTO_ID:
-        print(f"📅 Nouveau thread F95 Auto détecté : {thread.name}")
-        await envoyer_notification_f95(thread)
+        # Attendre que le thread soit complètement créé avec tous ses tags
+        await asyncio.sleep(2)
+        thread_actuel = bot.get_channel(thread.id)
+        if thread_actuel and a_tag_maj(thread_actuel):
+            print(f"📅 Nouveau thread F95 Auto détecté avec tag MAJ : {thread_actuel.name}")
+            await envoyer_notification_f95(thread_actuel)
+        else:
+            print(f"⏭️ Nouveau thread F95 Auto sans tag MAJ : {thread.name}")
 
 @bot.event
 async def on_thread_update(before, after):
     """Détecte les modifications des tags d'un thread"""
-    if after.parent_id != FORUM_CHANNEL_ID: return
     
-    # Ignorer les mises à jour dans les 30 premières secondes après création (éviter doublons)
-    import time
-    if after.id in recent_threads:
-        temps_ecoule = time.time() - recent_threads[after.id]
-        if temps_ecoule < 30:
-            print(f"⏭️ Thread récent ({temps_ecoule:.1f}s), on_thread_update ignoré pour : {after.name}")
+    # Discord 1 : Annonces de traductions
+    if after.parent_id == FORUM_CHANNEL_ID:
+        # Ignorer les mises à jour dans les 30 premières secondes après création (éviter doublons)
+        import time
+        if after.id in recent_threads:
+            temps_ecoule = time.time() - recent_threads[after.id]
+            if temps_ecoule < 30:
+                print(f"⏭️ Thread récent ({temps_ecoule:.1f}s), on_thread_update ignoré pour : {after.name}")
+                return
+            else:
+                # Nettoyer le dictionnaire après 30 secondes
+                del recent_threads[after.id]
+
+        trads_after = trier_tags(after.applied_tags)
+        trads_before = trier_tags(before.applied_tags)
+
+        # Si aucun tag actuellement, on ne fait rien
+        if len(trads_after) == 0:
+            print(f"❌ Pas de tags sur : {after.name} - Annonce ignorée")
             return
+
+        # Vérifier si des tags ont été AJOUTÉS (pas seulement retirés)
+        tags_ajoutes = set(trads_after) - set(trads_before)
+        
+        if len(tags_ajoutes) > 0:
+            # Des tags ont été ajoutés, on planifie l'annonce
+            print(f"✅ Tags ajoutés sur {after.name} : {tags_ajoutes}")
+            await planifier_annonce(after, trads_after, source="thread_update")
         else:
-            # Nettoyer le dictionnaire après 30 secondes
-            del recent_threads[after.id]
-
-    trads_after = trier_tags(after.applied_tags)
-    trads_before = trier_tags(before.applied_tags)
-
-    # Si aucun tag actuellement, on ne fait rien
-    if len(trads_after) == 0:
-        print(f"❌ Pas de tags sur : {after.name} - Annonce ignorée")
-        return
-
-    # Vérifier si des tags ont été AJOUTÉS (pas seulement retirés)
-    tags_ajoutes = set(trads_after) - set(trads_before)
+            # Seulement des tags retirés, on ignore
+            print(f"⏭️ Tags retirés uniquement sur {after.name} - Annonce ignorée")
     
-    if len(tags_ajoutes) > 0:
-        # Des tags ont été ajoutés, on planifie l'annonce
-        print(f"✅ Tags ajoutés sur {after.name} : {tags_ajoutes}")
-        await planifier_annonce(after, trads_after, source="thread_update")
-    else:
-        # Seulement des tags retirés, on ignore
-        print(f"⏭️ Tags retirés uniquement sur {after.name} - Annonce ignorée")
+    # Discord 2 : Rappels F95fr - Forum Semi-Auto
+    elif FORUM_SEMI_AUTO_ID and after.parent_id == FORUM_SEMI_AUTO_ID:
+        # Vérifier si le tag MAJ a été ajouté ou si le thread a maintenant le tag MAJ
+        if a_tag_maj(after):
+            # Vérifier si le tag MAJ vient d'être ajouté (n'était pas présent avant)
+            if not a_tag_maj(before):
+                print(f"✅ Tag MAJ ajouté sur thread F95 Semi-Auto : {after.name}")
+            await envoyer_notification_f95(after)
+        else:
+            print(f"⏭️ Modification tags F95 Semi-Auto sans tag MAJ : {after.name}")
+    
+    # Discord 2 : Rappels F95fr - Forum Auto
+    elif FORUM_AUTO_ID and after.parent_id == FORUM_AUTO_ID:
+        # Vérifier si le tag MAJ a été ajouté ou si le thread a maintenant le tag MAJ
+        if a_tag_maj(after):
+            # Vérifier si le tag MAJ vient d'être ajouté (n'était pas présent avant)
+            if not a_tag_maj(before):
+                print(f"✅ Tag MAJ ajouté sur thread F95 Auto : {after.name}")
+            await envoyer_notification_f95(after)
+        else:
+            print(f"⏭️ Modification tags F95 Auto sans tag MAJ : {after.name}")
 
 @bot.event
 async def on_message_edit(before, after):
@@ -393,12 +435,18 @@ async def on_message_edit(before, after):
     
     # Discord 2 : Rappels F95fr - Forum Semi-Auto
     elif FORUM_SEMI_AUTO_ID and after.channel.parent_id == FORUM_SEMI_AUTO_ID:
-        print(f"📝 Modification F95 Semi-Auto détectée : {after.channel.name}")
-        await envoyer_notification_f95(after.channel)
+        if a_tag_maj(after.channel):
+            print(f"📝 Modification F95 Semi-Auto détectée avec tag MAJ : {after.channel.name}")
+            await envoyer_notification_f95(after.channel)
+        else:
+            print(f"⏭️ Modification F95 Semi-Auto sans tag MAJ : {after.channel.name}")
     
     # Discord 2 : Rappels F95fr - Forum Auto
     elif FORUM_AUTO_ID and after.channel.parent_id == FORUM_AUTO_ID:
-        print(f"📝 Modification F95 Auto détectée : {after.channel.name}")
-        await envoyer_notification_f95(after.channel)
+        if a_tag_maj(after.channel):
+            print(f"📝 Modification F95 Auto détectée avec tag MAJ : {after.channel.name}")
+            await envoyer_notification_f95(after.channel)
+        else:
+            print(f"⏭️ Modification F95 Auto sans tag MAJ : {after.channel.name}")
 
 bot.run(TOKEN)
