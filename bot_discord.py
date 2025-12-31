@@ -133,51 +133,83 @@ async def nettoyer_doublons_et_verifier_historique(channel, thread_id):
     """
     1. Cherche si ce jeu a déjà été annoncé (pour savoir si c'est une MAJ).
     2. Supprime le message précédent s'il est tout récent (Anti-spam modifications rapides).
-    Retourne : True si le jeu a déjà été annoncé dans le passé, False sinon.
+    3. Extrait la version précédente pour détecter les changements de version.
+    Retourne : (deja_publie, version_jeu_precedente, version_trad_precedente, dernier_msg_supprime)
     """
     deja_publie = False
+    version_jeu_precedente = None
+    version_trad_precedente = None
+    dernier_msg_supprime = False
     
     # On scanne les 50 derniers messages du salon annonce
     messages = [msg async for msg in channel.history(limit=50)]
     
     if not messages:
-        return False
+        return (False, None, None, False)
 
     # Vérification Anti-Spam (Le tout dernier message concerne-t-il ce jeu ?)
     dernier_msg = messages[0]
     if dernier_msg.author == bot.user and str(thread_id) in dernier_msg.content:
         # Oui, c'est le même jeu, on supprime pour remplacer par la nouvelle version
         await dernier_msg.delete()
-        deja_publie = True # On considère que c'est une mise à jour
+        deja_publie = True
+        dernier_msg_supprime = True
+        # Extraire les versions du message précédent
+        contenu_precedent = dernier_msg.content
+        version_jeu_match = re.search(r"\*\*Version du jeu\s*:\*\*\s*(.+?)(?:\n|$)", contenu_precedent)
+        version_trad_match = re.search(r"\*\*Version de la traduction\s*:\*\*\s*(.+?)(?:\n|$)", contenu_precedent)
+        if version_jeu_match:
+            version_jeu_precedente = version_jeu_match.group(1).strip()
+        if version_trad_match:
+            version_trad_precedente = version_trad_match.group(1).strip()
     
     # Si on n'a pas trouvé dans le dernier message, on cherche dans l'historique plus vieux
     if not deja_publie:
         for msg in messages:
             if msg.author == bot.user and str(thread_id) in msg.content:
                 deja_publie = True
+                # Extraire les versions du message précédent
+                contenu_precedent = msg.content
+                version_jeu_match = re.search(r"\*\*Version du jeu\s*:\*\*\s*(.+?)(?:\n|$)", contenu_precedent)
+                version_trad_match = re.search(r"\*\*Version de la traduction\s*:\*\*\s*(.+?)(?:\n|$)", contenu_precedent)
+                if version_jeu_match:
+                    version_jeu_precedente = version_jeu_match.group(1).strip()
+                if version_trad_match:
+                    version_trad_precedente = version_trad_match.group(1).strip()
                 break
     
-    return deja_publie
+    return (deja_publie, version_jeu_precedente, version_trad_precedente, dernier_msg_supprime)
 
 async def envoyer_annonce(thread, liste_tags_trads):
     # 1. Vérif canal
     channel_annonce = bot.get_channel(ANNOUNCE_CHANNEL_ID)
     if not channel_annonce: return
 
-    # 2. On détermine si c'est une UPDATE ou une NOUVELLE TRADUCTION
-    is_update = await nettoyer_doublons_et_verifier_historique(channel_annonce, thread.id)
-
-    # 3. Lire le contenu du message
+    # 2. Lire le contenu du message
     try:
         message = await thread.fetch_message(thread.id)
         contenu = message.content
     except discord.NotFound:
         return
 
-    # 4. Extraction des informations avec regex
-    # Titre du jeu (déjà dans thread.name, mais on peut aussi l'extraire)
-    titre_match = re.search(r"\*\*Titre du jeu\s*:\*\*\s*(.+?)(?:\n|$)", contenu)
-    titre_jeu = titre_match.group(1).strip() if titre_match else thread.name
+    # 3. Extraction des informations avec regex
+    # Titre du jeu : chercher d'abord dans le message (après "TRADUCTION FR DISPONIBLE POUR")
+    titre_jeu = thread.name  # Par défaut, utiliser le nom du thread
+    
+    # Chercher le titre dans le message : "TRADUCTION FR DISPONIBLE POUR : **TITRE**"
+    titre_match_message = re.search(r"TRADUCTION FR DISPONIBLE POUR\s*:\s*\*\*(.+?)\*\*", contenu, re.IGNORECASE)
+    if titre_match_message:
+        titre_jeu = titre_match_message.group(1).strip()
+    else:
+        # Sinon, chercher dans "Titre du jeu :"
+        titre_match = re.search(r"\*\*Titre du jeu\s*:\*\*\s*(.+?)(?:\n|$)", contenu)
+        if titre_match:
+            titre_extrait = titre_match.group(1).strip()
+            # Si c'est juste "(Titre du jeu)" comme placeholder, utiliser le nom du thread
+            if titre_extrait.lower() in ["(titre du jeu)", "(titre)", ""]:
+                titre_jeu = thread.name
+            else:
+                titre_jeu = titre_extrait
     
     # Version du jeu (d'abord chercher dans le contenu, sinon extraire du titre)
     version_jeu_match = re.search(r"\*\*Version du jeu\s*:\*\*\s*(.+?)(?:\n|$)", contenu)
@@ -191,6 +223,49 @@ async def envoyer_annonce(thread, liste_tags_trads):
     # Version traduite
     version_trad_match = re.search(r"\*\*Version traduite\s*:\*\*\s*(.+?)(?:\n|$)", contenu)
     version_traduction = version_trad_match.group(1).strip() if version_trad_match else "Non spécifiée"
+    
+    # 4. On détermine si c'est une UPDATE ou une NOUVELLE TRADUCTION
+    # Et on vérifie si la version a changé
+    deja_publie, version_jeu_precedente, version_trad_precedente, dernier_msg_supprime = await nettoyer_doublons_et_verifier_historique(channel_annonce, thread.id)
+    
+    # Vérifier si la version a changé (seulement si on a une version précédente)
+    version_jeu_changee = False
+    version_trad_changee = False
+    if version_jeu_precedente:
+        version_jeu_changee = version_jeu_precedente != version_jeu
+    if version_trad_precedente:
+        version_trad_changee = version_trad_precedente != version_traduction
+    
+    version_changee = version_jeu_changee or version_trad_changee
+    
+    # Logique d'envoi :
+    # - Si le dernier message a été supprimé (anti-spam), on envoie toujours
+    # - Si la version a changé, on envoie toujours (mise à jour)
+    # - Si déjà publié avec la même version et message ancien, on n'envoie pas (évite les doublons)
+    is_update = deja_publie
+    
+    if dernier_msg_supprime:
+        # Le dernier message a été supprimé (anti-spam), on envoie toujours
+        is_update = True
+        if version_changee:
+            print(f"🔄 Changement de version détecté pour {titre_jeu} : {version_jeu_precedente} → {version_jeu} (jeu) / {version_trad_precedente} → {version_traduction} (trad)")
+        else:
+            print(f"🔄 Modification détectée pour {titre_jeu} (même version)")
+    elif version_changee:
+        # La version a changé, on envoie toujours (mise à jour)
+        is_update = True
+        # Supprimer l'ancien message si présent
+        messages = [msg async for msg in channel_annonce.history(limit=50)]
+        for msg in messages:
+            if msg.author == bot.user and str(thread.id) in msg.content:
+                await msg.delete()
+                print(f"🗑️ Ancienne annonce supprimée (changement de version) : {thread.name}")
+                break
+        print(f"🔄 Changement de version détecté pour {titre_jeu} : {version_jeu_precedente} → {version_jeu} (jeu) / {version_trad_precedente} → {version_traduction} (trad)")
+    elif deja_publie and not version_changee:
+        # Déjà publié avec la même version et message ancien, on n'envoie pas (évite les doublons)
+        print(f"⏭️ Thread déjà annoncé avec la même version, notification ignorée : {titre_jeu}")
+        return
     
     # Lien du jeu (VO)
     lien_jeu_match = re.search(r"\*\*Lien du jeu \(VO\)\s*:\*\*\s*\[.+?\]\((.+?)\)", contenu)
