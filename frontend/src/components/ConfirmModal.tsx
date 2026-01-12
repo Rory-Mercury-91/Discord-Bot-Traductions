@@ -73,7 +73,7 @@ export default function ConfirmModal({
         
         <p style={{
           margin: '0 0 24px',
-          color: '#ccc',
+          color: 'var(--text)',
           lineHeight: 1.5,
           fontSize: 15
         }}>

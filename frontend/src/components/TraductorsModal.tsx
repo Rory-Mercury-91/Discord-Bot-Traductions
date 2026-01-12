@@ -3,11 +3,17 @@ import { useApp } from '../state/appContext';
 import { useToast } from './ToastProvider';
 import { useConfirm } from '../hooks/useConfirm';
 import ConfirmModal from './ConfirmModal';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useModalScrollLock } from '../hooks/useModalScrollLock';
 
 export default function TraductorsModal({onClose}:{onClose?:()=>void}){
   const { savedTraductors, saveTraductor, deleteTraductor } = useApp();
   const { showToast } = useToast();
   const { confirm, confirmState, closeConfirm } = useConfirm();
+  
+  useEscapeKey(() => onClose?.(), true);
+  useModalScrollLock();
+  
   const [form, setForm] = useState({name: ''});
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
@@ -63,7 +69,7 @@ export default function TraductorsModal({onClose}:{onClose?:()=>void}){
   }
 
   return (
-    <div className="modal" onClick={onClose}>
+    <div className="modal">
       <div className="panel" onClick={e=>e.stopPropagation()} style={{maxWidth: 700, width: '90%'}}>
         <h3>👥 Gestion des traducteurs</h3>
 
@@ -145,12 +151,12 @@ export default function TraductorsModal({onClose}:{onClose?:()=>void}){
 
               <div style={{display:'flex', gap:8, justifyContent:'flex-end', marginTop:8}}>
                 {editingIdx !== null && (
-                  <button onClick={cancelEdit}>Annuler</button>
+                  <button onClick={cancelEdit}>🚪 Fermer</button>
                 )}
                 <button onClick={saveTraductorItem}>
                   {editingIdx !== null ? '✅ Enregistrer' : '➕ Ajouter'}
                 </button>
-                <button onClick={onClose}>Fermer</button>
+                <button onClick={onClose}>🚪 Fermer</button>
               </div>
             </div>
           </div>

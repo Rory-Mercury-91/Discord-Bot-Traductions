@@ -1,6 +1,8 @@
 import React, {useState} from 'react';
 import { useApp } from '../state/appContext';
 import { useToast } from './ToastProvider';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useModalScrollLock } from '../hooks/useModalScrollLock';
 
 export default function ConfigModal({onClose}:{onClose?:()=>void}){
   const { 
@@ -13,8 +15,11 @@ export default function ConfigModal({onClose}:{onClose?:()=>void}){
   const [showKey, setShowKey] = useState(false);
   const [testing, setTesting] = useState(false);
 
+  useEscapeKey(() => onClose?.(), true);
+  useModalScrollLock();
+
   return (
-    <div className="modal" onClick={onClose}>
+    <div className="modal">
       <div className="panel" onClick={e=>e.stopPropagation()}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
           <h3 style={{margin:0}}>Édition des configurations</h3>
@@ -35,19 +40,19 @@ export default function ConfigModal({onClose}:{onClose?:()=>void}){
             <button 
               onClick={async ()=>{
                 if(!localUrl){
-                  showToast('⚠️ Veuillez configurer l\'URL API', 'warning');
+                  showToast('Veuillez configurer l\'URL API', 'warning');
                   return;
                 }
                 setTesting(true);
                 try{
                   const res = await (window as any).electronAPI?.testConnection?.({apiUrl: localUrl, apiKey: localKey});
                   if(res?.ok){
-                    showToast('✅ Connexion réussie ! API accessible', 'success');
+                    showToast('Connexion réussie ! API accessible', 'success');
                   } else {
-                    showToast(`❌ Échec de connexion : ${res?.error || 'Erreur inconnue'}`, 'error');
+                    showToast(`Échec de connexion : ${res?.error || 'Erreur inconnue'}`, 'error');
                   }
                 }catch(e){
-                  showToast(`❌ Erreur de test : ${e}`, 'error');
+                  showToast(`Erreur de test : ${e}`, 'error');
                 }
                 setTesting(false);
               }}
@@ -74,7 +79,30 @@ export default function ConfigModal({onClose}:{onClose?:()=>void}){
           </div>
 
           <div style={{display:'flex', gap:8, justifyContent:'space-between'}}>
-            <div style={{display:'flex', gap:8}}>
+            <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
+              <button 
+                onClick={async ()=>{
+                  if(!confirm('⚠️ ATTENTION : Cette action va supprimer TOUTES vos données (config, templates, tags, traducteurs, instructions, historique, images). Cette action est irréversible. Continuer ?')) return;
+                  try{
+                    // Clear all localStorage
+                    localStorage.clear();
+                    // Delete all images via IPC
+                    const images = await (window as any).electronAPI?.listImages?.();
+                    if(images?.ok && images.files){
+                      for(const file of images.files){
+                        await (window as any).electronAPI?.deleteImage?.(file);
+                      }
+                    }
+                    showToast('Application réinitialisée ! Rechargement...', 'success');
+                    setTimeout(() => window.location.reload(), 1500);
+                  }catch(e){
+                    showToast('Erreur lors de la réinitialisation', 'error');
+                  }
+                }}
+                style={{background:'var(--danger)', color:'white'}}
+              >
+                🔄 Réinitialiser l'application
+              </button>
               <button onClick={async ()=>{ 
                 try{ 
                   // Export complet : API config + templates + tags + instructions + traducteurs + variables personnalisées
@@ -125,7 +153,7 @@ export default function ConfigModal({onClose}:{onClose?:()=>void}){
               }}>📥 Importer</button>
             </div>
             <div style={{display:'flex', gap:8}}>
-              <button onClick={onClose}>Annuler</button>
+              <button onClick={onClose}>🚪 Fermer</button>
               <button onClick={async ()=>{ setApiUrl(localUrl); setApiKey(localKey); try{ await (window as any).electronAPI?.setPublisherConfig?.({ apiUrl: localUrl, apiKey: localKey }); }catch(e){}; onClose && onClose(); }}>✅ Enregistrer</button>
             </div>
           </div>

@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import { AppProvider } from './state/appContext';
 import { ToastProvider } from './components/ToastProvider';
 import PublicationType from './components/PublicationType';
@@ -17,6 +17,44 @@ export default function App(){
   const [openInstructions, setOpenInstructions] = useState(false);
   const [openTraductors, setOpenTraductors] = useState(false);
   const [openHistory, setOpenHistory] = useState(false);
+  
+  // Theme management: dark by default
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    try {
+      const saved = localStorage.getItem('theme');
+      return (saved === 'light' ? 'light' : 'dark') as 'dark' | 'light';
+    } catch {
+      return 'dark';
+    }
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
+
+  // Raccourcis clavier globaux
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+H : Ouvrir Historique
+      if (e.ctrlKey && e.key === 'h') {
+        e.preventDefault();
+        setOpenHistory(true);
+      }
+      // Ctrl+T : Basculer thème
+      if (e.ctrlKey && e.key === 't') {
+        e.preventDefault();
+        toggleTheme();
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   return (
     <AppProvider>
@@ -28,14 +66,21 @@ export default function App(){
               Générateur de publication
             </h1>
             <div style={{marginTop: 12}}>
-              <h3 style={{margin: 0, marginBottom: 8, fontSize: 14, color: '#ccc'}}>Configurations globale</h3>
-              <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
-                <button onClick={()=>setOpenHistory(true)}>📋 Historique</button>
+              <h3 style={{margin: 0, marginBottom: 8, fontSize: 14, color: 'var(--muted)'}}>Configurations globale</h3>
+              <div style={{display:'flex', gap:8, flexWrap:'wrap', alignItems:'center'}}>
                 <button onClick={()=>setOpenTemplates(true)}>📁 Gérer les Templates</button>
                 <button onClick={()=>setOpenTags(true)}>🏷️ Gérer les Tags</button>
                 <button onClick={()=>setOpenTraductors(true)}>👥 Gérer les Traducteurs</button>
                 <button onClick={()=>setOpenInstructions(true)}>📋 Gérer les Instructions</button>
+                <button onClick={()=>setOpenHistory(true)}>📋 Historique</button>
                 <button onClick={()=>setOpenConfig(true)}>⚙️ Configuration API</button>
+                <button 
+                  onClick={toggleTheme} 
+                  style={{marginLeft: 'auto', fontSize: 20}}
+                  title={theme === 'dark' ? 'Passer en mode jour' : 'Passer en mode nuit'}
+                >
+                  {theme === 'dark' ? '☀️' : '🌙'}
+                </button>
               </div>
             </div>
           </header>

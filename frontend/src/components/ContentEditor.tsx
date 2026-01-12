@@ -1,10 +1,12 @@
-import React, {useState, useMemo, useRef, DragEvent} from 'react';
+import React, {useState, useMemo, useRef, DragEvent, useEffect} from 'react';
 import { useApp } from '../state/appContext';
 import { useToast } from './ToastProvider';
 import { useConfirm } from '../hooks/useConfirm';
+import { useUndoRedo } from '../hooks/useUndoRedo';
 import ConfirmModal from './ConfirmModal';
 import ImageThumbnail from './ImageThumbnail';
 import PreviewImage from './PreviewImage';
+import DiscordIcon from '../assets/discord-icon.svg';
 
 // Map des émojis Discord courants (format :nom: → Unicode)
 const discordEmojis: Record<string, string> = {
@@ -151,10 +153,10 @@ function renderStyledPreview(text: string): string {
   html = html.replace(/`(.*?)`/g, '<code style="background:rgba(0,0,0,0.3);padding:2px 4px;border-radius:3px;">$1</code>');
   // [lien](url)
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent);text-decoration:underline;">$1</a>');
-  // # Titres
-  html = html.replace(/^### (.*$)/gim, '<h3 style="margin:12px 0 8px;">$1</h3>');
-  html = html.replace(/^## (.*$)/gim, '<h2 style="margin:16px 0 8px;">$1</h2>');
-  html = html.replace(/^# (.*$)/gim, '<h1 style="margin:20px 0 10px;">$1</h1>');
+  // # Titres - espacements très compacts comme Discord, ### = taille normale
+  html = html.replace(/^### (.*$)/gim, '<h3 style="margin:8px 0 -4px;font-size:16px;font-weight:600;line-height:1.2;">$1</h3>');
+  html = html.replace(/^## (.*$)/gim, '<h2 style="margin:8px 0 -6px;font-size:20px;font-weight:600;line-height:1.2;">$1</h2>');
+  html = html.replace(/^# (.*$)/gim, '<h1 style="margin:8px 0 -4px;font-size:24px;font-weight:600;line-height:1.2;">$1</h1>');
   
   // > citations - regrouper les lignes consécutives
   html = html.replace(/(^> .*$(\n^> .*$)*)/gim, (match) => {
@@ -220,6 +222,40 @@ export default function ContentEditor(){
   const [showInstructionSuggestions, setShowInstructionSuggestions] = useState(false);
   const [previewMode, setPreviewMode] = useState<'raw' | 'styled'>('raw');
   const imageInputRef = useRef<HTMLInputElement|null>(null);
+  const overviewRef = useRef<HTMLTextAreaElement|null>(null);
+  
+  // Undo/Redo pour le textarea Synopsis
+  const { recordState, undo, redo, reset: resetUndoRedo } = useUndoRedo();
+  
+  // Enregistrer l'état initial
+  useEffect(() => {
+    recordState(inputs['overview'] || '');
+  }, []);
+  
+  // Gérer Ctrl+Z et Ctrl+Y dans le textarea Synopsis
+  const handleOverviewKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.ctrlKey && e.key === 'z') {
+      e.preventDefault();
+      const prevState = undo();
+      if (prevState !== null) {
+        setInput('overview', prevState);
+      }
+    } else if (e.ctrlKey && e.key === 'y') {
+      e.preventDefault();
+      const nextState = redo();
+      if (nextState !== null) {
+        setInput('overview', nextState);
+      }
+    }
+  };
+  
+  // Enregistrer l'état à chaque changement du Synopsis (avec debounce)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      recordState(inputs['overview'] || '');
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [inputs['overview']]);
 
   // Filtrer les variables selon le template actuel
   const currentTemplateId = templates[currentTemplateIdx]?.id || templates[currentTemplateIdx]?.name;
@@ -384,7 +420,11 @@ export default function ContentEditor(){
               placeholder="Titre (optionnel)" 
               value={postTitle} 
               onChange={e=>setPostTitle(e.target.value)}
-              style={{width:'100%'}}
+              style={{
+                width:'100%',
+                border: postTitle.trim() === '' ? '2px solid var(--error)' : undefined,
+                outline: postTitle.trim() === '' ? 'none' : undefined
+              }}
             />
           </div>
 
@@ -395,7 +435,7 @@ export default function ContentEditor(){
               <select 
                 value={selectedTagId} 
                 onChange={e=>setSelectedTagId(e.target.value)}
-                style={{flex:1, background:'#1a1a1a', color:'white', border:'1px solid #444'}}
+                style={{flex:1, color: selectedTagId ? 'inherit' : 'var(--placeholder)'}}
               >
                 <option value="">— Sélectionner un tag —</option>
                 {visibleTags.map((t, idx)=>(<option key={idx} value={t.id || t.name}>{t.name} ({t.id})</option>))}
@@ -418,7 +458,7 @@ export default function ContentEditor(){
             <input 
               ref={imageInputRef} 
               type="file" 
-              accept="image/*" 
+              accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.avif,.bmp,.svg,.ico,.tiff,.tif" 
               style={{display:'none'}} 
               multiple 
               onChange={(e)=>{ if(e.target.files) addImages(e.target.files); }} 
@@ -503,11 +543,8 @@ export default function ContentEditor(){
           </div>
         )}
         
-        {/* Section Variables */}
+        {/* Variables par défaut en grille 2 colonnes */}
         <div>
-          <h5 style={{margin:0, marginBottom:12}}>📝 Variables</h5>
-          
-          {/* Variables par défaut en grille 2 colonnes */}
           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12}}>
             {/* Ligne 1 : Name_game | traductor */}
             <div>
@@ -526,13 +563,7 @@ export default function ContentEditor(){
                   setShowTraductorSuggestions(true);
                 }}
                 onFocus={() => setShowTraductorSuggestions(true)}
-                style={{
-                  width:'100%', 
-                  background:'#1a1a1a', 
-                  color:'white', 
-                  border:'1px solid #444',
-                  padding: '8px'
-                }}
+                style={{width:'100%'}}
               />
               {/* Suggestions traducteurs */}
               {showTraductorSuggestions && filteredTraductors.length > 0 && (
@@ -543,8 +574,8 @@ export default function ContentEditor(){
                   right: 0,
                   maxHeight: '200px',
                   overflowY: 'auto',
-                  background: '#1a1a1a',
-                  border: '1px solid #444',
+                  background:'var(--panel)', 
+                  border: '1px solid var(--border)',
                   borderTop: 'none',
                   borderRadius: '0 0 4px 4px',
                   zIndex: 1000,
@@ -609,8 +640,19 @@ export default function ContentEditor(){
 
           {/* Overview en pleine largeur */}
           <div style={{marginBottom:12}}>
-            <label style={{display:'block', fontSize:13, color:'var(--muted)', marginBottom:4}}>Synopsis</label>
-            <textarea value={inputs['overview'] || ''} onChange={e=>setInput('overview', e.target.value)} rows={6} style={{width:'100%'}} placeholder="Synopsis du jeu..." />
+            <label style={{display:'block', fontSize:13, color:'var(--muted)', marginBottom:4}}>
+              Synopsis
+              <span style={{fontSize:10, marginLeft:8, opacity:0.5}}>Ctrl+Z / Ctrl+Y pour annuler/refaire</span>
+            </label>
+            <textarea 
+              ref={overviewRef}
+              value={inputs['overview'] || ''} 
+              onChange={e=>setInput('overview', e.target.value)}
+              onKeyDown={handleOverviewKeyDown}
+              rows={6} 
+              style={{width:'100%'}} 
+              placeholder="Synopsis du jeu..." 
+            />
           </div>
 
           {/* Champ de recherche pour les instructions */}
@@ -632,13 +674,7 @@ export default function ContentEditor(){
                   setShowInstructionSuggestions(true);
                 }}
                 onFocus={() => setShowInstructionSuggestions(true)}
-                style={{
-                  width:'100%', 
-                  background:'#1a1a1a', 
-                  color:'white', 
-                  border:'1px solid #444',
-                  padding: '8px'
-                }}
+                style={{width:'100%'}}
               />
               
               {/* Liste des suggestions d'instructions */}
@@ -675,7 +711,7 @@ export default function ContentEditor(){
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                     >
                       <div style={{fontWeight: 500}}>{name}</div>
-                      <div style={{fontSize: 11, color: '#888', marginTop: 2}}>
+                      <div style={{fontSize: 11, color: 'var(--muted)', marginTop: 2}}>
                         {savedInstructions[name].substring(0, 60)}{savedInstructions[name].length > 60 ? '...' : ''}
                       </div>
                     </div>
@@ -824,7 +860,8 @@ export default function ContentEditor(){
               padding:'12px 24px',
               fontSize:16,
               fontWeight:600,
-              background: (publishInProgress || !canPublish) ? 'var(--muted)' : 'var(--accent)',
+              background: (publishInProgress || !canPublish) ? 'var(--muted)' : '#5865F2',
+              color: '#ffffff',
               cursor: (publishInProgress || !canPublish) ? 'not-allowed' : 'pointer',
               opacity: !canPublish ? 0.5 : 1
             }}
@@ -833,7 +870,12 @@ export default function ContentEditor(){
           >
             {publishInProgress 
               ? (isEditMode ? '⏳ Mise à jour en cours...' : '⏳ Publication en cours...') 
-              : (isEditMode ? '✏️ Mettre à jour' : '🚀 Publier sur Discord')}
+              : (isEditMode ? '✏️ Mettre à jour' : (
+                <span style={{display:'flex', alignItems:'center', gap:8}}>
+                  <img src={DiscordIcon} alt="Discord" style={{width:20, height:20, filter: 'brightness(0) invert(1)'}} />
+                  Publier sur Discord
+                </span>
+              ))}
           </button>
         </div>
       </div>

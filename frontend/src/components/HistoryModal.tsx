@@ -3,12 +3,17 @@ import { useApp } from '../state/appContext';
 import { useToast } from './ToastProvider';
 import { useConfirm } from '../hooks/useConfirm';
 import ConfirmModal from './ConfirmModal';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useModalScrollLock } from '../hooks/useModalScrollLock';
 
 interface HistoryModalProps {
   onClose?: () => void;
 }
 
 export default function HistoryModal({ onClose }: HistoryModalProps) {
+  useEscapeKey(() => onClose?.(), true);
+  useModalScrollLock();
+  
   const { publishedPosts, deletePublishedPost, loadPostForEditing, loadPostForDuplication } = useApp();
   const { showToast } = useToast();
   const { confirm, confirmState, closeConfirm } = useConfirm();
@@ -33,7 +38,7 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
 
   function handleDuplicate(post: any) {
     loadPostForDuplication(post);
-    showToast('Post dupliqué pour création', 'success');
+    showToast('Contenu copié pour création d\'un nouveau post', 'success');
     if (onClose) onClose();
   }
 
@@ -59,7 +64,7 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
   }
 
   return (
-    <div className="modal" onClick={onClose}>
+    <div className="modal">
       <div className="panel" onClick={e => e.stopPropagation()} style={{ maxWidth: 900, width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
         <h3>📋 Historique des publications</h3>
 
@@ -166,9 +171,9 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
                       borderRadius: 4,
                       cursor: 'pointer'
                     }}
-                    title="Dupliquer pour créer un nouveau post"
+                    title="Copier le contenu pour créer un nouveau post"
                   >
-                    📋 Dupliquer
+                    📋 Copier le contenu
                   </button>
                   <button
                     onClick={() => handleDelete(post.id)}
@@ -192,7 +197,7 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
         )}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-          <button onClick={onClose}>Fermer</button>
+          <button onClick={onClose}>🚪 Fermer</button>
         </div>
       </div>
 

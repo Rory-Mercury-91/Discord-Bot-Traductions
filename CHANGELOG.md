@@ -7,6 +7,96 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/lang/fr/).
 
 ---
 
+## [1.0.1] - 2026-01-12
+
+### ✨ Ajouté
+
+#### 🎨 UX et Interface
+- **Système de thèmes** : Basculer entre mode clair ☀️ et mode sombre 🌙 avec bouton dédié
+  - Persistance du choix dans localStorage
+  - Thème sombre inspiré de Le Nexus (couleurs riches et contrastées)
+  - Adaptation automatique de tous les composants (inputs, selects, modales)
+- **Validation visuelle** : Encadrement rouge du titre du post s'il est vide (aide à repérer les champs manquants)
+- **Raccourcis clavier** :
+  - `Ctrl+H` : Ouvrir l'historique des publications
+  - `Ctrl+T` : Basculer entre thème clair/sombre
+  - `Ctrl+Z` / `Ctrl+Y` : Undo/Redo dans le textarea Synopsis (historique de 50 états)
+- **Icône Discord SVG** sur le bouton "Publier sur Discord" (remplace l'emoji 🚀)
+- **Support formats d'images étendus** : AVIF, WebP, BMP, TIFF, SVG en plus de JPEG/PNG/GIF
+- **Fonction de réinitialisation** : Bouton 🔄 dans la configuration pour remettre l'application à zéro (supprime localStorage et toutes les images)
+- **Émojis sur tous les boutons** : Interface plus visuelle et cohérente
+  - 🚪 Fermer - Ferme la modale
+  - ❌ Annuler - Annule l'édition en cours
+  - ✅ Enregistrer - Sauvegarde les modifications
+  - ➕ Ajouter - Ajoute un nouvel élément
+  - 📋 Copier le contenu - Copie le contenu d'un post pour créer un nouveau post
+  - ✏️ Modifier - Charge un post pour modification
+  - 🗑️ Supprimer - Supprime un élément
+
+#### 🔒 UX des Modales
+- **Fermeture par touche Échap** : Hook `useEscapeKey` pour toutes les modales
+- **Verrouillage du scroll** : Hook `useModalScrollLock` empêche le scroll en arrière-plan
+- **Sécurité anti-fermeture accidentelle** : Impossible de fermer en cliquant à l'extérieur de la modale
+- **Hooks réutilisables** : `useEscapeKey.ts` et `useModalScrollLock.ts` pour cohérence
+
+### 🔄 Modifié
+
+#### 🎨 Interface et Cohérence
+- **Palette de couleurs améliorée** : Application du thème de Le Nexus pour un rendu plus professionnel
+  - Background: `#0f172a` → `#1e293b` (plus chaleureux)
+  - Bordures solides `#334155` au lieu de transparentes
+  - Accent indigo plus vif `#6366f1`
+  - Couleurs success/error plus douces
+- **Labels plus lisibles** : Assombrissement dans le thème clair (`#475569`)
+- **Champs de saisie uniformisés** : Tous les inputs, selects et champs de recherche utilisent les mêmes styles
+- **Placeholders cohérents** : Couleur adaptative selon le thème via variable CSS `--placeholder`
+- **Select amélioré** : Option par défaut affichée en gris (couleur placeholder)
+- **Suppression du titre "📝 Variables"** : Redondant car toutes les variables font partie du contenu par défaut
+
+#### 📝 Templates
+- **Variables corrigées** : Uniformisation des noms de variables dans les templates par défaut
+  - `[Name_game]` → `[game_name]`
+  - `[Game_version]` → `[game_version]`
+  - `[Translate_version]` → `[translate_version]`
+  - `[Game_link]` → `[game_link]`
+  - `[Translate_link]` → `[translate_link]`
+  - `[traductor]` → `[translator]`
+
+#### 🎯 Boutons
+- **Uniformisation complète** : Tous les boutons suivent la même logique
+  - "🚪 Fermer" pour fermer les modales (plus de confusion avec Annuler)
+  - "❌ Annuler" uniquement pour annuler une édition en cours
+  - "✅ Enregistrer" sans émojis dupliqués (déjà ajouté par le système)
+- **Clarification "Dupliquer"** : Renommé en "📋 Copier le contenu" pour clarifier qu'on copie le contenu, pas l'ID
+
+#### 👁️ Preview
+- **Espacement des titres** : Réduction drastique de l'espace sous les titres Markdown pour correspondre au rendu Discord
+  - ### (h3) : 16px, marge bottom -4px
+  - ## (h2) : 20px, marge bottom -6px
+  - # (h1) : 24px, marge bottom -4px
+  - Line-height réduit à 1.2 pour un rendu compact
+
+#### 🖼️ Images
+- **Support MIME types étendus** : Mapping complet pour AVIF, WebP, TIFF, SVG, ICO, BMP
+- **Attribut accept étendu** : Input file accepte explicitement tous les formats modernes
+
+### 🐛 Corrigé
+
+- **Émojis dupliqués** : Retrait des émojis dans les messages `showToast` car le `ToastProvider` les ajoute automatiquement
+  - ✅/❌/⚠️/ℹ️ ajoutés automatiquement selon le type (success/error/warning/info)
+- **Double bouton Fermer** : Correction dans TemplatesModal (Annuler vs Fermer)
+- **Section "Soutenez le Traducteur"** : Vérification de la présence dans le template "Mes traductions"
+
+### 📦 Fichiers ajoutés
+
+- `frontend/src/hooks/useEscapeKey.ts` - Hook de détection touche Échap
+- `frontend/src/hooks/useModalScrollLock.ts` - Hook de verrouillage scroll
+- `frontend/src/hooks/useUndoRedo.ts` - Hook pour gérer l'historique undo/redo
+- `frontend/src/assets/discord-icon.svg` - Icône Discord officielle
+- `docs_perso/roadmap.md` - Feuille de route des améliorations futures (non versionné)
+
+---
+
 ## [1.0.0] - 2026-01-12
 
 ### 🎉 Première release officielle

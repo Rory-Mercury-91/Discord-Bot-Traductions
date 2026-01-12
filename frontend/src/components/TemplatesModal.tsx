@@ -3,11 +3,17 @@ import { useApp } from '../state/appContext';
 import { useToast } from './ToastProvider';
 import { useConfirm } from '../hooks/useConfirm';
 import ConfirmModal from './ConfirmModal';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useModalScrollLock } from '../hooks/useModalScrollLock';
 
 export default function TemplatesModal({onClose}:{onClose?:()=>void}){
   const { templates, addTemplate, updateTemplate, deleteTemplate, allVarsConfig, addVarConfig, updateVarConfig, deleteVarConfig } = useApp();
   const { showToast } = useToast();
   const { confirm, confirmState, closeConfirm } = useConfirm();
+  
+  useEscapeKey(() => onClose?.(), true);
+  useModalScrollLock();
+  
   const [editingIdx, setEditingIdx] = useState<number|null>(null);
   const [form, setForm] = useState({name:'', content:''});
   const [showVarsSection, setShowVarsSection] = useState(false);
@@ -224,7 +230,7 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
   const customVars = allVarsConfig.map((v, idx) => ({v, idx})).filter(({v}) => v.isCustom);
 
   return (
-    <div className="modal" onClick={onClose}>
+    <div className="modal">
       <div className="panel" onClick={e=>e.stopPropagation()} style={{maxWidth: 900, width: '95%', maxHeight: '90vh', overflowY: 'auto'}}>
         <h3>📄 Gestion des templates & variables</h3>
 
@@ -324,8 +330,8 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
                     readOnly
                     style={{
                       width:'100%',
-                      backgroundColor: '#1a1a1a',
-                      color: '#888',
+                      backgroundColor: 'var(--panel)',
+                      color: 'var(--muted)',
                       fontStyle: 'italic',
                       cursor: 'not-allowed'
                     }}
@@ -516,7 +522,7 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
                               <select
                                 value={varForm.type}
                                 onChange={e=>setVarForm({...varForm, type:e.target.value as any})}
-                                style={{width:'100%', fontSize:12, padding:6, background:'#1a1a1a', color:'white', border:'1px solid #444'}}
+                                style={{width:'100%', fontSize:12, padding:6, background:'var(--panel)', color:'var(--text)', border:'1px solid var(--border)'}}
                               >
                                 <option value="text">Texte</option>
                                 <option value="textarea">Textarea</option>
@@ -546,7 +552,7 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
                           <div style={{display:'flex', gap:6, justifyContent:'flex-end', marginTop:4}}>
                             {editingVarIdx !== null && (
                               <button onClick={cancelVarEdit} style={{fontSize:12, padding:'4px 10px'}}>
-                                Annuler
+                                🚪 Fermer
                               </button>
                             )}
                             <button onClick={saveVar} style={{fontSize:12, padding:'4px 10px'}}>
@@ -562,12 +568,12 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
 
               <div style={{display:'flex', gap:8, justifyContent:'flex-end', marginTop:8}}>
                 {editingIdx !== null && (
-                  <button onClick={cancelEdit}>Annuler</button>
+                  <button onClick={cancelEdit}>❌ Annuler</button>
                 )}
                 <button onClick={saveTemplate}>
                   {editingIdx !== null ? '✅ Enregistrer' : '➕ Ajouter'}
                 </button>
-                <button onClick={onClose}>Fermer</button>
+                <button onClick={onClose}>🚪 Fermer</button>
               </div>
             </div>
           </div>

@@ -3,10 +3,15 @@ import { useApp } from '../state/appContext';
 import { useToast } from './ToastProvider';
 import { useConfirm } from '../hooks/useConfirm';
 import ConfirmModal from './ConfirmModal';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useModalScrollLock } from '../hooks/useModalScrollLock';
 
 export default function TagsModal({onClose}:{onClose?:()=>void}){
-  const { savedTags, templates, addSavedTag, deleteSavedTag } = useApp();
+  const { savedTags, addSavedTag, deleteSavedTag, templates } = useApp();
   const { showToast } = useToast();
+  
+  useEscapeKey(() => onClose?.(), true);
+  useModalScrollLock();
   const { confirm, confirmState, closeConfirm } = useConfirm();
   const [form, setForm] = useState({name:'', id:'', template: 'mes'});
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
@@ -80,7 +85,7 @@ export default function TagsModal({onClose}:{onClose?:()=>void}){
   }
 
   return (
-    <div className="modal" onClick={onClose}>
+    <div className="modal">
       <div className="panel" onClick={e=>e.stopPropagation()} style={{maxWidth: 800, width: '90%'}}>
         <h3>🏷️ Gestion des tags</h3>
 
@@ -191,7 +196,7 @@ export default function TagsModal({onClose}:{onClose?:()=>void}){
                   <select 
                     value={form.template} 
                     onChange={e=>setForm({...form, template:e.target.value})}
-                    style={{width:'100%', background:'#1a1a1a', color:'white', border:'1px solid #444'}}
+                    style={{width:'100%', background:'var(--panel)', color:'var(--text)', border:'1px solid var(--border)'}}
                   >
                     {templates.map(t => (
                       <option key={t.id} value={t.id || t.name}>{t.name}</option>
@@ -206,12 +211,12 @@ export default function TagsModal({onClose}:{onClose?:()=>void}){
 
               <div style={{display:'flex', gap:8, justifyContent:'flex-end', marginTop:8}}>
                 {editingIdx !== null && (
-                  <button onClick={cancelEdit}>Annuler</button>
+                  <button onClick={cancelEdit}>🚪 Fermer</button>
                 )}
                 <button onClick={saveTag}>
                   {editingIdx !== null ? '✅ Enregistrer' : '➕ Ajouter'}
                 </button>
-                <button onClick={onClose}>Fermer</button>
+                <button onClick={onClose}>🚪 Fermer</button>
               </div>
             </div>
           </div>

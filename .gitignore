@@ -5,6 +5,9 @@ daitenshi_bot_discord.py
 Procfile_daitenshi
 publisher_config.json
 
+# Documentation personnelle (non versionnée)
+docs_perso/
+
 # Node modules
 node_modules/
 frontend/node_modules/

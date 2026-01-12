@@ -3,11 +3,17 @@ import { useApp } from '../state/appContext';
 import { useToast } from './ToastProvider';
 import { useConfirm } from '../hooks/useConfirm';
 import ConfirmModal from './ConfirmModal';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useModalScrollLock } from '../hooks/useModalScrollLock';
 
 export default function InstructionsManagerModal({onClose}:{onClose?:()=>void}){
   const { savedInstructions, saveInstruction, deleteInstruction } = useApp();
   const { showToast } = useToast();
   const { confirm, confirmState, closeConfirm } = useConfirm();
+  
+  useEscapeKey(() => onClose?.(), true);
+  useModalScrollLock();
+  
   const [form, setForm] = useState({name: '', content: ''});
   const [editingKey, setEditingKey] = useState<string | null>(null);
 
@@ -67,7 +73,7 @@ export default function InstructionsManagerModal({onClose}:{onClose?:()=>void}){
   const instructionEntries = Object.entries(savedInstructions);
 
   return (
-    <div className="modal" onClick={onClose}>
+    <div className="modal">
       <div className="panel" onClick={e=>e.stopPropagation()} style={{maxWidth: 800, width: '90%'}}>
         <h3>📋 Gestion des instructions</h3>
 
@@ -160,12 +166,12 @@ export default function InstructionsManagerModal({onClose}:{onClose?:()=>void}){
 
               <div style={{display:'flex', gap:8, justifyContent:'flex-end', marginTop:8}}>
                 {editingKey !== null && (
-                  <button onClick={cancelEdit}>Annuler</button>
+                  <button onClick={cancelEdit}>🚪 Fermer</button>
                 )}
                 <button onClick={saveInstructionItem}>
                   {editingKey !== null ? '✅ Enregistrer' : '➕ Ajouter'}
                 </button>
-                <button onClick={onClose}>Fermer</button>
+                <button onClick={onClose}>🚪 Fermer</button>
               </div>
             </div>
           </div>

@@ -54,22 +54,20 @@ const defaultTemplates: Template[] = [
     id: 'mes',
     name: 'Mes traductions',
     type: 'my',
-    content: `## :flag_fr: [Name_game] est disponible en français ! :tada:
+    content: `## :flag_fr: [game_name] est disponible en français ! :tada:
 
 Salut l'équipe ! Le patch est enfin prêt, vous pouvez l'installer dès maintenant pour profiter du titre dans notre langue. Bon jeu à tous ! :point_down:
 
 ### :computer: Infos du Mod & Liens de Téléchargement
-* **Titre du jeu :** [Name_game]
-* **Version du jeu :** [Game_version]
-* **Version traduite :** [Translate_version]
-* **Lien du jeu (VO) :** [Accès au jeu original]([Game_link])
-* **Lien de la Traduction :** [Téléchargez la traduction FR ici !]([Translate_link])
+* **Titre du jeu :** [game_name]
+* **Version du jeu :** [game_version]
+* **Version traduite :** [translate_version]
+* **Lien du jeu (VO) :** [Accès au jeu original]([game_link])
+* **Lien de la Traduction :** [Téléchargez la traduction FR ici !]([translate_link])
 > **Synopsis du jeu :**
 > [overview]
 [instruction]
-
 ### :sparkling_heart: Soutenez le Traducteur !
-
 Pour m'encourager et soutenir mes efforts :
 * **Soutien au Traducteur (Moi !) :** [Offrez-moi un café pour le temps passé !](https://discord.com/channels/1417811606674477139/1433930090349330493)`
   },
@@ -77,17 +75,17 @@ Pour m'encourager et soutenir mes efforts :
     id: 'partenaire',
     name: 'Traductions partenaire',
     type: 'partner',
-    content: `## :flag_fr: [Name_game] est disponible en français ! :tada:
+    content: `## :flag_fr: [game_name] est disponible en français ! :tada:
 
 Salut l'équipe ! Le patch est enfin prêt, vous pouvez l'installer dès maintenant pour profiter du titre dans notre langue. Bon jeu à tous ! :point_down:
 
 ### :computer: Infos du Mod & Liens de Téléchargement
-* **Traducteur :** [traductor]
-* **Titre du jeu :** [Name_game]
-* **Version du jeu :** [Game_version]
-* **Version traduite :** [Translate_version]
-* **Lien du jeu (VO) :** [Accès au jeu original]([Game_link])
-* **Lien de la Traduction :** [Téléchargez la traduction FR ici !]([Translate_link])
+* **Traducteur :** [translator]
+* **Titre du jeu :** [game_name]
+* **Version du jeu :** [game_version]
+* **Version traduite :** [translate_version]
+* **Lien du jeu (VO) :** [Accès au jeu original]([game_link])
+* **Lien de la Traduction :** [Téléchargez la traduction FR ici !]([translate_link])
 > **Synopsis du jeu :**
 > [overview]
 [instruction]`
@@ -338,8 +336,16 @@ export function AppProvider({children}: {children: React.ReactNode}){
               // Convert array back to Uint8Array then to base64
               const buffer = new Uint8Array(imgResult.buffer);
               const base64 = btoa(String.fromCharCode(...buffer));
-              const ext = img.path.split('.').pop() || 'png';
-              const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'png' ? 'image/png' : 'image/' + ext;
+              const ext = (img.path.split('.').pop() || 'png').toLowerCase();
+              // Support for all modern image formats
+              const mimeTypes: Record<string, string> = {
+                'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+                'png': 'image/png', 'gif': 'image/gif',
+                'webp': 'image/webp', 'avif': 'image/avif',
+                'bmp': 'image/bmp', 'svg': 'image/svg+xml',
+                'ico': 'image/x-icon', 'tiff': 'image/tiff', 'tif': 'image/tiff'
+              };
+              const mimeType = mimeTypes[ext] || 'image/' + ext;
               images.push({
                 dataUrl: `data:${mimeType};base64,${base64}`,
                 filename: img.path.split('_').slice(2).join('_'), // Remove timestamp prefix

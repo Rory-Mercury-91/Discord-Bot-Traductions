@@ -37,6 +37,12 @@ Application Electron moderne pour créer et gérer des publications de traductio
 - **Preview en temps réel** : Visualisation avec rendu Markdown/BBCode/émojis Discord
 - **Gestion d'images** : Drag & drop, miniatures, définition d'image principale
 - **Tags Discord** : Autocomplete avec les tags du forum
+- **Thèmes clair/sombre** : Basculer entre modes jour ☀️ et nuit 🌙 avec persistance
+- **Validation visuelle** : Champs manquants encadrés en rouge
+- **Raccourcis clavier** :
+  - `Ctrl+H` : Ouvrir l'historique
+  - `Ctrl+T` : Basculer le thème
+  - `Ctrl+Z` / `Ctrl+Y` : Undo/Redo dans Synopsis
 
 ### 📋 Historique et Édition
 - **Liste complète** : Toutes vos publications avec détails (titre, date, tags, aperçu)
@@ -53,8 +59,16 @@ Application Electron moderne pour créer et gérer des publications de traductio
   - Tags favoris
   - Instructions de templates
   - Liste de traducteurs pour autocomplete
+- **UX optimisée des modales** :
+  - Fermeture par touche Échap
+  - Verrouillage du scroll en arrière-plan
+  - Impossibilité de fermer en cliquant à l'extérieur (sécurité)
+  - Boutons uniformisés : 🚪 Fermer, ❌ Annuler, ✅ Enregistrer, ➕ Ajouter
 - **Import/Export** : Sauvegarde complète de la configuration
+- **Réinitialisation** : Bouton 🔄 pour remettre l'app à zéro
 - **Test de connexion API** : Vérification en un clic
+- **Support images étendu** : AVIF, WebP, BMP, TIFF, SVG, ICO en plus de JPEG/PNG/GIF
+- **Thèmes personnalisables** : Mode clair/sombre avec palette inspirée de Le Nexus
 
 ---
 
