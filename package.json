@@ -44,6 +44,21 @@
       "main.js",
       "preload.js",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "python",
+        "to": "python",
+        "filter": ["**/*.py"]
+      },
+      {
+        "from": ".env",
+        "to": ".env"
+      },
+      {
+        "from": "requirements.txt",
+        "to": "requirements.txt"
+      }
     ]
   }
 }

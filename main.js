@@ -8,9 +8,22 @@ const { spawn } = require('child_process');
 let pythonBotsProcess = null;
 let pythonApiProcess = null;
 
+// Vérifier si Python est installé
+function checkPythonInstalled() {
+  return new Promise((resolve) => {
+    const pythonCheck = spawn('python', ['--version']);
+    pythonCheck.on('error', () => resolve(false));
+    pythonCheck.on('close', (code) => resolve(code === 0));
+  });
+}
+
 function startPythonBots() {
-  // Chemin vers le script Python des bots
-  const pythonScript = path.join(__dirname, 'python', 'main_bots.py');
+  // En production, les fichiers Python sont dans resources/python
+  // En dev, ils sont dans le dossier python à la racine
+  const isDev = process.env.VITE_DEV_SERVER_URL != null;
+  const pythonScript = isDev 
+    ? path.join(__dirname, 'python', 'main_bots.py')
+    : path.join(process.resourcesPath, 'python', 'main_bots.py');
   
   // Vérifier si le fichier existe
   if (!fs.existsSync(pythonScript)) {
@@ -22,7 +35,7 @@ function startPythonBots() {
   
   // Lancer le processus Python
   pythonBotsProcess = spawn('python', [pythonScript], {
-    cwd: __dirname,
+    cwd: isDev ? __dirname : process.resourcesPath,
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -42,8 +55,12 @@ function startPythonBots() {
 }
 
 function startPythonApi() {
-  // Chemin vers le script Python de l'API
-  const pythonScript = path.join(__dirname, 'python', 'publisher_api.py');
+  // En production, les fichiers Python sont dans resources/python
+  // En dev, ils sont dans le dossier python à la racine
+  const isDev = process.env.VITE_DEV_SERVER_URL != null;
+  const pythonScript = isDev 
+    ? path.join(__dirname, 'python', 'publisher_api.py')
+    : path.join(process.resourcesPath, 'python', 'publisher_api.py');
   
   // Vérifier si le fichier existe
   if (!fs.existsSync(pythonScript)) {
@@ -55,7 +72,7 @@ function startPythonApi() {
   
   // Lancer le processus Python
   pythonApiProcess = spawn('python', [pythonScript], {
-    cwd: __dirname,
+    cwd: isDev ? __dirname : process.resourcesPath,
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
@@ -128,9 +145,23 @@ app.whenReady().then(async () => {
   const imagesDir = path.join(app.getPath('userData'), 'images');
   await fsp.mkdir(imagesDir, { recursive: true });
   
-  // Démarrer les services Python en arrière-plan
-  startPythonBots();
-  startPythonApi();
+  // Vérifier si Python est installé
+  const pythonInstalled = await checkPythonInstalled();
+  if (!pythonInstalled) {
+    console.error('❌ Python n\'est pas installé ou pas dans le PATH');
+    dialog.showErrorBox(
+      'Python requis',
+      'Python n\'est pas installé ou n\'est pas accessible.\n\n' +
+      'Veuillez installer Python 3.10+ depuis https://www.python.org/downloads/\n' +
+      'Et cochez "Add Python to PATH" pendant l\'installation.\n\n' +
+      'Puis installez les dépendances avec:\n' +
+      'pip install -r requirements.txt'
+    );
+  } else {
+    // Démarrer les services Python en arrière-plan
+    startPythonBots();
+    startPythonApi();
+  }
   
   createWindow();
 });

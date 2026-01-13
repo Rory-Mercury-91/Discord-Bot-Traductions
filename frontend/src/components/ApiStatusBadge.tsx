@@ -14,6 +14,7 @@ export default function ApiStatusBadge() {
   const [status, setStatus] = useState<ApiStatus>('checking');
   const [rateLimit, setRateLimit] = useState<RateLimitInfo | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
 
   const checkStatus = async () => {
     if (!apiUrl) {
@@ -54,6 +55,23 @@ export default function ApiStatusBadge() {
     return () => clearInterval(interval);
   }, [apiUrl]);
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowDetails(false);
+      }
+    };
+
+    if (showDetails) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDetails]);
+
   const getBadgeColor = () => {
     switch (status) {
       case 'connected': return '#4ade80'; // green-400
@@ -76,7 +94,7 @@ export default function ApiStatusBadge() {
   };
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div ref={dropdownRef} style={{ position: 'relative' }}>
       <div
         onClick={() => setShowDetails(!showDetails)}
         style={{
@@ -117,13 +135,14 @@ export default function ApiStatusBadge() {
             right: 0,
             marginTop: 8,
             padding: 12,
-            background: 'var(--bg-modal)',
+            background: 'var(--bg-primary)',
             border: '1px solid var(--border)',
             borderRadius: 8,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.3)',
             minWidth: 250,
             zIndex: 1000,
-            fontSize: 13
+            fontSize: 13,
+            backdropFilter: 'blur(10px)'
           }}
           onClick={(e) => e.stopPropagation()}
         >
