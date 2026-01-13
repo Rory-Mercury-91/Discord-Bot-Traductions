@@ -326,6 +326,17 @@ ipcMain.handle('images:delete', async (ev, imagePath) => {
   }
 });
 
+// Get image file size in bytes
+ipcMain.handle('images:get-size', async (ev, imagePath) => {
+  try{
+    const fullPath = path.join(IMAGES_DIR(), imagePath);
+    const stats = await fsp.stat(fullPath);
+    return { ok: true, size: stats.size };
+  }catch(e){
+    return { ok: false, error: String(e?.message || e) };
+  }
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });

@@ -7,6 +7,43 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/lang/fr/).
 
 ---
 
+## [1.0.11] - 2026-01-13
+
+### ✨ Améliorations UX
+
+#### Gestion des erreurs de brouillons
+- **Toast d'erreur pour brouillons** :
+  - Affichage d'un toast d'erreur si la restauration du brouillon échoue
+  - Affichage d'un toast d'erreur si la sauvegarde automatique échoue
+  - L'utilisateur est désormais alerté immédiatement en cas de problème (au lieu d'échouer silencieusement)
+
+#### Indicateur de taille d'images
+- **Affichage de la taille des fichiers** :
+  - Affichage de la taille de chaque image sous la miniature
+  - Formatage automatique (B, KB, MB, GB)
+  - Avertissement visuel si l'image dépasse 8 MB (limite Discord)
+  - Fond rouge + emoji ⚠️ pour les images >8MB
+  - Fond vert pour les images conformes
+
+#### Validation renforcée
+- **Blocage publication sans titre** :
+  - La validation existante empêche déjà la publication si le titre est vide
+  - ErrorModal claire avec code d'erreur et suggestions
+  - Pas de confirmation (blocage direct pour éviter erreurs)
+
+### 🔧 Technique
+- Ajout de la fonction IPC `getFileSize` dans preload.js et main.js
+- Fonction `formatFileSize()` pour formater les tailles de fichier
+- Hook `useEffect` pour récupérer la taille au chargement du composant
+
+### 🧹 Nettoyage de code
+- **Suppression de code résiduel (API key système retiré en v1.0.6)** :
+  - README.md : Suppression de l'exemple `publisher_config.json` avec apiKey
+  - appContext.tsx : Suppression du commentaire obsolète "keeps apiKey out of renderer"
+  - preload.js : Suppression des fonctions IPC inutilisées `getPublisherConfig/setPublisherConfig`
+
+---
+
 ## [1.0.10] - 2026-01-13
 
 ### 🔒 Sécurité

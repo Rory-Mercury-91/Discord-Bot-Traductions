@@ -1,14 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
-  // Publisher config
-  getPublisherConfig: async () => {
-    return await ipcRenderer.invoke('publisher:get-config');
-  },
-  setPublisherConfig: async (cfg) => {
-    return await ipcRenderer.invoke('publisher:set-config', cfg);
-  },
-
   // Publish a post via main process (secure)
   publishPost: async (payload) => {
     return await ipcRenderer.invoke('publisher:publish', payload);
@@ -44,5 +36,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   deleteImage: async (imagePath) => {
     return await ipcRenderer.invoke('images:delete', imagePath);
+  },
+  getFileSize: async (imagePath) => {
+    return await ipcRenderer.invoke('images:get-size', imagePath);
   }
 });

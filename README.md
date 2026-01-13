@@ -460,14 +460,6 @@ sudo systemctl status publisher-api
 
 ### Configuration Locale (Electron)
 
-**publisher_config.json** (main process) :
-```json
-{
-  "apiUrl": "http://localhost:8080/api/forum-post",
-  "apiKey": "votre_cle_api"
-}
-```
-
 **localStorage** (renderer) :
 - `customTemplates` : Templates personnalisés
 - `savedTags` : Tags favoris

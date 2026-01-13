@@ -58,6 +58,7 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
       }
     } catch(e) {
       console.error('Erreur lors de la restauration du brouillon:', e);
+      showToast('Erreur lors de la restauration du brouillon', 'error');
     }
   }, []);
 
@@ -158,6 +159,7 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
       setHasUnsavedChanges(false);
     } catch(e) {
       console.error('Erreur lors de la sauvegarde du brouillon:', e);
+      showToast('Erreur lors de la sauvegarde du brouillon', 'error');
     }
   }
 

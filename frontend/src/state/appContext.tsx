@@ -341,7 +341,6 @@ export function AppProvider({children}: {children: React.ReactNode}){
     setLastPublishResult(null);
 
     try{
-      // Delegate to main process for security (keeps apiKey out of renderer)
       const mainPayload: any = { title, content, tags, template: templateType };
       
       // Add edit mode info if updating
