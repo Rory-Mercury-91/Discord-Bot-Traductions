@@ -9,6 +9,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.9.1",
     "marked": "^17.0.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
