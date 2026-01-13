@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const fsp = require('fs').promises;
@@ -96,9 +96,14 @@ function createWindow() {
       contextIsolation: true,
       enableRemoteModule: false,
       nodeIntegration: false,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      spellcheck: true
     }
   });
+
+  // Activer le correcteur orthographique pour cette fenêtre
+  win.webContents.session.setSpellCheckerEnabled(true);
+  win.webContents.session.setSpellCheckerLanguages(['fr-FR', 'fr']);
 
   const devUrl = process.env.VITE_DEV_SERVER_URL || null;
   if(devUrl){
@@ -142,45 +147,14 @@ app.on('window-all-closed', () => {
   }
 });
 
-// --- Publisher IPC & simple config persistence ---
-const CONFIG_FILE = path.join(app.getPath('userData'), 'publisher_config.json');
-const DEFAULT_PUBLISHER = { apiUrl: '', apiKey: '' };
+// --- Publisher IPC (config persistence removed - no longer needed) ---
 
-function readPublisherConfig(){
-  try{
-    if(fs.existsSync(CONFIG_FILE)){
-      const raw = fs.readFileSync(CONFIG_FILE, 'utf8');
-      return JSON.parse(raw || '{}');
-    }
-  }catch(e){}
-  return DEFAULT_PUBLISHER;
-}
-function writePublisherConfig(cfg){
-  try{ fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg||{})); return true; }catch(e){ return false; }
-}
-
-ipcMain.handle('publisher:get-config', () => {
-  return readPublisherConfig();
-});
-ipcMain.handle('publisher:set-config', (ev, cfg) => {
-  const cur = readPublisherConfig();
-  const next = Object.assign({}, cur, cfg || {});
-  writePublisherConfig(next);
-  return next;
-});
-
-ipcMain.handle('publisher:test-connection', async (ev, config) => {
-  const apiUrl = config?.apiUrl || '';
-  const apiKey = config?.apiKey || '';
+ipcMain.handle('publisher:test-connection', async () => {
+  const apiUrl = 'http://localhost:8080/api/forum-post';
   
-  if(!apiUrl) return { ok:false, error:'URL API manquante' };
-
   try{
-    const headers = {};
-    if(apiKey) headers['X-API-KEY'] = apiKey;
-
     // Simple GET request to test if API is reachable
-    const resp = await fetch(apiUrl, { method: 'GET', headers });
+    const resp = await fetch(apiUrl, { method: 'GET' });
     
     if(resp.ok || resp.status === 404 || resp.status === 405) {
       // 200 OK, 404 Not Found, or 405 Method Not Allowed all indicate the server is reachable
@@ -194,16 +168,15 @@ ipcMain.handle('publisher:test-connection', async (ev, config) => {
 });
 
 ipcMain.handle('publisher:publish', async (ev, payload) => {
-  const cfg = readPublisherConfig();
-  if(!cfg || !cfg.apiUrl) return { ok:false, error:'missing_api_url' };
+  const apiUrl = 'http://localhost:8080/api/forum-post';
 
   try{
     // Check if this is an update (PATCH) or new post (POST)
     const isUpdate = payload.isUpdate && payload.threadId && payload.messageId;
     const method = isUpdate ? 'PATCH' : 'POST';
     const url = isUpdate 
-      ? `${cfg.apiUrl}/${payload.threadId}/${payload.messageId}`
-      : cfg.apiUrl;
+      ? `${apiUrl}/${payload.threadId}/${payload.messageId}`
+      : apiUrl;
 
     // Build FormData (Node 18+ provides global FormData / Blob)
     const form = new FormData();
@@ -246,13 +219,12 @@ ipcMain.handle('publisher:publish', async (ev, payload) => {
       form.append('main_image_index', '0');
     }
 
-    const headers = {};
-    if(cfg.apiKey) headers['X-API-KEY'] = cfg.apiKey;
-
-    const resp = await fetch(url, { method, body: form, headers });
+    const resp = await fetch(url, { method, body: form });
     const data = await resp.json().catch(()=>({}));
     if(!resp.ok) return { ok:false, error: data?.error || JSON.stringify(data), status: resp.status };
-    return { ok:true, data };
+    
+    // Return data with rate limit info
+    return { ok:true, data, rateLimit: data?.rate_limit };
   }catch(e){
     return { ok:false, error: String(e?.message || e) };
   }

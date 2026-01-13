@@ -1,10 +1,11 @@
-import React, {useState, useRef} from 'react';
+import React, {useState, useRef, useEffect} from 'react';
 import { useApp } from '../state/appContext';
 import { useToast } from './ToastProvider';
 import { useConfirm } from '../hooks/useConfirm';
 import ConfirmModal from './ConfirmModal';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useModalScrollLock } from '../hooks/useModalScrollLock';
+import MarkdownHelpModal from './MarkdownHelpModal';
 
 export default function TemplatesModal({onClose}:{onClose?:()=>void}){
   const { templates, addTemplate, updateTemplate, deleteTemplate, allVarsConfig, addVarConfig, updateVarConfig, deleteVarConfig } = useApp();
@@ -16,23 +17,148 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
   
   const [editingIdx, setEditingIdx] = useState<number|null>(null);
   const [form, setForm] = useState({name:'', content:''});
+  const [isDraft, setIsDraft] = useState(false);
+  const [draftCreatedAt, setDraftCreatedAt] = useState<number|null>(null);
+  const [draftModifiedAt, setDraftModifiedAt] = useState<number|null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<number|null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showVarsSection, setShowVarsSection] = useState(false);
   const [copiedVar, setCopiedVar] = useState<string|null>(null);
   const [editingVarIdx, setEditingVarIdx] = useState<number|null>(null);
   const [varForm, setVarForm] = useState({name:'', label:'', type:'text' as 'text' | 'textarea' | 'select', templates: [] as string[]});
+  const [showMarkdownHelp, setShowMarkdownHelp] = useState(false);
   const contentRef = useRef<HTMLTextAreaElement>(null);
+  const autosaveTimerRef = useRef<number | null>(null);
+
+  // Restauration automatique du brouillon au chargement
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('template_draft');
+      if(saved) {
+        const draft = JSON.parse(saved);
+        (async () => {
+          const restore = await confirm({
+            title: 'Brouillon trouvé',
+            message: 'Un brouillon non enregistré a été trouvé. Voulez-vous le restaurer ?',
+            confirmText: 'Restaurer',
+            cancelText: 'Supprimer'
+          });
+          if(restore) {
+            setForm({name: draft.name, content: draft.content});
+            setIsDraft(true);
+            setDraftCreatedAt(draft.createdAt);
+            setDraftModifiedAt(draft.modifiedAt);
+            setLastSavedAt(draft.lastSavedAt);
+            setEditingIdx(null);  // Mode création
+            showToast('Brouillon restauré', 'info');
+          } else {
+            localStorage.removeItem('template_draft');
+          }
+        })();
+      }
+    } catch(e) {
+      console.error('Erreur lors de la restauration du brouillon:', e);
+    }
+  }, []);
+
+  // Autosave toutes les 30 secondes quand il y a du contenu
+  useEffect(() => {
+    if(form.name.trim() || form.content.trim()) {
+      setIsDraft(true);
+      setHasUnsavedChanges(true);
+      
+      // Lancer l'autosave
+      if(autosaveTimerRef.current) {
+        clearInterval(autosaveTimerRef.current);
+      }
+      
+      autosaveTimerRef.current = setInterval(() => {
+        saveDraft();
+      }, 30000);  // 30 secondes
+    }
+
+    return () => {
+      if(autosaveTimerRef.current) {
+        clearInterval(autosaveTimerRef.current);
+      }
+    };
+  }, [form.name, form.content]);
+
+  // Marquer les changements non sauvegardés
+  useEffect(() => {
+    if(form.name.trim() || form.content.trim()) {
+      setHasUnsavedChanges(true);
+    }
+  }, [form.name, form.content]);
+
+  // Raccourci Ctrl+S pour sauvegarder
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault();
+        if (form.name.trim()) {
+          saveTemplate();
+        } else {
+          showToast('Le nom du template est requis', 'warning');
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [form.name, form.content, editingIdx]);
 
   function startEdit(idx:number){
     setEditingIdx(idx);
     const t = templates[idx];
     setForm({name:t.name, content:t.content});
+    setIsDraft(t.isDraft || false);
+    setDraftCreatedAt(t.createdAt || null);
+    setDraftModifiedAt(t.modifiedAt || null);
+    setLastSavedAt(t.lastSavedAt || null);
+    setHasUnsavedChanges(false);
   }
 
   function cancelEdit(){
     setEditingIdx(null);
     setForm({name:'', content:''});
+    setIsDraft(false);
+    setDraftCreatedAt(null);
+    setDraftModifiedAt(null);
+    setLastSavedAt(null);
+    setHasUnsavedChanges(false);
     setShowVarsSection(false);
     cancelVarEdit();
+    
+    // Nettoyer l'autosave
+    if(autosaveTimerRef.current){
+      clearInterval(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+  }
+
+  function saveDraft(){
+    // Sauvegarde automatique du brouillon
+    const now = Date.now();
+    const draftData = {
+      ...form,
+      isDraft: true,
+      createdAt: draftCreatedAt || now,
+      modifiedAt: now,
+      lastSavedAt: now,
+      id: form.name.toLowerCase().replace(/\s+/g,'_'),
+      type: 'Autres'
+    };
+    
+    try {
+      localStorage.setItem('template_draft', JSON.stringify(draftData));
+      setLastSavedAt(now);
+      setDraftModifiedAt(now);
+      if(!draftCreatedAt) setDraftCreatedAt(now);
+      setHasUnsavedChanges(false);
+    } catch(e) {
+      console.error('Erreur lors de la sauvegarde du brouillon:', e);
+    }
   }
 
   function saveTemplate(){
@@ -41,11 +167,16 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
       return;
     }
     
+    const now = Date.now();
     const payload = {
       id: form.name.toLowerCase().replace(/\s+/g,'_'),
       name: form.name,
       type: 'Autres',
-      content: form.content
+      content: form.content,
+      isDraft: false,
+      createdAt: draftCreatedAt || now,
+      modifiedAt: now,
+      lastSavedAt: undefined  // Retirer lastSavedAt car ce n'est plus un brouillon
     };
     
     if(editingIdx !== null){
@@ -53,6 +184,11 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
     } else {
       addTemplate(payload);
     }
+    
+    // Supprimer le brouillon du localStorage après enregistrement
+    try {
+      localStorage.removeItem('template_draft');
+    } catch(e) {}
     
     cancelEdit();
     showToast(editingIdx !== null ? 'Template modifié' : 'Template ajouté', 'success');
@@ -229,6 +365,18 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
     : allVarsConfig;
   const customVars = allVarsConfig.map((v, idx) => ({v, idx})).filter(({v}) => v.isCustom);
 
+  // Helper function to format time since last save
+  function formatTimeSince(timestamp: number): string {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if(seconds < 60) return `${seconds} seconde${seconds > 1 ? 's' : ''}`;
+    const minutes = Math.floor(seconds / 60);
+    if(minutes < 60) return `${minutes} minute${minutes > 1 ? 's' : ''}`;
+    const hours = Math.floor(minutes / 60);
+    if(hours < 24) return `${hours} heure${hours > 1 ? 's' : ''}`;
+    const days = Math.floor(hours / 24);
+    return `${days} jour${days > 1 ? 's' : ''}`;
+  }
+
   return (
     <div className="modal">
       <div className="panel" onClick={e=>e.stopPropagation()} style={{maxWidth: 900, width: '95%', maxHeight: '90vh', overflowY: 'auto'}}>
@@ -307,7 +455,76 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
 
           {/* Formulaire d'ajout/édition */}
           <div style={{borderTop: '2px solid var(--border)', paddingTop: 16}}>
-            <h4>{editingIdx !== null ? '✏️ Modifier le template' : '➕ Ajouter un template'}</h4>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 8}}>
+              <h4 style={{margin:0}}>{editingIdx !== null ? '✏️ Modifier le template' : '➕ Ajouter un template'}</h4>
+              
+              {/* Badge Brouillon */}
+              {isDraft && (
+                <div style={{
+                  display:'flex',
+                  alignItems:'center',
+                  gap:8
+                }}>
+                  <span style={{
+                    background: 'rgba(255, 193, 7, 0.2)',
+                    color: '#ffc107',
+                    padding: '4px 12px',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    border: '1px solid rgba(255, 193, 7, 0.4)'
+                  }}>
+                    📝 Brouillon
+                  </span>
+                  <button
+                    onClick={saveDraft}
+                    style={{
+                      fontSize: 11,
+                      padding: '4px 8px',
+                      background: hasUnsavedChanges ? 'var(--info)' : 'var(--muted)',
+                      cursor: hasUnsavedChanges ? 'pointer' : 'default',
+                      opacity: hasUnsavedChanges ? 1 : 0.6
+                    }}
+                    title={hasUnsavedChanges ? 'Sauvegarder maintenant' : 'Sauvegarde automatique active'}
+                    disabled={!hasUnsavedChanges}
+                  >
+                    💾 Sauvegarder
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Indicateurs temporels */}
+            {isDraft && (lastSavedAt || draftCreatedAt || draftModifiedAt) && (
+              <div style={{
+                background: 'rgba(255, 193, 7, 0.1)',
+                border: '1px solid rgba(255, 193, 7, 0.3)',
+                borderRadius: 6,
+                padding: 8,
+                fontSize: 11,
+                color: 'var(--muted)',
+                marginBottom: 12,
+                display:'grid',
+                gap:4
+              }}>
+                {draftCreatedAt && (
+                  <div>
+                    <strong>Créé le :</strong> {new Date(draftCreatedAt).toLocaleString('fr-FR')}
+                  </div>
+                )}
+                {draftModifiedAt && draftModifiedAt !== draftCreatedAt && (
+                  <div>
+                    <strong>Modifié le :</strong> {new Date(draftModifiedAt).toLocaleString('fr-FR')}
+                  </div>
+                )}
+                {lastSavedAt && (
+                  <div>
+                    <strong>Sauvegardé il y a :</strong> {formatTimeSince(lastSavedAt)}
+                  </div>
+                )}
+              </div>
+            )}
+            
             <div style={{display:'grid', gap:12}}>
               <div style={{display:'grid', gridTemplateColumns: '1fr 1fr', gap:8}}>
                 <div>
@@ -340,8 +557,37 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
               </div>
 
               <div>
-                <label style={{display:'block', fontSize:13, color:'var(--muted)', marginBottom:4}}>
+                <label style={{display:'flex', alignItems:'center', gap:8, fontSize:13, color:'var(--muted)', marginBottom:4}}>
                   Contenu
+                  <button
+                    type="button"
+                    onClick={() => setShowMarkdownHelp(true)}
+                    style={{
+                      background: 'rgba(74, 158, 255, 0.15)',
+                      border: '1px solid rgba(74, 158, 255, 0.3)',
+                      borderRadius: '50%',
+                      width: 20,
+                      height: 20,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      padding: 0,
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(74, 158, 255, 0.25)';
+                      e.currentTarget.style.transform = 'scale(1.1)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(74, 158, 255, 0.15)';
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }}
+                    title="Aide Markdown"
+                  >
+                    ?
+                  </button>
                 </label>
                 <textarea 
                   ref={contentRef}
@@ -350,6 +596,8 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
                   onChange={e=>setForm({...form, content:e.target.value})}
                   rows={8}
                   style={{width:'100%', fontFamily:'monospace', resize:'vertical'}}
+                  spellCheck={true}
+                  lang="fr-FR"
                 />
               </div>
 
@@ -590,6 +838,8 @@ export default function TemplatesModal({onClose}:{onClose?:()=>void}){
         onConfirm={confirmState.onConfirm}
         onCancel={closeConfirm}
       />
+      
+      {showMarkdownHelp && <MarkdownHelpModal onClose={() => setShowMarkdownHelp(false)} />}
     </div>
   );
 }

@@ -9,6 +9,9 @@ import ConfigModal from './components/ConfigModal';
 import InstructionsManagerModal from './components/InstructionsManagerModal';
 import TraductorsModal from './components/TraductorsModal';
 import HistoryModal from './components/HistoryModal';
+import StatsModal from './components/StatsModal';
+import ApiStatusBadge from './components/ApiStatusBadge';
+import ShortcutsHelpModal from './components/ShortcutsHelpModal';
 
 export default function App(){
   const [openTemplates, setOpenTemplates] = useState(false);
@@ -17,6 +20,8 @@ export default function App(){
   const [openInstructions, setOpenInstructions] = useState(false);
   const [openTraductors, setOpenTraductors] = useState(false);
   const [openHistory, setOpenHistory] = useState(false);
+  const [openStats, setOpenStats] = useState(false);
+  const [openShortcutsHelp, setOpenShortcutsHelp] = useState(false);
   
   // Theme management: dark by default
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -73,10 +78,36 @@ export default function App(){
                 <button onClick={()=>setOpenTraductors(true)}>👥 Gérer les Traducteurs</button>
                 <button onClick={()=>setOpenInstructions(true)}>📋 Gérer les Instructions</button>
                 <button onClick={()=>setOpenHistory(true)}>📋 Historique</button>
+                <button onClick={()=>setOpenStats(true)}>📈 Statistiques</button>
                 <button onClick={()=>setOpenConfig(true)}>⚙️ Configuration API</button>
+                <ApiStatusBadge />
+                <button 
+                  onClick={() => setOpenShortcutsHelp(true)}
+                  style={{
+                    marginLeft: 'auto',
+                    fontSize: 18,
+                    width: 36,
+                    height: 36,
+                    padding: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                  title="Aide des raccourcis clavier"
+                >
+                  ❓
+                </button>
                 <button 
                   onClick={toggleTheme} 
-                  style={{marginLeft: 'auto', fontSize: 20}}
+                  style={{
+                    fontSize: 20,
+                    width: 36,
+                    height: 36,
+                    padding: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
                   title={theme === 'dark' ? 'Passer en mode jour' : 'Passer en mode nuit'}
                 >
                   {theme === 'dark' ? '☀️' : '🌙'}
@@ -97,6 +128,8 @@ export default function App(){
           {openInstructions && <InstructionsManagerModal onClose={()=>setOpenInstructions(false)} />}
           {openTraductors && <TraductorsModal onClose={()=>setOpenTraductors(false)} />}
           {openHistory && <HistoryModal onClose={()=>setOpenHistory(false)} />}
+          {openStats && <StatsModal onClose={()=>setOpenStats(false)} />}
+          {openShortcutsHelp && <ShortcutsHelpModal onClose={()=>setOpenShortcutsHelp(false)} />}
         </div>
       </ToastProvider>
     </AppProvider>

@@ -158,6 +158,8 @@ export default function InstructionsManagerModal({onClose}:{onClose?:()=>void}){
                   onChange={e=>setForm({...form, content: e.target.value})}
                   rows={8}
                   style={{width:'100%', fontFamily:'monospace', fontSize:13}}
+                  spellCheck={true}
+                  lang="fr-FR"
                 />
                 <div style={{fontSize:11, color:'var(--muted)', marginTop:4}}>
                   💡 Cette instruction sera disponible via la variable [instruction] dans tous les templates

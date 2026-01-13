@@ -19,13 +19,15 @@ Application Electron moderne pour créer et gérer des publications de traductio
 
 **Discord Publisher** est une application de bureau (Electron) qui facilite la création et la gestion de publications Discord pour des traductions de jeux. Elle offre :
 
-- ✨ Interface moderne React + TypeScript avec Vite
-- 🎨 Templates personnalisables avec variables dynamiques
-- 🖼️ Support d'images avec gestion drag & drop
-- 📋 Historique des publications avec édition
+- ✨ Interface moderne React 18 + TypeScript 5 avec Vite 7
+- 🎨 Templates personnalisables avec système de brouillons (autosave 30s)
+- 🖼️ Support d'images avec compression automatique (>8MB → 80% JPEG)
+- 📋 Historique paginé (20/page) avec lazy loading et recherche avancée
 - 🔄 Modification de posts Discord existants via API
-- 💾 Stockage local sécurisé (localStorage + fichiers config)
-- 🚀 Publication directe sur Discord
+- 💾 Stockage local sécurisé (localStorage + fichiers)
+- ⚡ Performance optimisée (debounce 300ms, Intersection Observer)
+- ⌨️ Raccourcis clavier (Ctrl+S, Ctrl+H, Ctrl+T, Ctrl+Z/Y)
+- 🚀 Publication directe sur Discord avec retry automatique
 
 ---
 
@@ -43,9 +45,24 @@ Application Electron moderne pour créer et gérer des publications de traductio
   - `Ctrl+H` : Ouvrir l'historique
   - `Ctrl+T` : Basculer le thème
   - `Ctrl+Z` / `Ctrl+Y` : Undo/Redo dans Synopsis
+  - `Ctrl+S` : Sauvegarder le template (dans TemplatesModal)
+  - `?` : Ouvrir l'aide des raccourcis
+  - `Échap` : Fermer la modale active
+
+### � Système de Brouillons
+- **Autosave automatique** : Sauvegarde toutes les 30 secondes
+- **Restauration automatique** : Popup au lancement si brouillon détecté
+- **Indicateurs temporels** : "Sauvegardé il y a X minutes"
+- **Badge visuel** : 📝 Brouillon avec bouton de sauvegarde manuelle
+- **Suppression automatique** : Brouillon effacé après enregistrement final
 
 ### 📋 Historique et Édition
 - **Liste complète** : Toutes vos publications avec détails (titre, date, tags, aperçu)
+- **Pagination intelligente** : 20 posts par page avec navigation
+- **Lazy loading** : Images chargées uniquement quand visibles
+- **Recherche avancée** : Par titre, contenu, jeu, traducteur
+- **Filtres multiples** : Par date, template, traducteur
+- **Tri flexible** : Par date ou titre (A-Z / Z-A)
 - **Actions rapides** :
   - 🔗 Ouvrir le post sur Discord
   - ✏️ Modifier le post existant (titre, contenu, tags, image)
@@ -124,6 +141,11 @@ Application Electron moderne pour créer et gérer des publications de traductio
 **Application Electron :**
 - Node.js 18+ et npm
 - Windows 10/11 (pour le build .exe)
+- **Versions actuelles** :
+  - Electron 39.2.7
+  - Vite 7.3.1
+  - React 18.2.0
+  - TypeScript 5.4.2
 
 **Scripts Python (optionnels - pour les bots) :**
 - Python 3.10+
@@ -189,16 +211,15 @@ Les bots Discord sont **lancés automatiquement** au démarrage de l'application
 
 ### �️ Configuration de l'Application Electron
 
-La configuration de l'application se fait **entièrement via l'interface** :
+L'API Publisher démarre **automatiquement** au lancement de l'application sur `http://localhost:8080`.
+
+Aucune configuration manuelle n'est requise. Vous pouvez :
 
 1. **Lancer l'application** : `npm run dev`
-2. **Cliquer sur "⚙️ Configuration"** dans le header
-3. **Configurer** :
-   - **Endpoint API Publisher** : URL de l'API Python (ex: `http://localhost:8080/api/forum-post`)
-   - **Clé API (X-API-KEY)** : Clé secrète définie dans `.env` du script Python
-4. **Tester la connexion** : Bouton "🧪 Tester la connexion"
+2. **Tester la connexion** : Cliquer sur "⚙️ Configuration" puis "🔌 Tester la connexion à l'API locale"
+3. **Configurer templates/tags/traducteurs** : Via les boutons dans l'interface
 
-La configuration est **sauvegardée localement** dans `publisher_config.json` (côté main process).
+La configuration (templates, tags, instructions, traducteurs) est **sauvegardée localement** dans le localStorage.
 
 ### 🐍 Configuration des Scripts Python
 
@@ -241,9 +262,6 @@ DAYS_BEFORE_PUBLICATION=14
 ```env
 # Token du bot Discord pour l'API
 DISCORD_PUBLISHER_TOKEN=votre_token_bot_3
-
-# Clé API pour sécuriser l'endpoint
-PUBLISHER_API_KEY=votre_cle_secrete_aleatoire
 
 # ID du forum "Mes traductions"
 PUBLISHER_FORUM_MY_ID=1234567890123456789

@@ -7,6 +7,273 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/lang/fr/).
 
 ---
 
+## [1.0.10] - 2026-01-13
+
+### 🔒 Sécurité
+
+#### Mises à jour majeures
+- **Electron** : 25.0.0 → 39.2.7 (correction de vulnérabilités)
+- **Vite** : 5.0.0 → 7.3.1 (correction vulnérabilité esbuild ≤0.24.2)
+- **esbuild** : Mise à jour automatique via Vite (GHSA-67mh-4wv8-2f99)
+- **0 vulnérabilité** restante après `npm audit fix --force`
+
+### 🐛 Corrections
+
+#### API Publisher
+- **CORS preflight** : Ajout du handler `OPTIONS` pour `/api/status`
+  - Correction de l'erreur 405 (Method Not Allowed)
+  - Réponses `204 No Content` correctes pour les requêtes OPTIONS
+  - Support CORS complet pour toutes les routes API
+
+#### Configuration npm
+- **Dépendance circulaire** : Suppression de `publication-generator-electron: file:..` dans `frontend/package.json`
+- **Structure propre** : Deux `node_modules` séparés (racine: Electron, frontend: React/Vite)
+- **Réinstallation complète** : Environnement npm nettoyé et reconstruit
+
+### 📚 Documentation
+- **README.md** : Mise à jour complète avec toutes les fonctionnalités actuelles
+  - Versions des dépendances (Electron 39, Vite 7, React 18, TypeScript 5)
+  - Section système de brouillons avec autosave
+  - Pagination et lazy loading de l'historique
+  - Raccourcis clavier complets (Ctrl+S, aide ?)
+  - Performance optimisations documentées
+
+---
+
+## [1.0.9] - 2026-01-13
+
+### ✨ Nouvelles fonctionnalités
+
+#### Raccourcis clavier
+- **`Ctrl+S` dans TemplatesModal** :
+  - Sauvegarde rapide du template en cours d'édition
+  - Validation automatique : affiche un avertissement si le nom est vide
+  - Prévient le comportement par défaut du navigateur (Ctrl+S)
+- **Modale d'aide des raccourcis (`ShortcutsHelpModal`)** :
+  - Bouton "❓" ajouté dans le header à côté du bouton de thème
+  - Liste complète des raccourcis organisés en 3 catégories :
+    - **Navigation** : `Ctrl+H` (historique), `Ctrl+T` (thème)
+    - **Édition** : `Ctrl+Z/Y` (annuler/refaire), `Ctrl+S` (sauvegarder)
+    - **Interface** : `Échap` (fermer modale)
+  - Affichage élégant avec balises `<kbd>` stylisées
+  - Fermeture par touche `Échap` ou clic extérieur
+
+---
+
+## [1.0.8] - 2026-01-13
+
+### ⚡ Performance
+
+#### Optimisations majeures
+- **Pagination de l'historique** :
+  - Affichage par pages de 20 publications maximum
+  - Boutons Précédent/Suivant avec compteur de page
+  - Reset automatique à la page 1 lors du changement de filtres/recherche
+  - Compteur "X publications sur Y" pour visibilité
+- **Lazy loading des images** :
+  - Composant `LazyImage` avec Intersection Observer
+  - Chargement uniquement quand l'image devient visible (rootMargin: 50px)
+  - Transition en fondu lors du chargement
+  - Réduction drastique de la consommation mémoire pour l'historique
+- **Compression d'images avant upload** :
+  - Fonction `compressImage()` automatique pour images > 8 MB
+  - Qualité JPEG à 80% (bon compromis qualité/taille)
+  - Conversion automatique PNG → JPEG pour réduire la taille
+  - Recalcul des dimensions en gardant le ratio d'aspect
+  - Logs en console de la compression (taille avant/après)
+- **Debounce du preview** :
+  - Hook `useDebounce` personnalisé (300ms)
+  - Appliqué aux inputs et au changement de template
+  - Évite le recalcul du preview à chaque frappe
+  - Optimisation avec useMemo pour le cache
+
+### 🛠️ Technique
+- Création du hook `useDebounce<T>` réutilisable
+- Ajout de `useEffect` avec cleanup pour l'autosave et les timers
+- Utilisation d'Intersection Observer pour le lazy loading (API native du navigateur)
+- Optimisation mémoire avec pagination côté client
+
+---
+
+## [1.0.7] - 2026-01-13
+
+### ✨ Ajouté
+
+#### 💾 Système de brouillons pour templates
+- **Autosave automatique** :
+  - Sauvegarde automatique toutes les 30 secondes dans localStorage
+  - Démarre automatiquement dès qu'il y a du contenu dans le formulaire
+  - Badge "📝 Brouillon" visible dans l'éditeur avec bouton de sauvegarde manuelle
+- **Indicateurs temporels** :
+  - "Créé le" : Date de création du brouillon
+  - "Modifié le" : Date de dernière modification
+  - "Sauvegardé il y a" : Temps écoulé depuis la dernière sauvegarde (X secondes/minutes/heures/jours)
+  - Affichés uniquement en mode brouillon, masqués après enregistrement final
+- **Restauration automatique** :
+  - Popup au lancement de TemplatesModal si un brouillon non enregistré est détecté
+  - Possibilité d'accepter ou refuser la restauration
+  - Protection contre la perte de travail en cas de crash/fermeture accidentelle
+- **Gestion intelligente** :
+  - Suppression automatique du brouillon après enregistrement définitif
+  - Suppression manuelle via bouton "Annuler" (avec nettoyage du localStorage)
+  - Les templates enregistrés conservent leurs métadonnées (createdAt, modifiedAt)
+
+### 🔧 Technique
+- Ajout des propriétés `isDraft`, `createdAt`, `modifiedAt`, `lastSavedAt` au type `Template`
+- Gestion de l'autosave avec `useEffect` et `setInterval` (cleanup automatique)
+- Stockage des brouillons dans `localStorage` sous la clé `template_draft`
+
+---
+
+## [1.0.6] - 2026-01-13
+
+### 🧹 Nettoyage
+- **Suppression du système de clé API** : Étant donné que l'API tourne uniquement en local (localhost:8080) et démarre automatiquement avec l'application, la clé API n'apporte aucune sécurité et a été complètement supprimée
+  - Retrait de la configuration de clé API dans l'interface ConfigModal
+  - Suppression de la vérification X-API-KEY côté serveur Python
+  - Simplification des handlers IPC (plus de persistence de config)
+  - Export/import de configuration nettoyés (ne concernent plus que templates/tags/instructions)
+  - Code backend et frontend allégés
+
+---
+
+## [1.0.5] - 2026-01-13
+
+### ✨ Ajouté
+
+#### 🔄 API Discord améliorée
+- **Rate limiting visible** :
+  - Nouveau composant `ApiStatusBadge` dans la barre de navigation
+  - Badge de statut avec indicateur de connexion (vert/rouge/jaune)
+  - Affichage des requêtes restantes et limite totale
+  - Compteur de temps avant reset (minutes/secondes)
+  - Avertissement visuel (⚠️) si moins de 5 requêtes restantes
+  - Popup détaillée au clic avec toutes les informations
+  - Actualisation automatique toutes les 30 secondes
+  - Bouton de rafraîchissement manuel
+- **Retry automatique en cas d'erreur réseau** :
+  - Nouvelle fonction `_discord_request_with_retry()` dans l'API Python
+  - 3 tentatives automatiques avec délai exponentiel (1s, 2s, 4s)
+  - Gestion intelligente des erreurs serveur (5xx) vs erreurs client (4xx)
+  - Attente automatique si rate limit atteint avant nouvelle requête
+  - Logs détaillés de toutes les tentatives
+- **Logging amélioré** :
+  - Nouveau système de logging avec module `logging` Python
+  - Fichier `errors.log` créé automatiquement à la racine
+  - Horodatage et niveau de sévérité pour chaque log
+  - Logs simultanés dans fichier et console
+  - Avertissements quand rate limit approche (< 5 requêtes)
+- **Intégration frontend** :
+  - Affichage du rate limit dans les messages de succès après publication
+  - Format : "Publication réussie (45/50 requêtes restantes)"
+  - Transmission des infos de rate limit depuis l'API vers le frontend via IPC
+
+#### 📈 Module Statistiques
+- **Tableau de bord complet** : Nouvelle modale `StatsModal` pour visualiser les statistiques de publication
+  - **Métriques principales** : Total, Mes traductions, Partenaires avec pourcentages
+  - **Top traducteurs** : Classement des 5 traducteurs les plus actifs
+  - **Publications par mois** : Graphique en barres des publications dans le temps
+- **Filtres avancés** :
+  - Par période : 7 derniers jours, 30 derniers jours, 6 derniers mois, toutes les périodes
+  - Par type : Mes traductions, Partenaires, ou tous les types
+- **Export de données** :
+  - Export CSV : Tableau avec date, titre, template, tags, URL Discord
+  - Export JSON : Données complètes avec statistiques et métadonnées
+- **Bouton d'accès** : Nouveau bouton "📈 Statistiques" dans la barre de navigation principale
+
+#### 🔍 Recherche & Filtres dans l'historique
+- **Barre de recherche** : Recherche en temps réel par titre, contenu et nom du jeu
+- **Filtres multiples** :
+  - Par date : Aujourd'hui, cette semaine, ce mois, cette année
+  - Par template : Mes traductions / Partenaires
+  - Par traducteur : Liste dynamique extraite des publications
+- **Tri flexible** :
+  - Par date : Plus récent ↔ Plus ancien
+  - Par titre : A → Z / Z → A
+- **Compteur de résultats** : Affichage du nombre de publications filtrées
+- **Messages adaptés** : Indication claire quand aucun résultat ne correspond aux filtres
+
+#### ✍️ Aide Markdown
+- **Modale d'aide contextuelle** : Nouveau composant `MarkdownHelpModal` accessible depuis l'éditeur de template
+- **Icône d'aide** : Bouton "?" à côté du champ "Contenu" dans la modale de gestion des templates
+- **Syntaxe complète** : Exemples de toutes les balises Markdown supportées par Discord
+  - Titres (H1, H2, H3)
+  - Mise en forme (gras, italique, barré, souligné, code inline)
+  - Liens et listes (puces, numérotées)
+  - Citations et blocs de code
+  - Spoilers et emojis Discord
+- **Design clair** : Présentation en deux colonnes (syntaxe / description) pour chaque exemple
+- **Lien documentation** : Accès direct à la documentation officielle Discord
+
+#### 🔤 Correction orthographique
+- **Correcteur natif activé** : Utilisation du correcteur orthographique intégré d'Electron/Chromium
+- **Soulignement automatique** : Les fautes d'orthographe sont soulignées en rouge dans tous les champs de texte
+- **Langue française** : Configuration `lang="fr-FR"` pour une détection optimale des fautes en français
+- **Suggestions au clic droit** : Menu contextuel natif avec suggestions de correction (configuré dans main.js)
+- **Configuration Electron** : `session.defaultSession.setSpellCheckerLanguages(['fr-FR', 'fr'])` pour activer les suggestions
+- **Champs concernés** :
+  - Synopsis dans l'éditeur de contenu
+  - Toutes les variables de type textarea
+  - Contenu des templates
+  - Contenu des instructions
+- **Gratuit et sans dépendance** : Aucune bibliothèque externe, utilise les capacités natives du navigateur
+
+#### 🐛 Gestion des erreurs avancée
+- **Nouveau composant `ErrorModal`** :
+  - Modal détaillée affichant toutes les informations d'erreur
+  - Code HTTP, code d'erreur, message et contexte
+  - Suggestions intelligentes selon le type d'erreur (401, 404, 429, 5xx, réseau)
+  - Détails techniques Discord affichables (collapsible)
+  - Bouton "Copier les détails" pour partager l'erreur
+  - Bouton "Réessayer" pour relancer l'action
+  - Horodatage précis de l'erreur
+- **Mode Debug intégré** :
+  - Toggle dans Configuration API pour activer/désactiver
+  - Console de logs intégrée avec historique (100 dernières entrées)
+  - Export des logs en fichier .txt
+  - Affichage des requêtes/réponses en temps réel
+  - Stockage de la préférence dans localStorage
+- **Intégration dans appContext** :
+  - Affichage automatique du ErrorModal en cas d'erreur de publication
+  - Gestion centralisée des erreurs (validation, API, réseau, interne)
+  - Contexte détaillé pour chaque type d'erreur
+
+### 🔧 Modifié
+
+#### 🌐 Configuration simplifiée
+- **URL API codée en dur** :
+  - L'URL de l'API locale est maintenant `http://localhost:8080/api/forum-post` (codée dans l'application)
+  - Plus besoin de configuration manuelle de l'URL
+  - Seule la clé API reste configurable pour la sécurité
+- **Interface Configuration API simplifiée** :
+  - Affichage de l'URL locale en lecture seule avec indication du démarrage automatique
+  - Retrait du champ de saisie URL devenu inutile
+  - Bouton de test de connexion adapté ("Tester la connexion à l'API locale")
+- **Détection améliorée des erreurs d'API** :
+  - Détection spécifique quand l'API locale n'est pas accessible (status 0)
+  - Message d'erreur clair : "L'API Publisher locale n'a pas démarré correctement"
+  - Suggestions adaptées : relancer l'application, vérifier le port 8080, consulter la console
+- **Export/Import** : Seule la clé API est exportée/importée (plus d'URL)
+
+#### 🌐 API et Backend
+- **API Backend (`publisher_api.py`)** :
+  - Refactoring complet des fonctions `_discord_get`, `_discord_post_form`, `_discord_patch_json`, `_discord_patch_form`
+  - Toutes les requêtes Discord passent maintenant par `_discord_request_with_retry()`
+  - Ajout de la classe `RateLimitTracker` pour suivre les limites en temps réel
+  - Headers de rate limit extraits automatiquement de chaque réponse Discord
+  - Endpoints `/health` et `/api/status` retournent maintenant les infos de rate limit
+  - Toutes les réponses de succès incluent `rate_limit` dans le JSON
+- **Main Process (`main.js`)** :
+  - Handler `publisher:publish` retourne maintenant aussi `rateLimit`
+  - Extraction des données de rate limit après chaque publication
+- **App Context (`appContext.tsx`)** :
+  - Message de succès enrichi avec compteur de requêtes restantes
+  - Gestion du rate limit dans le retour de `publishPost()`
+  - Ajout de la fonction `showErrorModal()` pour afficher les erreurs
+  - Capture de toutes les erreurs de publication avec contexte détaillé
+
+---
+
 ## [1.0.4] - 2026-01-13
 
 ### ✨ Ajouté

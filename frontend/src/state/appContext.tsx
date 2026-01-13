@@ -1,4 +1,6 @@
 import React, {createContext, useContext, useEffect, useMemo, useState} from 'react';
+import ErrorModal from '../components/ErrorModal';
+import { useDebounce } from '../hooks/useDebounce';
 
 export type VarConfig = {
   name: string;
@@ -19,6 +21,10 @@ export type Template = {
   name: string;
   type?: string | null;
   content: string;
+  isDraft?: boolean;          // Indique si c'est un brouillon non enregistré
+  createdAt?: number;         // Timestamp de création
+  modifiedAt?: number;        // Timestamp de dernière modification
+  lastSavedAt?: number;       // Timestamp de dernière sauvegarde auto
 };
 
 export type Tag = { name: string; id?: string; template?: string };
@@ -130,13 +136,12 @@ type AppContextValue = {
   setPostTags: (s:string) => void;
 
   apiUrl: string;
-  setApiUrl: (s:string) => void;
-  apiKey: string;
-  setApiKey: (s:string) => void;
-
   publishInProgress: boolean;
   lastPublishResult: string | null;
   publishPost: () => Promise<{ok:boolean, data?:any, error?:string}>;
+
+  // Error handling
+  showErrorModal: (error: {code?: string | number; message: string; context?: string; httpStatus?: number; discordError?: any}) => void;
 
   // History
   publishedPosts: PublishedPost[];
@@ -200,6 +205,23 @@ export function AppProvider({children}: {children: React.ReactNode}){
     return [];
   });
 
+  // Error modal state
+  const [errorModalData, setErrorModalData] = useState<{
+    code?: string | number;
+    message: string;
+    context?: string;
+    httpStatus?: number;
+    discordError?: any;
+    timestamp: number;
+  } | null>(null);
+
+  const showErrorModal = (error: {code?: string | number; message: string; context?: string; httpStatus?: number; discordError?: any}) => {
+    setErrorModalData({
+      ...error,
+      timestamp: Date.now()
+    });
+  };
+
   const [uploadedImages, setUploadedImages] = useState<Array<{id:string,path:string,isMain:boolean}>>(() => {
     try{ 
       const raw = localStorage.getItem('uploadedImages'); 
@@ -228,17 +250,8 @@ export function AppProvider({children}: {children: React.ReactNode}){
     try{ const raw = localStorage.getItem('postTags'); return raw || ''; }catch(e){ return ''; }
   });
 
-  const [apiUrl, setApiUrl] = useState<string>('');
-  const [apiKey, setApiKey] = useState<string>('');
-
-  // Load publisher config from main process if available
-  useEffect(()=>{
-    try{
-      (window as any).electronAPI?.getPublisherConfig?.().then((cfg:any)=>{
-        if(cfg){ if(cfg.apiUrl) setApiUrl(cfg.apiUrl); if(cfg.apiKey) setApiKey(cfg.apiKey); }
-      }).catch(()=>{});
-    }catch(e){}
-  },[]);
+  // API Configuration - URL is now hardcoded for local API
+  const apiUrl = 'http://localhost:8080/api/forum-post';
 
   const [publishInProgress, setPublishInProgress] = useState<boolean>(false);
   const [lastPublishResult, setLastPublishResult] = useState<string | null>(null);
@@ -258,10 +271,6 @@ export function AppProvider({children}: {children: React.ReactNode}){
 
   useEffect(()=>{ localStorage.setItem('postTitle', postTitle); },[postTitle]);
   useEffect(()=>{ localStorage.setItem('postTags', postTags); },[postTags]);
-  useEffect(()=>{
-    // persist to main process
-    try{ (window as any).electronAPI?.setPublisherConfig?.({ apiUrl, apiKey }); }catch(e){}
-  },[apiUrl, apiKey]);
 
   useEffect(()=>{
     localStorage.setItem('customTemplates', JSON.stringify(templates));
@@ -294,19 +303,37 @@ export function AppProvider({children}: {children: React.ReactNode}){
 
     // Validation: titre obligatoire (uniquement postTitle)
     if(!title || title.length === 0){ 
-      setLastPublishResult('❌ Titre obligatoire'); 
+      setLastPublishResult('❌ Titre obligatoire');
+      showErrorModal({
+        code: 'VALIDATION_ERROR',
+        message: 'Le titre du post est obligatoire',
+        context: 'Validation avant publication',
+        httpStatus: 400
+      });
       return {ok:false, error:'missing_title'}; 
     }
     
-    // Validation: API endpoint requis
+    // Validation: API endpoint requis (should always be available locally)
     if(!apiUrl || apiUrl.trim().length === 0){ 
-      setLastPublishResult('❌ Endpoint API manquant'); 
+      setLastPublishResult('❌ Erreur interne : URL API manquante');
+      showErrorModal({
+        code: 'CONFIG_ERROR',
+        message: 'Erreur interne : L\'URL de l\'API locale est manquante',
+        context: 'Configuration interne',
+        httpStatus: 500
+      });
       return {ok:false, error:'missing_api_url'}; 
     }
     
     // Validation: template type obligatoire (my/partner uniquement)
     if(templateType !== 'my' && templateType !== 'partner') {
       setLastPublishResult('❌ Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés');
+      showErrorModal({
+        code: 'VALIDATION_ERROR',
+        message: 'Type de template invalide',
+        context: 'Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés',
+        httpStatus: 400
+      });
       return {ok:false, error:'invalid_template_type'};
     }
 
@@ -362,9 +389,41 @@ export function AppProvider({children}: {children: React.ReactNode}){
       }
 
       const res = await (window as any).electronAPI?.publishPost?.(mainPayload);
-      if(!res){ setLastPublishResult('Erreur interne'); return {ok:false, error:'internal'}; }
-      if(!res.ok){ setLastPublishResult('Erreur API: '+(res.error||'unknown')); return {ok:false, error:res.error}; }
-      setLastPublishResult(isEditMode ? 'Mise à jour réussie' : 'Publication réussie');
+      if(!res){ 
+        setLastPublishResult('Erreur interne');
+        showErrorModal({
+          code: 'INTERNAL_ERROR',
+          message: 'Impossible de communiquer avec l\'API locale',
+          context: 'Communication IPC avec le processus principal',
+          httpStatus: 500
+        });
+        return {ok:false, error:'internal'}; 
+      }
+      if(!res.ok){ 
+        setLastPublishResult('Erreur API: '+(res.error||'unknown'));
+        
+        // Special handling for network errors - API not accessible
+        const isNetworkError = !res.status || res.status === 0 || 
+                              (res.error && (res.error.includes('fetch') || res.error.includes('network')));
+        
+        showErrorModal({
+          code: res.error || 'API_ERROR',
+          message: isNetworkError 
+            ? 'L\'API locale n\'est pas accessible. Vérifiez que l\'application s\'est lancée correctement.' 
+            : (res.error || 'Erreur inconnue'),
+          context: isEditMode ? 'Mise à jour du post Discord' : 'Publication du post Discord',
+          httpStatus: res.status || 0,
+          discordError: res.data
+        });
+        return {ok:false, error:res.error};
+      }
+      
+      // Build success message with rate limit info
+      let successMsg = isEditMode ? 'Mise à jour réussie' : 'Publication réussie';
+      if(res.rateLimit?.remaining !== null && res.rateLimit?.limit !== null) {
+        successMsg += ` (${res.rateLimit.remaining}/${res.rateLimit.limit} requêtes restantes)`;
+      }
+      setLastPublishResult(successMsg);
       
       // Save to history or update existing post
       if(res.data && res.data.thread_id && res.data.message_id) {
@@ -406,6 +465,12 @@ export function AppProvider({children}: {children: React.ReactNode}){
       return {ok:true, data: res.data};
     }catch(e:any){
       setLastPublishResult('Erreur envoi: '+String(e?.message || e));
+      showErrorModal({
+        code: 'NETWORK_ERROR',
+        message: String(e?.message || e),
+        context: 'Exception lors de la publication',
+        httpStatus: 0
+      });
       return {ok:false, error: String(e?.message || e)};
     }finally{
       setPublishInProgress(false);
@@ -491,13 +556,84 @@ export function AppProvider({children}: {children: React.ReactNode}){
   }
 
   // Images
+  async function compressImage(file: File): Promise<File> {
+    const MAX_SIZE_MB = 8;
+    const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
+    const JPEG_QUALITY = 0.8;
+
+    // Si l'image est déjà petite, pas besoin de compresser
+    if (file.size <= MAX_SIZE_BYTES) {
+      return file;
+    }
+
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
+
+      reader.onload = (e) => {
+        img.src = e.target?.result as string;
+      };
+
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+
+        // Calculer les nouvelles dimensions en gardant le ratio
+        const ratio = Math.sqrt(MAX_SIZE_BYTES / file.size);
+        width = Math.floor(width * ratio);
+        height = Math.floor(height * ratio);
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Failed to get canvas context'));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Convertir en JPEG si c'est un PNG (plus petite taille)
+        const outputFormat = file.type === 'image/png' ? 'image/jpeg' : file.type;
+        
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error('Failed to compress image'));
+              return;
+            }
+
+            const compressedFile = new File(
+              [blob],
+              file.name.replace(/\.png$/i, '.jpg'),
+              { type: outputFormat, lastModified: Date.now() }
+            );
+
+            console.log(`Image compressed: ${(file.size / 1024 / 1024).toFixed(2)}MB → ${(compressedFile.size / 1024 / 1024).toFixed(2)}MB`);
+            resolve(compressedFile);
+          },
+          outputFormat,
+          JPEG_QUALITY
+        );
+      };
+
+      img.onerror = () => reject(new Error('Failed to load image'));
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  }
+
   async function addImages(files: FileList | File[]){
     const fileArray = Array.from(files as any) as File[];
     for(const file of fileArray) {
       if(!file.type.startsWith('image/')) continue;
       try {
+        // Compresser l'image si nécessaire
+        const processedFile = await compressImage(file);
+        
         // Save image to filesystem via IPC
-        const result = await (window as any).electronAPI?.saveImage?.((file as any).path);
+        const result = await (window as any).electronAPI?.saveImage?.((processedFile as any).path || (file as any).path);
         if(result?.ok && result.fileName) {
           setUploadedImages(prev => {
             const next = [...prev, {id: Date.now().toString(), path: result.fileName, isMain: prev.length===0}];
@@ -527,8 +663,12 @@ export function AppProvider({children}: {children: React.ReactNode}){
     setUploadedImages(prev => prev.map((i,s) => ({...i, isMain: s===idx})));
   }
 
+  // Debounce des inputs pour éviter de recalculer le preview à chaque frappe
+  const debouncedInputs = useDebounce(inputs, 300);
+  const debouncedCurrentTemplateIdx = useDebounce(currentTemplateIdx, 100);
+
   const preview = useMemo(()=>{
-    const tpl = templates[currentTemplateIdx];
+    const tpl = templates[debouncedCurrentTemplateIdx];
     if(!tpl) return '';
     const format = (tpl as any).format || 'markdown';
 
@@ -537,14 +677,14 @@ export function AppProvider({children}: {children: React.ReactNode}){
     // Replace variables
     allVarsConfig.forEach(varConfig => {
       const name = varConfig.name;
-      const val = (inputs[name] || '').trim();
+      const val = (debouncedInputs[name] || '').trim();
       let finalVal = val;
       if(format === 'markdown' && name === 'overview' && val){
         const lines = val.split('\n').map(l=>l.trim()).filter(Boolean);
         finalVal = lines.join('\n> ');
         
         // Inject instructions right after overview if present
-        const instructionContent = (inputs['instruction'] || '').trim();
+        const instructionContent = (debouncedInputs['instruction'] || '').trim();
         if(instructionContent) {
           finalVal += '\n\n**Instructions d\'installation :**\n' + instructionContent.split('\n').map(l => l.trim()).filter(Boolean).map(l => '* ' + l).join('\n');
         }
@@ -556,7 +696,7 @@ export function AppProvider({children}: {children: React.ReactNode}){
     content = content.split('[instruction]').join('');
 
     return content;
-  }, [templates, currentTemplateIdx, allVarsConfig, inputs]);
+  }, [templates, debouncedCurrentTemplateIdx, allVarsConfig, debouncedInputs]);
 
   const value: AppContextValue = {
     templates,
@@ -595,14 +735,14 @@ export function AppProvider({children}: {children: React.ReactNode}){
     postTags,
     setPostTags,
 
-    apiUrl,
-    setApiUrl,
-    apiKey,
-    setApiKey,
+    apiUrl, // Now hardcoded, but exposed for ApiStatusBadge
 
     publishInProgress,
     lastPublishResult,
     publishPost,
+
+    // Error handling
+    showErrorModal,
 
     // History
     publishedPosts,
@@ -641,7 +781,18 @@ export function AppProvider({children}: {children: React.ReactNode}){
     }
   };
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return (
+    <AppContext.Provider value={value}>
+      {children}
+      {errorModalData && (
+        <ErrorModal
+          error={errorModalData}
+          onClose={() => setErrorModalData(null)}
+          onRetry={publishPost}
+        />
+      )}
+    </AppContext.Provider>
+  );
 }
 
 export function useApp(){

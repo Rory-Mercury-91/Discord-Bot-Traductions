@@ -5,6 +5,11 @@ API REST pour créer des posts de forum Discord automatiquement
 import os
 import sys
 import json
+import time
+import asyncio
+import logging
+from datetime import datetime
+from typing import Optional, Tuple
 import aiohttp
 from aiohttp import web
 from dotenv import load_dotenv
@@ -16,9 +21,20 @@ if sys.platform == 'win32':
 
 load_dotenv()
 
+# --- LOGGING CONFIGURATION ---
+LOG_FILE = "errors.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
 # --- CONFIGURATION PUBLISHER ---
 DISCORD_PUBLISHER_TOKEN = os.getenv("DISCORD_PUBLISHER_TOKEN", "")
-API_KEY = os.getenv("PUBLISHER_API_KEY", "")
 FORUM_MY_ID = int(os.getenv("PUBLISHER_FORUM_MY_ID", "0"))
 FORUM_PARTNER_ID = int(os.getenv("PUBLISHER_FORUM_PARTNER_ID", "0"))
 ALLOWED_ORIGINS = os.getenv("PUBLISHER_ALLOWED_ORIGINS", "*")
@@ -28,12 +44,61 @@ DISCORD_API_BASE = "https://discord.com/api"
 # Vérifications
 if not DISCORD_PUBLISHER_TOKEN:
     raise ValueError("❌ DISCORD_PUBLISHER_TOKEN manquant")
-if not API_KEY:
-    raise ValueError("❌ PUBLISHER_API_KEY manquant")
 if not FORUM_MY_ID:
     raise ValueError("❌ PUBLISHER_FORUM_MY_ID manquant")
 if not FORUM_PARTNER_ID:
     raise ValueError("❌ PUBLISHER_FORUM_PARTNER_ID manquant")
+
+# --- RATE LIMITING TRACKING ---
+class RateLimitTracker:
+    """Suit les limites de taux de l'API Discord"""
+    def __init__(self):
+        self.remaining: Optional[int] = None
+        self.limit: Optional[int] = None
+        self.reset_at: Optional[float] = None
+        self.last_updated: Optional[float] = None
+    
+    def update_from_headers(self, headers: dict):
+        """Met à jour les informations de rate limit depuis les headers de réponse Discord"""
+        try:
+            if 'X-RateLimit-Remaining' in headers:
+                self.remaining = int(headers['X-RateLimit-Remaining'])
+            if 'X-RateLimit-Limit' in headers:
+                self.limit = int(headers['X-RateLimit-Limit'])
+            if 'X-RateLimit-Reset' in headers:
+                self.reset_at = float(headers['X-RateLimit-Reset'])
+            self.last_updated = time.time()
+            
+            # Log warning if approaching limit
+            if self.remaining is not None and self.remaining < 5:
+                logger.warning(f"⚠️  Rate limit proche: {self.remaining} requêtes restantes")
+        except (ValueError, KeyError) as e:
+            logger.error(f"Erreur lors de la lecture des headers de rate limit: {e}")
+    
+    def get_info(self) -> dict:
+        """Retourne les informations de rate limit pour l'API"""
+        info = {
+            "remaining": self.remaining,
+            "limit": self.limit,
+            "reset_at": self.reset_at,
+            "reset_in_seconds": None
+        }
+        
+        if self.reset_at:
+            reset_in = max(0, self.reset_at - time.time())
+            info["reset_in_seconds"] = int(reset_in)
+        
+        return info
+    
+    def should_wait(self) -> Tuple[bool, float]:
+        """Vérifie si on doit attendre avant la prochaine requête"""
+        if self.remaining is not None and self.remaining == 0 and self.reset_at:
+            wait_time = max(0, self.reset_at - time.time())
+            if wait_time > 0:
+                return True, wait_time
+        return False, 0.0
+
+rate_limiter = RateLimitTracker()
 
 
 def _auth_headers() -> dict:
@@ -58,7 +123,7 @@ def _with_cors(request: web.Request, resp: web.StreamResponse) -> web.StreamResp
     if allowed_origin:
         resp.headers["Access-Control-Allow-Origin"] = allowed_origin
         resp.headers["Vary"] = "Origin"
-        resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-API-KEY"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
         resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS, GET, PATCH"
     return resp
 
@@ -78,36 +143,98 @@ def _pick_forum_id(template_value: str) -> int:
     return FORUM_MY_ID
 
 
+async def _discord_request_with_retry(
+    session: aiohttp.ClientSession,
+    method: str,
+    path: str,
+    max_retries: int = 3,
+    **kwargs
+) -> Tuple[int, dict, dict]:
+    """
+    Effectue une requête vers l'API Discord avec retry automatique
+    Retourne: (status, data, headers)
+    """
+    url = f"{DISCORD_API_BASE}{path}"
+    
+    for attempt in range(max_retries):
+        try:
+            # Check rate limit before making request
+            should_wait, wait_time = rate_limiter.should_wait()
+            if should_wait:
+                logger.warning(f"Rate limit atteint, attente de {wait_time:.1f}s")
+                await asyncio.sleep(wait_time)
+            
+            async with session.request(method, url, **kwargs) as r:
+                # Update rate limit info from response headers
+                rate_limiter.update_from_headers(dict(r.headers))
+                
+                try:
+                    data = await r.json(content_type=None)
+                except Exception:
+                    data = {}
+                
+                # Success or client error (don't retry client errors)
+                if r.status < 500:
+                    return r.status, data, dict(r.headers)
+                
+                # Server error - retry with exponential backoff
+                if attempt < max_retries - 1:
+                    wait_time = 2 ** attempt  # 1s, 2s, 4s
+                    logger.warning(f"Erreur serveur {r.status}, tentative {attempt + 1}/{max_retries}, attente {wait_time}s")
+                    await asyncio.sleep(wait_time)
+                else:
+                    # Last attempt failed
+                    logger.error(f"Échec après {max_retries} tentatives: {r.status}")
+                    return r.status, data, dict(r.headers)
+                    
+        except aiohttp.ClientError as e:
+            # Network error
+            if attempt < max_retries - 1:
+                wait_time = 2 ** attempt
+                logger.warning(f"Erreur réseau: {e}, tentative {attempt + 1}/{max_retries}, attente {wait_time}s")
+                await asyncio.sleep(wait_time)
+            else:
+                logger.error(f"Erreur réseau après {max_retries} tentatives: {e}")
+                return 0, {"error": str(e)}, {}
+        except Exception as e:
+            logger.error(f"Erreur inattendue lors de la requête: {e}")
+            return 0, {"error": str(e)}, {}
+    
+    return 0, {"error": "max_retries_exceeded"}, {}
+
+
 async def _discord_get(session: aiohttp.ClientSession, path: str):
     """Effectue une requête GET vers l'API Discord"""
-    async with session.get(f"{DISCORD_API_BASE}{path}", headers=_auth_headers()) as r:
-        data = await r.json(content_type=None)
-        return r.status, data
+    status, data, _ = await _discord_request_with_retry(
+        session, "GET", path, headers=_auth_headers()
+    )
+    return status, data
 
 
 async def _discord_post_form(session: aiohttp.ClientSession, path: str, form: aiohttp.FormData):
     """Effectue une requête POST vers l'API Discord"""
-    async with session.post(f"{DISCORD_API_BASE}{path}", headers=_auth_headers(), data=form) as r:
-        data = await r.json(content_type=None)
-        return r.status, data
+    status, data, _ = await _discord_request_with_retry(
+        session, "POST", path, headers=_auth_headers(), data=form
+    )
+    return status, data
 
 
 async def _discord_patch_json(session: aiohttp.ClientSession, path: str, payload: dict):
     """Effectue une requête PATCH vers l'API Discord (JSON)"""
-    async with session.patch(
-        f"{DISCORD_API_BASE}{path}", 
-        headers={**_auth_headers(), "Content-Type": "application/json"}, 
+    status, data, _ = await _discord_request_with_retry(
+        session, "PATCH", path,
+        headers={**_auth_headers(), "Content-Type": "application/json"},
         json=payload
-    ) as r:
-        data = await r.json(content_type=None)
-        return r.status, data
+    )
+    return status, data
 
 
 async def _discord_patch_form(session: aiohttp.ClientSession, path: str, form: aiohttp.FormData):
     """Effectue une requête PATCH vers l'API Discord (FormData)"""
-    async with session.patch(f"{DISCORD_API_BASE}{path}", headers=_auth_headers(), data=form) as r:
-        data = await r.json(content_type=None)
-        return r.status, data
+    status, data, _ = await _discord_request_with_retry(
+        session, "PATCH", path, headers=_auth_headers(), data=form
+    )
+    return status, data
 
 
 async def _resolve_applied_tag_ids(session: aiohttp.ClientSession, forum_id: int, tags_raw: str) -> list[int]:
@@ -276,8 +403,12 @@ async def _update_forum_post(
 # --- HANDLERS HTTP ---
 
 async def health(request: web.Request):
-    """Endpoint de santé"""
-    resp = web.json_response({"ok": True, "service": "discord-publisher-api"})
+    """Endpoint de santé avec informations de rate limit"""
+    resp = web.json_response({
+        "ok": True,
+        "service": "discord-publisher-api",
+        "rate_limit": rate_limiter.get_info()
+    })
     return _with_cors(request, resp)
 
 
@@ -292,13 +423,6 @@ async def forum_post(request: web.Request):
     Endpoint principal : POST /api/forum-post
     Crée un post de forum Discord avec titre, contenu, tags et image optionnelle
     """
-    # Vérification API KEY
-    if API_KEY:
-        got = request.headers.get("X-API-KEY", "")
-        if got != API_KEY:
-            resp = web.json_response({"ok": False, "error": "unauthorized"}, status=401)
-            return _with_cors(request, resp)
-
     # Vérification configuration
     if not DISCORD_PUBLISHER_TOKEN:
         resp = web.json_response({"ok": False, "error": "missing_DISCORD_PUBLISHER_TOKEN"}, status=500)
@@ -392,6 +516,7 @@ async def forum_post(request: web.Request):
         "ok": True,
         "template": template,
         "forum_id": forum_id,
+        "rate_limit": rate_limiter.get_info(),
         **result
     })
     return _with_cors(request, resp)
@@ -402,13 +527,6 @@ async def forum_post_update(request: web.Request):
     Endpoint PATCH /api/forum-post/{thread_id}/{message_id}
     Met à jour un post de forum Discord existant
     """
-    # Vérification API KEY
-    if API_KEY:
-        got = request.headers.get("X-API-KEY", "")
-        if got != API_KEY:
-            resp = web.json_response({"ok": False, "error": "unauthorized"}, status=401)
-            return _with_cors(request, resp)
-
     # Récupérer thread_id et message_id depuis l'URL
     thread_id = request.match_info.get("thread_id", "")
     message_id = request.match_info.get("message_id", "")
@@ -498,6 +616,7 @@ async def forum_post_update(request: web.Request):
         "ok": True,
         "template": template,
         "forum_id": forum_id,
+        "rate_limit": rate_limiter.get_info(),
         **result
     })
     return _with_cors(request, resp)
@@ -507,6 +626,8 @@ def make_app() -> web.Application:
     """Crée l'application web aiohttp"""
     app = web.Application()
     app.router.add_get("/health", health)
+    app.router.add_route("OPTIONS", "/api/status", options_handler)
+    app.router.add_get("/api/status", health)  # Alias for health check
     app.router.add_route("OPTIONS", "/api/forum-post", options_handler)
     app.router.add_route("OPTIONS", "/api/forum-post/{thread_id}/{message_id}", options_handler)
     app.router.add_post("/api/forum-post", forum_post)

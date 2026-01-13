@@ -630,7 +630,7 @@ export default function ContentEditor(){
               <div key={v.name} style={v.fullWidth ? {gridColumn: '1 / -1'} : {}}>
                 <label style={{display:'block', fontSize:13, color:'var(--muted)', marginBottom:4}}>{v.label}</label>
                 {v.type === 'textarea' ? (
-                  <textarea value={inputs[v.name] || ''} onChange={e=>setInput(v.name, e.target.value)} rows={3} style={{width:'100%'}} placeholder={v.placeholder} />
+                  <textarea value={inputs[v.name] || ''} onChange={e=>setInput(v.name, e.target.value)} rows={3} style={{width:'100%'}} placeholder={v.placeholder} spellCheck={true} lang="fr-FR" />
                 ) : (
                   <input value={inputs[v.name] || ''} onChange={e=>setInput(v.name, e.target.value)} style={{width:'100%'}} placeholder={v.placeholder} />
                 )}
@@ -652,6 +652,8 @@ export default function ContentEditor(){
               rows={6} 
               style={{width:'100%'}} 
               placeholder="Synopsis du jeu..." 
+              spellCheck={true}
+              lang="fr-FR"
             />
           </div>
 

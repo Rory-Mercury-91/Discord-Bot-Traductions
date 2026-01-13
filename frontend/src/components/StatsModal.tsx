@@ -1,0 +1,393 @@
+import React, { useState, useMemo } from 'react';
+import { useApp } from '../state/appContext';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useModalScrollLock } from '../hooks/useModalScrollLock';
+
+interface StatsModalProps {
+  onClose?: () => void;
+}
+
+export default function StatsModal({ onClose }: StatsModalProps) {
+  useEscapeKey(() => onClose?.(), true);
+  useModalScrollLock();
+  
+  const { publishedPosts } = useApp();
+  const [periodFilter, setPeriodFilter] = useState('all'); // all, 7d, 30d, 6m
+  const [typeFilter, setTypeFilter] = useState('all'); // all, my, partner
+
+  // Filtrer les posts selon la période
+  const filteredPosts = useMemo(() => {
+    let filtered = [...publishedPosts];
+    
+    // Filtre par période
+    if (periodFilter !== 'all') {
+      const now = Date.now();
+      const day = 24 * 60 * 60 * 1000;
+      
+      filtered = filtered.filter(post => {
+        switch (periodFilter) {
+          case '7d':
+            return now - post.timestamp < 7 * day;
+          case '30d':
+            return now - post.timestamp < 30 * day;
+          case '6m':
+            return now - post.timestamp < 180 * day;
+          default:
+            return true;
+        }
+      });
+    }
+
+    // Filtre par type
+    if (typeFilter !== 'all') {
+      filtered = filtered.filter(post => post.template === typeFilter);
+    }
+
+    return filtered;
+  }, [publishedPosts, periodFilter, typeFilter]);
+
+  // Calculer les statistiques
+  const stats = useMemo(() => {
+    const myTranslations = filteredPosts.filter(p => p.template === 'my').length;
+    const partners = filteredPosts.filter(p => p.template === 'partner').length;
+    const total = filteredPosts.length;
+
+    // Traducteurs les plus fréquents
+    const translatorCount: Record<string, number> = {};
+    filteredPosts.forEach(post => {
+      const content = post.content.toLowerCase();
+      const translatorMatch = content.match(/traducteur[:\s]+([^\n]+)/i) || 
+                             content.match(/translator[:\s]+([^\n]+)/i);
+      if (translatorMatch && translatorMatch[1]) {
+        const translator = translatorMatch[1].trim();
+        if (translator && translator.length > 0 && translator.length < 50) {
+          translatorCount[translator] = (translatorCount[translator] || 0) + 1;
+        }
+      }
+    });
+
+    const topTranslators = Object.entries(translatorCount)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([name, count]) => ({ name, count }));
+
+    // Publications par mois
+    const postsByMonth: Record<string, number> = {};
+    filteredPosts.forEach(post => {
+      const date = new Date(post.timestamp);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      postsByMonth[monthKey] = (postsByMonth[monthKey] || 0) + 1;
+    });
+
+    const monthlyData = Object.entries(postsByMonth)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, count]) => {
+        const [year, monthNum] = month.split('-');
+        const monthName = new Date(parseInt(year), parseInt(monthNum) - 1).toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' });
+        return { month: monthName, count };
+      });
+
+    return {
+      myTranslations,
+      partners,
+      total,
+      topTranslators,
+      monthlyData
+    };
+  }, [filteredPosts]);
+
+  // Export CSV
+  const exportCSV = () => {
+    const headers = ['Date', 'Titre', 'Template', 'Tags', 'URL Discord'];
+    const rows = filteredPosts.map(post => [
+      new Date(post.timestamp).toLocaleDateString('fr-FR'),
+      post.title,
+      post.template === 'my' ? 'Mes traductions' : 'Partenaires',
+      post.tags,
+      post.discordUrl
+    ]);
+
+    const csv = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `statistiques-${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+  };
+
+  // Export JSON
+  const exportJSON = () => {
+    const data = {
+      exportDate: new Date().toISOString(),
+      period: periodFilter,
+      typeFilter: typeFilter,
+      stats: stats,
+      posts: filteredPosts.map(post => ({
+        date: new Date(post.timestamp).toISOString(),
+        title: post.title,
+        template: post.template,
+        tags: post.tags,
+        discordUrl: post.discordUrl
+      }))
+    };
+
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `statistiques-${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+  };
+
+  return (
+    <div className="modal">
+      <div className="panel" onClick={e => e.stopPropagation()} style={{ maxWidth: 1000, width: '95%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3>📈 Statistiques</h3>
+          <button onClick={onClose} className="btn" style={{ padding: '4px 8px', fontSize: 14 }}>✕</button>
+        </div>
+
+        {/* Filtres */}
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+          gap: 12, 
+          marginBottom: 20,
+          padding: 16,
+          background: 'rgba(255,255,255,0.03)',
+          borderRadius: 8,
+          border: '1px solid var(--border)'
+        }}>
+          <div>
+            <label style={{ fontSize: 13, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>📅 Période</label>
+            <select
+              value={periodFilter}
+              onChange={(e) => setPeriodFilter(e.target.value)}
+              style={{ 
+                width: '100%',
+                padding: '8px 12px', 
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                fontSize: 13,
+                color: 'white',
+                cursor: 'pointer'
+              }}
+            >
+              <option value="all">Toutes les périodes</option>
+              <option value="7d">7 derniers jours</option>
+              <option value="30d">30 derniers jours</option>
+              <option value="6m">6 derniers mois</option>
+            </select>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 13, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>📄 Type</label>
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              style={{ 
+                width: '100%',
+                padding: '8px 12px', 
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                fontSize: 13,
+                color: 'white',
+                cursor: 'pointer'
+              }}
+            >
+              <option value="all">Tous les types</option>
+              <option value="my">Mes traductions</option>
+              <option value="partner">Partenaires</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+            <button 
+              onClick={exportCSV}
+              className="btn"
+              style={{ flex: 1, fontSize: 13, padding: '8px 12px' }}
+              disabled={filteredPosts.length === 0}
+            >
+              📊 CSV
+            </button>
+            <button 
+              onClick={exportJSON}
+              className="btn"
+              style={{ flex: 1, fontSize: 13, padding: '8px 12px' }}
+              disabled={filteredPosts.length === 0}
+            >
+              📦 JSON
+            </button>
+          </div>
+        </div>
+
+        {/* Contenu scrollable */}
+        <div style={{ flex: 1, overflowY: 'auto', marginRight: -16, paddingRight: 16 }}>
+          {filteredPosts.length === 0 ? (
+            <div style={{ 
+              textAlign: 'center', 
+              padding: 40, 
+              color: 'var(--muted)',
+              background: 'rgba(255,255,255,0.03)',
+              borderRadius: 8
+            }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>📭</div>
+              <p>Aucune publication ne correspond aux filtres sélectionnés</p>
+            </div>
+          ) : (
+            <>
+              {/* Cartes de métriques principales */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
+                <div style={{ 
+                  padding: 20,
+                  background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(37, 99, 235, 0.05))',
+                  border: '1px solid rgba(59, 130, 246, 0.2)',
+                  borderRadius: 12
+                }}>
+                  <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>📚 Total</div>
+                  <div style={{ fontSize: 36, fontWeight: 700, color: 'rgb(59, 130, 246)' }}>{stats.total}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>publications</div>
+                </div>
+
+                <div style={{ 
+                  padding: 20,
+                  background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(22, 163, 74, 0.05))',
+                  border: '1px solid rgba(34, 197, 94, 0.2)',
+                  borderRadius: 12
+                }}>
+                  <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>✍️ Mes traductions</div>
+                  <div style={{ fontSize: 36, fontWeight: 700, color: 'rgb(34, 197, 94)' }}>{stats.myTranslations}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                    {stats.total > 0 ? `${Math.round((stats.myTranslations / stats.total) * 100)}%` : '0%'}
+                  </div>
+                </div>
+
+                <div style={{ 
+                  padding: 20,
+                  background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(147, 51, 234, 0.05))',
+                  border: '1px solid rgba(168, 85, 247, 0.2)',
+                  borderRadius: 12
+                }}>
+                  <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>🤝 Partenaires</div>
+                  <div style={{ fontSize: 36, fontWeight: 700, color: 'rgb(168, 85, 247)' }}>{stats.partners}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                    {stats.total > 0 ? `${Math.round((stats.partners / stats.total) * 100)}%` : '0%'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Traducteurs les plus fréquents */}
+              {stats.topTranslators.length > 0 && (
+                <div style={{ marginBottom: 24 }}>
+                  <h4 style={{ fontSize: 16, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    👤 Traducteurs les plus actifs
+                  </h4>
+                  <div style={{ 
+                    background: 'rgba(255,255,255,0.02)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    overflow: 'hidden'
+                  }}>
+                    {stats.topTranslators.map((translator, index) => (
+                      <div 
+                        key={translator.name}
+                        style={{ 
+                          display: 'flex', 
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '12px 16px',
+                          borderBottom: index < stats.topTranslators.length - 1 ? '1px solid var(--border)' : 'none'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <div style={{ 
+                            width: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            background: `linear-gradient(135deg, ${['#3b82f6', '#22c55e', '#a855f7', '#f59e0b', '#ef4444'][index]}, ${['#2563eb', '#16a34a', '#9333ea', '#d97706', '#dc2626'][index]})`,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 14,
+                            fontWeight: 700
+                          }}>
+                            #{index + 1}
+                          </div>
+                          <span style={{ fontSize: 14 }}>{translator.name}</span>
+                        </div>
+                        <div style={{ 
+                          fontSize: 16,
+                          fontWeight: 600,
+                          color: ['#3b82f6', '#22c55e', '#a855f7', '#f59e0b', '#ef4444'][index]
+                        }}>
+                          {translator.count}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Publications par mois */}
+              {stats.monthlyData.length > 0 && (
+                <div>
+                  <h4 style={{ fontSize: 16, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    📆 Publications par mois
+                  </h4>
+                  <div style={{ 
+                    background: 'rgba(255,255,255,0.02)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    padding: 16
+                  }}>
+                    {stats.monthlyData.map((item, index) => {
+                      const maxCount = Math.max(...stats.monthlyData.map(d => d.count));
+                      const percentage = (item.count / maxCount) * 100;
+                      
+                      return (
+                        <div key={item.month} style={{ marginBottom: index < stats.monthlyData.length - 1 ? 12 : 0 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13 }}>
+                            <span style={{ color: 'var(--muted)' }}>{item.month}</span>
+                            <span style={{ fontWeight: 600 }}>{item.count}</span>
+                          </div>
+                          <div style={{ 
+                            height: 8,
+                            background: 'rgba(255,255,255,0.05)',
+                            borderRadius: 4,
+                            overflow: 'hidden'
+                          }}>
+                            <div style={{ 
+                              height: '100%',
+                              width: `${percentage}%`,
+                              background: 'linear-gradient(90deg, #3b82f6, #2563eb)',
+                              transition: 'width 0.3s ease'
+                            }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Footer avec bouton fermer */}
+        <div style={{ 
+          marginTop: 16, 
+          paddingTop: 16, 
+          borderTop: '1px solid var(--border)',
+          display: 'flex',
+          justifyContent: 'flex-end'
+        }}>
+          <button onClick={onClose} className="btn">
+            🚪 Fermer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
