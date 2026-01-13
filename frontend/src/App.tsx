@@ -1,8 +1,9 @@
 import React, {useState, useEffect} from 'react';
-import { AppProvider } from './state/appContext';
-import { ToastProvider } from './components/ToastProvider';
+import { AppProvider, useApp } from './state/appContext';
+import { ToastProvider, useToast } from './components/ToastProvider';
 import PublicationType from './components/PublicationType';
 import ContentEditor from './components/ContentEditor';
+import Preview from './components/Preview';
 import TemplatesModal from './components/TemplatesModal';
 import TagsModal from './components/TagsModal';
 import ConfigModal from './components/ConfigModal';
@@ -12,8 +13,12 @@ import HistoryModal from './components/HistoryModal';
 import StatsModal from './components/StatsModal';
 import ApiStatusBadge from './components/ApiStatusBadge';
 import ShortcutsHelpModal from './components/ShortcutsHelpModal';
+import { useConfirm } from './hooks/useConfirm';
 
-export default function App(){
+function AppContentInner() {
+  const { preview, uploadedImages, allVarsConfig, setInput } = useApp();
+  const { showToast } = useToast();
+  const { confirm } = useConfirm();
   const [openTemplates, setOpenTemplates] = useState(false);
   const [openTags, setOpenTags] = useState(false);
   const [openConfig, setOpenConfig] = useState(false);
@@ -22,6 +27,7 @@ export default function App(){
   const [openHistory, setOpenHistory] = useState(false);
   const [openStats, setOpenStats] = useState(false);
   const [openShortcutsHelp, setOpenShortcutsHelp] = useState(false);
+  const [previewMode, setPreviewMode] = useState<'raw' | 'styled'>('raw');
   
   // Theme management: dark by default
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -60,6 +66,32 @@ export default function App(){
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  const handleCopyPreview = async () => {
+    try { 
+      await navigator.clipboard.writeText(preview); 
+      showToast('Preview copié dans le presse-papier', 'success');
+    } catch(e){ 
+      showToast('Erreur lors de la copie: ' + e, 'error');
+    }
+  };
+
+  const handleResetFields = async () => {
+    const ok = await confirm({
+      title: 'Réinitialiser tous les champs',
+      message: 'Voulez-vous vraiment vider tous les champs (variables, tags, images) ? Cette action est irréversible.',
+      confirmText: 'Réinitialiser',
+      type: 'danger'
+    });
+    
+    if (!ok) return;
+
+    // Reset toutes les variables
+    allVarsConfig.forEach(v => setInput(v.name, ''));
+    showToast('Tous les champs ont été réinitialisés', 'info');
+  };
+
+  const mainImagePath = uploadedImages.find(img => img.isMain)?.path;
 
   return (
     <AppProvider>
@@ -120,6 +152,14 @@ export default function App(){
               <PublicationType />
               <ContentEditor />
             </section>
+            <Preview
+              preview={preview}
+              previewMode={previewMode}
+              setPreviewMode={setPreviewMode}
+              onCopy={handleCopyPreview}
+              onReset={handleResetFields}
+              mainImagePath={mainImagePath}
+            />
           </main>
 
           {openTemplates && <TemplatesModal onClose={()=>setOpenTemplates(false)} />}
@@ -131,6 +171,16 @@ export default function App(){
           {openStats && <StatsModal onClose={()=>setOpenStats(false)} />}
           {openShortcutsHelp && <ShortcutsHelpModal onClose={()=>setOpenShortcutsHelp(false)} />}
         </div>
+      </ToastProvider>
+    </AppProvider>
+  );
+}
+
+export default function App(){
+  return (
+    <AppProvider>
+      <ToastProvider>
+        <AppContentInner />
       </ToastProvider>
     </AppProvider>
   );
