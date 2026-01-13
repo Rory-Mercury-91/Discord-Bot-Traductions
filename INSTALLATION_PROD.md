@@ -19,11 +19,7 @@ L'application nécessite Python pour exécuter l'API Discord et les bots de surv
 Une fois Python installé, installez les dépendances requises :
 
 ```powershell
-# Naviguer vers le dossier resources de l'application
-cd "C:\Program Files\PublicationGenerator\resources"
-
-# Installer les dépendances
-pip install -r requirements.txt
+pip install discord.py aiohttp python-dotenv
 ```
 
 **Liste des dépendances :**
@@ -35,19 +31,20 @@ pip install -r requirements.txt
 
 Le fichier `.env` contient vos tokens Discord et configurations. Vous devez le créer manuellement.
 
-#### Où créer le fichier .env ?
+#### ⚠️ Où créer le fichier .env ?
 
-**En production (application installée) :**
+**IMPORTANT** : Le fichier `.env` doit être placé **dans le même dossier que l'exécutable**.
+
+**Exemple :**
 ```
-C:\Users\VotreNom\AppData\Roaming\PublicationGenerator\resources\.env
+📁 Dossier de votre ami
+  ├── 📄 PublicationGenerator 1.0.0.exe
+  └── 📄 .env  ← Créer ce fichier ici !
 ```
 
-**Pour trouver facilement ce dossier :**
-1. Ouvrez l'application
-2. Appuyez sur `F12` (ouvre la console)
-3. Tapez : `require('electron').app.getPath('userData')`
-4. Le chemin s'affiche dans la console
-5. Naviguez vers ce dossier puis entrez dans `resources\`
+**Chemin complet :**
+- Si l'exe est dans `C:\MonDossier\` → Le .env doit être dans `C:\MonDossier\.env`
+- Si l'exe est sur le Bureau → Le .env doit être sur le Bureau aussi
 
 #### Comment créer le fichier .env
 
