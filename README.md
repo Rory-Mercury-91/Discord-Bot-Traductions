@@ -99,7 +99,8 @@ Application Electron moderne pour créer et gérer des publications de traductio
 ├── 📄 build-windows.ps1             # Script de build Windows
 ├── 📄 package.json                  # Configuration npm
 ├── 📄 requirements.txt              # Dépendances Python
-└── 📄 render.yaml                   # Configuration Render.com (hébergement)
+├── 📄 fly-bots.toml                 # Configuration Fly.io (bots)
+└── 📄 fly-api.toml                  # Configuration Fly.io (API)
 ```
 
 ### Flux de Publication
@@ -174,15 +175,15 @@ pip install -r requirements.txt
 
 Pour un fonctionnement 24/7, il est recommandé d'héberger les bots sur un service cloud gratuit :
 
-**Solution recommandée : [Render.com](https://render.com)** (gratuit)
-- 2 services gratuits (750h/mois chacun)
-- Déploiement Git automatique
-- Support Python + WebSocket
-- Configuration via `render.yaml` incluse
+**Solution recommandée : [Fly.io](https://fly.io)** (gratuit)
+- 3 machines gratuites (parfait pour vos 2 bots + API)
+- 160 GB/mois de trafic gratuit
+- Excellent support Python + WebSocket
+- Configuration via `fly-bots.toml` et `fly-api.toml` incluse
 
-**Voir le guide complet** : `docs_perso/DEPLOIEMENT_RENDER.md` (disponible après clonage)
+**Voir le guide complet** : `docs_perso/DEPLOIEMENT_FLYIO.md` (disponible après clonage)
 
-**Alternative :** [Fly.io](https://fly.io) (3 machines gratuites)
+**Alternative :** [Oracle Cloud](https://www.oracle.com/cloud/free/) (2 instances ARM gratuites à vie)
 
 ---
 

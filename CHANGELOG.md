@@ -6,6 +6,32 @@ Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/)
 et ce projet adhère au [Semantic Versioning](https://semver.org/lang/fr/).
 
 ---
+
+## [1.0.3] - 2026-01-13
+
+### 🔄 Modifié
+
+#### 🌐 Migration vers Fly.io
+- **Remplacement de Render.com par Fly.io** (Render est devenu payant)
+- **Configuration Fly.io** : 2 fichiers `fly-bots.toml` et `fly-api.toml`
+  - Machine 1 : Bots Discord combinés (background)
+  - Machine 2 : API Publisher (web service)
+  - Plan gratuit : 3 machines + 160 GB/mois de trafic
+- **Documentation mise à jour** : Guide de déploiement Fly.io complet
+
+### ❌ Supprimé
+
+- `render.yaml` - Configuration Render.com obsolète
+- `docs_perso/DEPLOIEMENT_RENDER.md` - Guide Render.com
+
+### 📦 Fichiers ajoutés
+
+- `fly-bots.toml` - Configuration Fly.io pour les bots Discord
+- `fly-api.toml` - Configuration Fly.io pour l'API Publisher
+- `docs_perso/DEPLOIEMENT_FLYIO.md` - Guide complet de déploiement Fly.io (non versionné)
+
+---
+
 ## [1.0.2] - 2026-01-13
 
 ### ✨ Ajouté
