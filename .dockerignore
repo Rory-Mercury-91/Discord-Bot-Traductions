@@ -1,0 +1,72 @@
+# Fichiers sensibles - NE JAMAIS COMMIT
+.env
+.env.local
+.env.*.local
+*.env
+GUIDE_INSTALLATION.txt
+daitenshi_bot_discord.py
+Procfile_daitenshi
+publisher_config.json
+
+# Tokens et clés API
+*_token.txt
+*_key.txt
+
+# Documentation personnelle (non versionnée)
+docs_perso/
+*.example
+
+# Node modules
+node_modules/
+frontend/node_modules/
+
+# Build outputs
+dist/
+release/
+frontend/dist/
+
+# Electron builder cache
+.electron-builder-cache/
+*.cache
+
+# User data (images uploadées)
+images/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+~*
+
+# Test files
+TEST_*.md
