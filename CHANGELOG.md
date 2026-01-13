@@ -7,6 +7,36 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/lang/fr/).
 
 ---
 
+## [1.0.4] - 2026-01-13
+
+### ✨ Ajouté
+
+#### 🏠 Hébergement local automatique
+- **Lancement automatique des bots** : Les bots Discord démarrent automatiquement au lancement de l'application Electron
+  - `startPythonBots()` : Lance `python/main_bots.py` en arrière-plan
+  - `startPythonApi()` : Lance `python/publisher_api.py` en arrière-plan
+  - Logs des bots visibles dans la console Electron (`Ctrl+Shift+I`)
+- **Arrêt automatique** : Les processus Python sont arrêtés proprement à la fermeture de l'app
+  - Gestion du lifecycle avec `before-quit` et `window-all-closed`
+  - `stopPythonProcesses()` : Kill propre des processus
+
+### ❌ Supprimé
+
+- **Configuration Fly.io** : Remplacée par hébergement local automatique
+  - `fly-bots.toml` - Configuration bots Fly.io
+  - `fly-api.toml` - Configuration API Fly.io
+  - `Dockerfile`, `Dockerfile.api`, `.dockerignore` - Dockerfiles
+  - `docs_perso/DEPLOIEMENT_FLYIO.md` - Guide Fly.io
+
+### 🔄 Modifié
+
+#### 📦 Simplification de l'architecture
+- **Plus besoin de cloud** : Tout fonctionne en local sur le PC de l'utilisateur
+- **Configuration .env unique** : Un seul fichier `.env` pour tous les services
+- **Expérience utilisateur améliorée** : Plus besoin de lancer manuellement les bots dans VS Code
+
+---
+
 ## [1.0.3] - 2026-01-13
 
 ### 🔄 Modifié

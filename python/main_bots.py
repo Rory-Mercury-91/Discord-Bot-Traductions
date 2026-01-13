@@ -1,12 +1,17 @@
 """
 Main - Bots Discord combinés
 Lance bot_discord_server1.py et bot_discord_server2.py en parallèle
-Optimisé pour hébergement sur Render.com / Fly.io
+Optimisé pour hébergement local avec Electron
 """
 import asyncio
 import os
 import sys
 from dotenv import load_dotenv
+
+# Fix encoding pour Windows
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 
 load_dotenv()
 

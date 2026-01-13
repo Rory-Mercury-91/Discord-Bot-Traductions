@@ -94,13 +94,11 @@ Application Electron moderne pour créer et gérer des publications de traductio
 ├── 📁 assets/                       # Ressources (icônes)
 │   └── icon.ico                    # Icône de l'application
 │
-├── 📄 main.js                       # Electron main process
+├── 📄 main.js                       # Electron main process (+ lancement auto des bots)
 ├── 📄 preload.js                    # Electron preload bridge (IPC sécurisé)
 ├── 📄 build-windows.ps1             # Script de build Windows
 ├── 📄 package.json                  # Configuration npm
-├── 📄 requirements.txt              # Dépendances Python
-├── 📄 fly-bots.toml                 # Configuration Fly.io (bots)
-└── 📄 fly-api.toml                  # Configuration Fly.io (API)
+└── 📄 requirements.txt              # Dépendances Python
 ```
 
 ### Flux de Publication
@@ -171,19 +169,19 @@ source venv/bin/activate  # Linux/Mac
 pip install -r requirements.txt
 ```
 
-### 🌐 Hébergement des Bots (Recommandé)
+### � Hébergement local automatique
 
-Pour un fonctionnement 24/7, il est recommandé d'héberger les bots sur un service cloud gratuit :
+Les bots Discord sont **lancés automatiquement** au démarrage de l'application Electron !
 
-**Solution recommandée : [Fly.io](https://fly.io)** (gratuit)
-- 3 machines gratuites (parfait pour vos 2 bots + API)
-- 160 GB/mois de trafic gratuit
-- Excellent support Python + WebSocket
-- Configuration via `fly-bots.toml` et `fly-api.toml` incluse
+- ✅ **Démarrage automatique** : Les bots se lancent quand vous ouvrez l'app
+- ✅ **Arrêt automatique** : Les bots s'arrêtent quand vous fermez l'app
+- ✅ **Aucune configuration** : Tout fonctionne en local sur votre PC
+- ✅ **Logs dans la console** : `Ctrl+Shift+I` pour voir les logs des bots
 
-**Voir le guide complet** : `docs_perso/DEPLOIEMENT_FLYIO.md` (disponible après clonage)
-
-**Alternative :** [Oracle Cloud](https://www.oracle.com/cloud/free/) (2 instances ARM gratuites à vie)
+**Configuration requise** :
+1. Fichier `.env` à la racine avec vos tokens Discord
+2. Python installé avec les dépendances (`pip install -r requirements.txt`)
+3. Lancer l'application : `npm run dev` (développement) ou l'exécutable (production)
 
 ---
 

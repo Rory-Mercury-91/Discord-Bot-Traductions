@@ -3,10 +3,16 @@ API Publisher - Serveur 1 : Création de posts Discord
 API REST pour créer des posts de forum Discord automatiquement
 """
 import os
+import sys
 import json
 import aiohttp
 from aiohttp import web
 from dotenv import load_dotenv
+
+# Fix encoding pour Windows
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 
 load_dotenv()
 

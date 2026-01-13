@@ -2,6 +2,91 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const fsp = require('fs').promises;
+const { spawn } = require('child_process');
+
+// Processus Python pour les bots
+let pythonBotsProcess = null;
+let pythonApiProcess = null;
+
+function startPythonBots() {
+  // Chemin vers le script Python des bots
+  const pythonScript = path.join(__dirname, 'python', 'main_bots.py');
+  
+  // Vérifier si le fichier existe
+  if (!fs.existsSync(pythonScript)) {
+    console.warn('⚠️  Bots Python non trouvés:', pythonScript);
+    return;
+  }
+
+  console.log('🤖 Démarrage des bots Discord...');
+  
+  // Lancer le processus Python
+  pythonBotsProcess = spawn('python', [pythonScript], {
+    cwd: __dirname,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  // Logger les sorties
+  pythonBotsProcess.stdout.on('data', (data) => {
+    console.log('[Bots]', data.toString().trim());
+  });
+
+  pythonBotsProcess.stderr.on('data', (data) => {
+    console.error('[Bots Error]', data.toString().trim());
+  });
+
+  pythonBotsProcess.on('close', (code) => {
+    console.log(`🤖 Bots arrêtés (code: ${code})`);
+    pythonBotsProcess = null;
+  });
+}
+
+function startPythonApi() {
+  // Chemin vers le script Python de l'API
+  const pythonScript = path.join(__dirname, 'python', 'publisher_api.py');
+  
+  // Vérifier si le fichier existe
+  if (!fs.existsSync(pythonScript)) {
+    console.warn('⚠️  API Publisher non trouvée:', pythonScript);
+    return;
+  }
+
+  console.log('🚀 Démarrage de l\'API Publisher...');
+  
+  // Lancer le processus Python
+  pythonApiProcess = spawn('python', [pythonScript], {
+    cwd: __dirname,
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+
+  // Logger les sorties
+  pythonApiProcess.stdout.on('data', (data) => {
+    console.log('[API]', data.toString().trim());
+  });
+
+  pythonApiProcess.stderr.on('data', (data) => {
+    console.error('[API Error]', data.toString().trim());
+  });
+
+  pythonApiProcess.on('close', (code) => {
+    console.log(`🚀 API arrêtée (code: ${code})`);
+    pythonApiProcess = null;
+  });
+}
+
+function stopPythonProcesses() {
+  console.log('⏹️  Arrêt des processus Python...');
+  
+  if (pythonBotsProcess) {
+    pythonBotsProcess.kill();
+    pythonBotsProcess = null;
+  }
+  
+  if (pythonApiProcess) {
+    pythonApiProcess.kill();
+    pythonApiProcess = null;
+  }
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -38,7 +123,23 @@ app.whenReady().then(async () => {
   const imagesDir = path.join(app.getPath('userData'), 'images');
   await fsp.mkdir(imagesDir, { recursive: true });
   
+  // Démarrer les services Python en arrière-plan
+  startPythonBots();
+  startPythonApi();
+  
   createWindow();
+});
+
+// Arrêter proprement les processus Python à la fermeture
+app.on('before-quit', () => {
+  stopPythonProcesses();
+});
+
+app.on('window-all-closed', () => {
+  stopPythonProcesses();
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
 });
 
 // --- Publisher IPC & simple config persistence ---

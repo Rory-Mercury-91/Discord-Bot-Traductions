@@ -14,11 +14,12 @@
     "pack": "npm run build:frontend && electron-builder"
   },
   "devDependencies": {
-    "electron": "^25.0.0",
-    "cross-env": "^7.0.3",
+    "@flydotio/dockerfile": "^0.7.10",
     "concurrently": "^8.2.2",
-    "wait-on": "^7.2.0",
-    "electron-builder": "^24.6.0"
+    "cross-env": "^7.0.3",
+    "electron": "^25.0.0",
+    "electron-builder": "^24.6.0",
+    "wait-on": "^7.2.0"
   },
   "build": {
     "appId": "com.example.publicationgenerator",
@@ -32,7 +33,9 @@
       "target": [
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
