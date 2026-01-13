@@ -69,9 +69,9 @@ body{margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Seg
 .editor{background:var(--panel); padding:12px; border-radius:8px; border:1px solid var(--border); display:flex; flex-direction:column; gap:12px}
 .preview-container{background:var(--panel); padding:12px; border-radius:8px; border:1px solid var(--border); display:flex; flex-direction:column; gap:12px}
 
-/* Layout responsive - Desktop: 2 colonnes */
+/* Layout responsive - Desktop: 60% content / 40% preview */
 @media (min-width: 1024px) {
-  .app-grid{grid-template-columns: 1fr 450px;}
+  .app-grid{grid-template-columns: 6fr 4fr;}
 }
 
 button{background:transparent; border:1px solid var(--border); color:inherit; padding:8px 10px; border-radius:6px; cursor:pointer}

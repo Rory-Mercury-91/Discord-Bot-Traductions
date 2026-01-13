@@ -22,7 +22,7 @@ struct PublishPayload {
 }
 
 // Obtenir le chemin Python (externe au dossier python-portable/)
-fn get_python_path(app: &AppHandle) -> PathBuf {
+fn get_python_path(_app: &AppHandle) -> PathBuf {
     if cfg!(debug_assertions) {
         // Dev: Python portable local (chemin absolu)
         let workdir = std::env::current_dir()
@@ -33,17 +33,18 @@ fn get_python_path(app: &AppHandle) -> PathBuf {
         workdir.join("python-portable").join("python.exe")
     } else {
         // Production: Python portable à côté de l'exe
-        app.path().resource_dir()
-            .expect("Failed to get resource dir")
+        let exe_dir = std::env::current_exe()
+            .expect("Failed to get exe path")
             .parent()
-            .expect("Failed to get parent dir")
-            .join("python-portable")
-            .join("python.exe")
+            .expect("Failed to get exe dir")
+            .to_path_buf();
+        let python_path = exe_dir.join("..").join("python-portable").join("python.exe");
+        python_path.canonicalize().unwrap_or(python_path)
     }
 }
 
 // Obtenir le dossier de travail Python
-fn get_python_workdir(app: &AppHandle) -> PathBuf {
+fn get_python_workdir(_app: &AppHandle) -> PathBuf {
     if cfg!(debug_assertions) {
         // Dev: racine du projet (D:\Bot_Discord)
         // En dev, on est dans src-tauri/, donc on remonte d'un niveau
@@ -53,12 +54,14 @@ fn get_python_workdir(app: &AppHandle) -> PathBuf {
             .expect("Failed to get parent")
             .to_path_buf()
     } else {
-        // Production: à côté de l'exe
-        app.path().resource_dir()
-            .expect("Failed to get resource dir")
+        // Production: à côté de l'exe (parent de target/release/)
+        let exe_dir = std::env::current_exe()
+            .expect("Failed to get exe path")
             .parent()
-            .expect("Failed to get parent dir")
-            .to_path_buf()
+            .expect("Failed to get exe dir")
+            .to_path_buf();
+        let workdir = exe_dir.join("..");
+        workdir.canonicalize().unwrap_or(workdir)
     }
 }
 
