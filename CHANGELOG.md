@@ -31,10 +31,28 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/lang/fr/).
   - ErrorModal claire avec code d'erreur et suggestions
   - Pas de confirmation (blocage direct pour éviter erreurs)
 
+#### Badge statut API
+- **Correction du dropdown transparent** :
+  - Fond opaque pour meilleure lisibilité
+  - Fermeture automatique en cliquant en dehors
+  - Effet de flou et ombre prononcée pour détacher visuellement
+
+### 🐛 Corrections
+
+#### Production - API Python
+- **Fix: API ne démarre pas en production** :
+  - Correction du chemin vers les scripts Python en production
+  - Ajout de `extraResources` dans package.json pour inclure le dossier python/
+  - Détection automatique dev vs production (`process.resourcesPath`)
+  - Vérification de Python au démarrage avec message d'erreur clair
+  - Ajout de INSTALLATION_PROD.md avec guide complet
+
 ### 🔧 Technique
 - Ajout de la fonction IPC `getFileSize` dans preload.js et main.js
 - Fonction `formatFileSize()` pour formater les tailles de fichier
 - Hook `useEffect` pour récupérer la taille au chargement du composant
+- Fonction `checkPythonInstalled()` pour vérifier la disponibilité de Python
+- Gestion du clic en dehors pour ApiStatusBadge avec `useRef` et `useEffect`
 
 ### 🧹 Nettoyage de code
 - **Suppression de code résiduel (API key système retiré en v1.0.6)** :
