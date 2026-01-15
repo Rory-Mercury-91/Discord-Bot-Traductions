@@ -166,6 +166,10 @@ type AppContextValue = {
   addPublishedPost: (p: PublishedPost) => void;
   updatePublishedPost: (id: string, p: Partial<PublishedPost>) => void;
   deletePublishedPost: (id: string) => void;
+  fetchHistoryFromAPI: () => Promise<void>;
+  
+  // Rate limit protection
+  rateLimitCooldown: number | null;
 
   // Edit mode
   editingPostId: string | null;

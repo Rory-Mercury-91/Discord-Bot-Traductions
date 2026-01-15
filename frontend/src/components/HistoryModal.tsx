@@ -73,7 +73,7 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
       .then(() => {
         setIsLoading(false);
       })
-      .catch((e) => {
+      .catch((e: any) => {
         setIsLoading(false);
         setError('Erreur lors du chargement de l\'historique depuis l\'API');
         console.error('Erreur chargement historique:', e);
