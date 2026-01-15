@@ -1,6 +1,5 @@
 """
-API Publisher - Corrigé pour gérer FormData ET JSON
-Version avec correction du crash ValueError (unpacking)
+API Publisher - Version Complète et Corrigée
 """
 
 import os
@@ -197,20 +196,33 @@ async def _create_forum_post(session, forum_id, title, content, tags_raw, images
     if status >= 300: return False, {"status": status, "discord": data}
     return True, {"thread_id": data.get("id"), "message_id": data.get("id"), "guild_id": data.get("guild_id"), "thread_url": f"https://discord.com/channels/{data.get('guild_id')}/{data.get('id')}"}
 
+def _with_cors(request, resp):
+    origin = request.headers.get("Origin", "*")
+    resp.headers.update({"Access-Control-Allow-Origin": origin, "Access-Control-Allow-Methods": "GET,POST,PATCH,OPTIONS", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Credentials": "true"})
+    return resp
+
+# --- HANDLERS HTTP ---
+
 async def health(request):
     return _with_cors(request, web.json_response({"ok": True, "configured": config.configured, "rate_limit": rate_limiter.get_info()}))
 
 async def options_handler(request):
     return _with_cors(request, web.Response(status=204))
 
-def _with_cors(request, resp):
-    origin = request.headers.get("Origin", "*")
-    resp.headers.update({"Access-Control-Allow-Origin": origin, "Access-Control-Allow-Methods": "GET,POST,PATCH,OPTIONS", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Credentials": "true"})
-    return resp
+async def configure(request):
+    """Handler pour configurer l'API (Requis par main_bots.py)"""
+    try:
+        data = await request.json()
+        config.update_from_frontend(data)
+        resp = web.json_response({"ok": True, "message": "Configuration mise à jour", "configured": config.configured})
+        return _with_cors(request, resp)
+    except Exception as e:
+        logger.error(f"Erreur configuration: {e}")
+        return _with_cors(request, web.json_response({"ok": False, "error": str(e)}, status=400))
 
 async def forum_post(request):
-    api_key = request.headers.get("X-API-KEY")
-    if api_key != config.PUBLISHER_API_KEY: return _with_cors(request, web.json_response({"ok": False, "error": "unauthorized"}, status=401))
+    api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
+    if api_key != config.PUBLISHER_API_KEY: return _with_cors(request, web.json_response({"ok": False}, status=401))
     
     title, content, tags, template, images = "", "", "", "my", []
     reader = await request.multipart()
@@ -228,12 +240,11 @@ async def forum_post(request):
     
     if not ok: return _with_cors(request, web.json_response({"ok": False, "details": result}, status=500))
     
-    history_manager.add_post({"id": f"post_{int(time.time())}", "timestamp": int(time.time() * 1000), "title": title, "content": content, "tags": tags, "template": template, "thread_id": result["thread_id"], "message_id": result["message_id"], "discord_url": result["thread_url"]})
+    history_manager.add_post({"id": f"post_{int(time.time())}", "timestamp": int(time.time() * 1000), "title": title, "content": content, "tags": tags, "template": template, "thread_id": result["thread_id"], "message_id": result["message_id"], "discord_url": result["thread_url"], "forum_id": forum_id})
     return _with_cors(request, web.json_response({"ok": True, **result}))
 
 async def forum_post_update(request):
-    """MODIFIÉ : Correction du unpacking status, data, _"""
-    api_key = request.headers.get("X-API-KEY")
+    api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
     if api_key != config.PUBLISHER_API_KEY: return _with_cors(request, web.json_response({"ok": False}, status=401))
 
     title, content, tags, template, images, thread_id, message_id = "", "", "", "my", [], None, None
@@ -253,10 +264,10 @@ async def forum_post_update(request):
         message_path = f"/channels/{thread_id}/messages/{message_id}"
         if images:
             form = aiohttp.FormData()
-            form.add_field("payload_json", json.dumps({"content": content or " "}), content_type="application/json")
+            form.add_field("payload_json", json.dumps({"content": content or " "}))
             for i, img in enumerate(images):
-                form.add_field(f"files[{i}]", img["bytes"], filename=img["filename"], content_type=img["content_type"])
-            # CORRECTION ICI : Ajout du troisième argument _
+                form.add_field(f"files[{i}]", img["bytes"], filename=img["filename"])
+            # CORRECTION UNPACKING ICI
             status, data, _ = await _discord_patch_form(session, message_path, form)
         else:
             status, data = await _discord_patch_json(session, message_path, {"content": content or " "})
@@ -266,16 +277,16 @@ async def forum_post_update(request):
         applied_tag_ids = await _resolve_applied_tag_ids(session, _pick_forum_id(template), tags)
         status, data = await _discord_patch_json(session, f"/channels/{thread_id}", {"name": title, "applied_tags": applied_tag_ids})
 
-    history_manager.add_post({"id": f"post_{int(time.time())}", "timestamp": int(time.time() * 1000), "title": title, "content": content, "tags": tags, "thread_id": thread_id, "updated": True})
+    history_manager.add_post({"id": f"post_{int(time.time())}", "timestamp": int(time.time() * 1000), "title": title, "content": content, "tags": tags, "thread_id": thread_id, "updated": True, "message_id": message_id, "template": template})
     return _with_cors(request, web.json_response({"ok": True, "updated": True, "thread_id": thread_id}))
 
 async def _discord_patch_form(session, path, form):
-    """MODIFIÉ : Retourne status, data, headers pour être compatible avec _discord_request"""
+    """Envoie une requête PATCH avec FormData et retourne les 3 valeurs attendues"""
     status, data, headers = await _discord_request(session, "PATCH", path, headers=_auth_headers(), data=form)
     return status, data, headers
 
 async def get_history(request):
-    api_key = request.headers.get("X-API-KEY")
+    api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
     if api_key != config.PUBLISHER_API_KEY: return _with_cors(request, web.json_response({"ok": False}, status=401))
     posts = history_manager.get_posts()
     return _with_cors(request, web.json_response({"ok": True, "posts": posts, "count": len(posts)}))
@@ -286,6 +297,7 @@ app.add_routes([
     web.post('/api/forum-post', forum_post),
     web.post('/api/forum-post/update', forum_post_update),
     web.get('/api/history', get_history),
+    web.post('/api/configure', configure),
     web.options('/{tail:.*}', options_handler)
 ])
 
