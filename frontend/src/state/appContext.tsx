@@ -49,13 +49,13 @@ export type PublishedPost = {
 };
 
 const defaultVarsConfig: VarConfig[] = [
-  {name: 'Name_game', label: 'Nom du jeu', placeholder: 'Lost Solace'},
+  {name: 'Game_name', label: 'Nom du jeu', placeholder: 'Lost Solace'},
   {name: 'Game_version', label: 'Version du jeu', placeholder: 'v0.1'},
   {name: 'Translate_version', label: 'Version de la traduction', placeholder: 'v0.1'},
   {name: 'Game_link', label: 'Lien du jeu', placeholder: 'https://...'},
   {name: 'Translate_link', label: 'Lien de la traduction', placeholder: 'https://...'},
-  {name: 'traductor', label: 'Traducteur', placeholder: 'Rory Mercury 91', hasSaveLoad: true},
-  {name: 'overview', label: 'Synopsis', placeholder: 'Synopsis du jeu...', type: 'textarea'}
+  {name: 'Traductor', label: 'Traducteur', placeholder: 'Rory Mercury 91', hasSaveLoad: true},
+  {name: 'Overview', label: 'Synopsis', placeholder: 'Synopsis du jeu...', type: 'textarea'}
 ];
 
 const defaultTemplates: Template[] = [
@@ -63,18 +63,18 @@ const defaultTemplates: Template[] = [
     id: 'mes',
     name: 'Mes traductions',
     type: 'my',
-    content: `## :flag_fr: [game_name] est disponible en français ! :tada:
+    content: `## :flag_fr: [Game_name] est disponible en français ! :tada:
 
 Salut l'équipe ! Le patch est enfin prêt, vous pouvez l'installer dès maintenant pour profiter du titre dans notre langue. Bon jeu à tous ! :point_down:
 
 ### :computer: Infos du Mod & Liens de Téléchargement
-* **Titre du jeu :** [game_name]
-* **Version du jeu :** [game_version]
-* **Version traduite :** [translate_version]
-* **Lien du jeu (VO) :** [Accès au jeu original]([game_link])
-* **Lien de la Traduction :** [Téléchargez la traduction FR ici !]([translate_link])
+* **Titre du jeu :** [Game_name]
+* **Version du jeu :** [Game_version]
+* **Version traduite :** [Translate_version]
+* **Lien du jeu (VO) :** [Accès au jeu original]([Game_link])
+* **Lien de la Traduction :** [Téléchargez la traduction FR ici !]([Translate_link])
 > **Synopsis du jeu :**
-> [overview]
+> [Overview]
 [instruction]
 ### :sparkling_heart: Soutenez le Traducteur !
 Pour m'encourager et soutenir mes efforts :
@@ -84,19 +84,19 @@ Pour m'encourager et soutenir mes efforts :
     id: 'partenaire',
     name: 'Traductions partenaire',
     type: 'partner',
-    content: `## :flag_fr: [game_name] est disponible en français ! :tada:
+    content: `## :flag_fr: [Game_name] est disponible en français ! :tada:
 
 Salut l'équipe ! Le patch est enfin prêt, vous pouvez l'installer dès maintenant pour profiter du titre dans notre langue. Bon jeu à tous ! :point_down:
 
 ### :computer: Infos du Mod & Liens de Téléchargement
-* **Traducteur :** [translator]
-* **Titre du jeu :** [game_name]
-* **Version du jeu :** [game_version]
-* **Version traduite :** [translate_version]
-* **Lien du jeu (VO) :** [Accès au jeu original]([game_link])
-* **Lien de la Traduction :** [Téléchargez la traduction FR ici !]([translate_link])
+* **Traducteur :** [Traductor]
+* **Titre du jeu :** [Game_name]
+* **Version du jeu :** [Game_version]
+* **Version traduite :** [Translate_version]
+* **Lien du jeu (VO) :** [Accès au jeu original]([Game_link])
+* **Lien de la Traduction :** [Téléchargez la traduction FR ici !]([Translate_link])
 > **Synopsis du jeu :**
-> [overview]
+> [Overview]
 [instruction]`
   }
 ];
@@ -272,7 +272,14 @@ export function AppProvider({children}: {children: React.ReactNode}){
   });
 
   // API Configuration - URL is now hardcoded for local API
-  const apiUrl = 'http://localhost:8080/api/forum-post';
+  // Définir l’URL de base en consultant d’abord localStorage, puis .env, et enfin un fallback Koyeb
+  const defaultApiBase = 
+    localStorage.getItem('apiBase') ||
+    import.meta.env.VITE_PUBLISHER_API_URL || 
+    'https://dependent-klarika-rorymercury91-e1486cf2.koyeb.app';
+
+  // L’URL complète pour publier un post (sans la partie forum-post par défaut)
+  const apiUrl = `${defaultApiBase}/api/forum-post`;
 
   const [publishInProgress, setPublishInProgress] = useState<boolean>(false);
   const [lastPublishResult, setLastPublishResult] = useState<string | null>(null);
@@ -299,30 +306,26 @@ export function AppProvider({children}: {children: React.ReactNode}){
       try {
         const configStr = localStorage.getItem('discordConfig');
         if (!configStr) return;
-        
         const discordConfig = JSON.parse(configStr);
         if (!discordConfig.discordPublisherToken) return;
-        
-        // FIX: URL correcte pour l'API locale
-        const response = await fetch('http://localhost:8080/api/configure', {
+        // utilise l’URL de base dynamique
+        const response = await fetch(`${defaultApiBase}/api/configure`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(discordConfig)
         });
-        
         if (response.ok) {
-          console.log('✅ Configuration Discord envoyée à l\'API');
+          console.log('✅ Configuration Discord envoyée à l’API');
         } else {
-          console.warn('⚠️ Échec de l\'envoi de la configuration à l\'API');
+          console.warn('⚠️ Échec de l’envoi de la configuration à l’API');
         }
       } catch (error) {
-        console.error('❌ Erreur lors de l\'envoi de la configuration:', error);
+        console.error('❌ Erreur lors de l’envoi de la configuration:', error);
       }
     };
-    
     const timer = setTimeout(sendConfigToAPI, 5000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [defaultApiBase]);
 
   useEffect(()=>{
     localStorage.setItem('customTemplates', JSON.stringify(templates));
@@ -352,9 +355,9 @@ export function AppProvider({children}: {children: React.ReactNode}){
       const templateType = (templates[currentTemplateIdx]?.type) || '';
       const isEditMode = editingPostId !== null && editingPostData !== null;
 
-      // CHANGEMENT ICI : Lire l'URL depuis localStorage ou utiliser localhost par défaut
+      // CHANGEMENT ICI : Lire l'URL depuis localStorage
       const storedApiUrl = localStorage.getItem('apiUrl');
-      const baseUrl = storedApiUrl || 'http://localhost:8080';
+      const baseUrl = localStorage.getItem('apiBase') || defaultApiBase;
       const apiEndpoint = `${baseUrl}/api/forum-post`;
 
       // Logging removed – publication started

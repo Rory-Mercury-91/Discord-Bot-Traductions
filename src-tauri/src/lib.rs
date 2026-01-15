@@ -48,47 +48,37 @@ fn get_python_workdir(app: &AppHandle) -> Result<PathBuf, String> {
     }
 }
 
-// Commande : Test de connexion à l'API distante. Cette commande interroge
-// l'endpoint /health de l'API Koyeb pour vérifier que le service est en ligne.
 #[tauri::command]
 async fn test_api_connection() -> Result<serde_json::Value, String> {
     let client = reqwest::Client::new();
-    // Remplacez cette URL par l'URL de votre service Koyeb si nécessaire.
-    let response = client
-        .get("http://localhost:8080/health")
-        .send()
-        .await
+    // Récupère l’URL de base de l’API, par défaut l’URL Koyeb
+    let base_url = std::env::var("PUBLISHER_API_URL")
+        .unwrap_or_else(|_| "https://dependent-klarika-rorymercury91-e1486cf2.koyeb.app".to_string());
+    let url = format!("{}/health", base_url.trim_end_matches('/'));
+    let response = client.get(&url).send().await
         .map_err(|e| format!("Erreur connexion API: {}", e))?;
-
-    let json = response
-        .json::<serde_json::Value>()
-        .await
+    let json = response.json::<serde_json::Value>().await
         .map_err(|e| format!("Erreur parsing JSON: {}", e))?;
     Ok(json)
 }
 
-// Commande : Publier un post via l'API. Envoie les données au serveur
-// distant en incluant la clé API dans les en-têtes. L'URL doit être mise à
-// jour pour pointer vers votre instance Koyeb.
 #[tauri::command]
 async fn publish_post(payload: PublishPayload) -> Result<serde_json::Value, String> {
-    // Lire la clé API depuis le .env
     let api_key = std::env::var("PUBLISHER_API_KEY").unwrap_or_default();
     let client = reqwest::Client::new();
-    let response = client
-        .post("http://localhost:8080/api/forum-post")
+    let base_url = std::env::var("PUBLISHER_API_URL")
+        .unwrap_or_else(|_| "https://dependent-klarika-rorymercury91-e1486cf2.koyeb.app".to_string());
+    let url = format!("{}/api/forum-post", base_url.trim_end_matches('/'));
+    let response = client.post(&url)
         .json(&payload)
         .header("X-API-KEY", api_key)
-        .send()
-        .await
+        .send().await
         .map_err(|e| format!("Erreur publication: {}", e))?;
-
-    let json = response
-        .json::<serde_json::Value>()
-        .await
+    let json = response.json::<serde_json::Value>().await
         .map_err(|e| format!("Erreur parsing JSON: {}", e))?;
     Ok(json)
 }
+
 
 // Commande : Sauvegarder une image. Copie l'image vers le répertoire
 // <workdir>/images et renvoie le nom de fichier.
