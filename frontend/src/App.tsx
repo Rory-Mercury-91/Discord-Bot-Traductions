@@ -2,7 +2,8 @@ import React, {useState, useEffect} from 'react';
 import { AppProvider, useApp } from './state/appContext';
 import { ToastProvider, useToast } from './components/ToastProvider';
 import PublicationType from './components/PublicationType';
-import LogsModal from './components/LogsModal';
+// LogsModal has been removed.  Logging is now handled entirely by Koyeb so
+// there is no separate UI to display local logs.
 import ContentEditor from './components/ContentEditor';
 import Preview from './components/Preview';
 import TemplatesModal from './components/TemplatesModal';
@@ -39,7 +40,7 @@ function AppContentInner() {
   const [openHistory, setOpenHistory] = useState(false); // <--- openHistory est ICI
   const [openStats, setOpenStats] = useState(false);
   const [openShortcutsHelp, setOpenShortcutsHelp] = useState(false);
-  const [openLogs, setOpenLogs] = useState(false);
+  // Removed openLogs state – there is no log modal in the Koyeb version
   const [previewMode, setPreviewMode] = useState<'raw' | 'styled'>('raw');
 
   // C. État local du Thème (il est bien ici aussi)
@@ -145,7 +146,7 @@ function AppContentInner() {
                 <button onClick={()=>setOpenHistory(true)}>📋 Historique</button>
                 <button onClick={()=>setOpenStats(true)}>📈 Statistiques</button>
                 <button onClick={()=>setOpenConfig(true)}>⚙️ Configuration API</button>
-                <button onClick={()=>setOpenLogs(true)}>📝 Voir les logs</button>
+                {/* Removed logs button – Koyeb collects logs automatically */}
                 <ApiStatusBadge />
                 <button 
                   onClick={() => setOpenShortcutsHelp(true)}
@@ -204,7 +205,7 @@ function AppContentInner() {
           {openHistory && <HistoryModal onClose={()=>setOpenHistory(false)} />}
           {openStats && <StatsModal onClose={()=>setOpenStats(false)} />}
           {openShortcutsHelp && <ShortcutsHelpModal onClose={()=>setOpenShortcutsHelp(false)} />}
-          {openLogs && <LogsModal onClose={()=>setOpenLogs(false)} />}
+          {/* Removed LogsModal – log display is no longer supported */}
         </div>
       </ToastProvider>
     </AppProvider>

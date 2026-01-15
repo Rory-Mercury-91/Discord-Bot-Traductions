@@ -2,7 +2,8 @@ import React, {createContext, useContext, useEffect, useMemo, useState} from 're
 import ErrorModal from '../components/ErrorModal';
 import { useDebounce } from '../hooks/useDebounce';
 import { tauriAPI } from '../lib/tauri-api';
-import { logger } from '../lib/logger';
+// The local logger has been removed.  Koyeb collects logs automatically, so
+// there is no need to import or use the custom logger.
 
 export type VarConfig = {
   name: string;
@@ -356,19 +357,11 @@ export function AppProvider({children}: {children: React.ReactNode}){
       const baseUrl = storedApiUrl || 'http://localhost:8080';
       const apiEndpoint = `${baseUrl}/api/forum-post`;
 
-      await logger.publish('Démarrage', {
-          isEditMode,
-          title,
-          templateType,
-          tagsCount: tags.split(',').filter(t => t.trim()).length,
-          imagesCount: uploadedImages.length,
-          contentLength: content.length,
-          apiUrl: apiEndpoint // Log l'URL utilisée
-      });
+      // Logging removed – publication started
 
       // Validation: titre obligatoire
       if(!title || title.length === 0){ 
-          await logger.error('Validation échouée: Titre manquant');
+          // Logging removed – title missing
           setLastPublishResult('❌ Titre obligatoire');
           showErrorModal({
               code: 'VALIDATION_ERROR',
@@ -381,7 +374,7 @@ export function AppProvider({children}: {children: React.ReactNode}){
       
       // Validation: API endpoint requis
       if(!baseUrl || baseUrl.trim().length === 0){ 
-          await logger.error('Validation échouée: URL API manquante');
+          // Logging removed – API URL missing
           setLastPublishResult('❌ URL API manquante dans Configuration');
           showErrorModal({
               code: 'CONFIG_ERROR',
@@ -394,7 +387,7 @@ export function AppProvider({children}: {children: React.ReactNode}){
       
       // Validation: template type obligatoire
       if(templateType !== 'my' && templateType !== 'partner') {
-          await logger.error('Validation échouée: Type de template invalide', {templateType});
+          // Logging removed – invalid template type
           setLastPublishResult('❌ Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés');
           showErrorModal({
               code: 'VALIDATION_ERROR',
@@ -409,7 +402,7 @@ export function AppProvider({children}: {children: React.ReactNode}){
       setLastPublishResult(null);
 
       try{
-          await logger.info('Préparation du payload');
+          // Logging removed – preparing payload
           
           // Créer FormData pour multipart/form-data
           const formData = new FormData();
@@ -423,15 +416,12 @@ export function AppProvider({children}: {children: React.ReactNode}){
               formData.append('threadId', editingPostData.threadId);
               formData.append('messageId', editingPostData.messageId);
               formData.append('isUpdate', 'true');
-              await logger.info('Mode édition activé', {
-                  threadId: editingPostData.threadId,
-                  messageId: editingPostData.messageId
-              });
+              // Logging removed – edit mode activated
           }
           
           // Process all images
           if(uploadedImages.length > 0) {
-              await logger.info(`Traitement de ${uploadedImages.length} image(s)`);
+              // Logging removed – processing images
               for(let i = 0; i < uploadedImages.length; i++) {
                   const img = uploadedImages[i];
                   if(!img.path) continue;
@@ -460,7 +450,7 @@ export function AppProvider({children}: {children: React.ReactNode}){
           // Récupérer la clé API
           const apiKey = localStorage.getItem('apiKey') || '';
 
-          await logger.api('POST', apiEndpoint, { hasImages: uploadedImages.length });
+          // Logging removed – API request
           
           // Faire la requête avec fetch
           const response = await fetch(apiEndpoint, {
@@ -473,12 +463,7 @@ export function AppProvider({children}: {children: React.ReactNode}){
 
           const res = await response.json();
           
-          await logger.info('Réponse de l\'API reçue', {
-              ok: response.ok,
-              status: response.status,
-              hasData: !!res.thread_id,
-              error: res.error
-          });
+          // Logging removed – API response received
           
           if(!response.ok){ 
               setLastPublishResult('Erreur API: '+(res.error||'unknown'));
@@ -501,11 +486,7 @@ export function AppProvider({children}: {children: React.ReactNode}){
           let successMsg = isEditMode ? 'Mise à jour réussie' : 'Publication réussie';
           setLastPublishResult(successMsg);
           
-          await logger.success('Publication terminée', {
-              threadId: res.thread_id,
-              messageId: res.message_id,
-              discordUrl: res.thread_url || res.url
-          });
+          // Logging removed – publication finished
           
           // Save to history or update existing post
           if(res.thread_id && res.message_id) {
@@ -542,7 +523,7 @@ export function AppProvider({children}: {children: React.ReactNode}){
           
           return {ok:true, data: res};
       }catch(e:any){
-          await logger.error('Exception lors de la publication', e);
+          // Logging removed – exception during publication
           setLastPublishResult('Erreur envoi: '+String(e?.message || e));
           showErrorModal({
               code: 'NETWORK_ERROR',

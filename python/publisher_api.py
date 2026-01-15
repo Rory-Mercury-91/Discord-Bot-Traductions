@@ -21,12 +21,12 @@ if sys.platform == 'win32':
 
 load_dotenv()
 
-LOG_FILE = "errors.log"
+# Configure logging to output to stdout only.  File handling has been removed
+# because Koyeb captures standard output for log collection.
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
         logging.StreamHandler(sys.stdout)
     ]
 )

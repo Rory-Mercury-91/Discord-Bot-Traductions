@@ -10,31 +10,40 @@ interface BotInfo {
   status: BotStatus;
 }
 
-const BOT_ENDPOINTS = [
-  { name: 'Bot 1', url: 'http://127.0.0.1:5001/status' },
-  { name: 'Bot 2', url: 'http://127.0.0.1:5002/status' },
-  { name: 'Publisher', url: 'http://127.0.0.1:8081/status' }
-];
+// Endpoint definitions will be constructed dynamically from the configured API
+// base URL.  Bots run on Koyeb and expose `/api/status` for Discord bots and
+// `/api/publisher/health` for the publisher.
 
 export default function ApiStatusBadge() {
-  const [bots, setBots] = useState<BotInfo[]>(BOT_ENDPOINTS.map(b => ({ ...b, status: 'checking' as BotStatus })));
+  const { apiUrl } = useApp();
+  const [bots, setBots] = useState<BotInfo[]>([]);
   const [showDetails, setShowDetails] = useState(false);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
 
   const checkStatus = async () => {
+    if (!apiUrl) {
+      return;
+    }
+    // Build endpoints from the API base URL, trimming any trailing slash
+    const normalized = apiUrl.replace(/\/$/, '');
+    const endpoints = [
+      { name: 'Bots', url: `${normalized}/api/status` },
+      { name: 'Publisher', url: `${normalized}/api/publisher/health` }
+    ];
+    // Initialise status as checking
+    setBots(endpoints.map(b => ({ ...b, status: 'checking' as BotStatus })));
     const results: BotInfo[] = await Promise.all(
-      BOT_ENDPOINTS.map(async (bot) => {
+      endpoints.map(async (bot) => {
         try {
           const response = await fetch(bot.url, { method: 'GET' });
           if (response.ok) {
             const data = await response.json();
-            // Pour les bots Discord
-            if (bot.name.startsWith('Bot')) {
-              return { ...bot, status: data.discord_connected ? 'connected' : 'disconnected' };
+            if (bot.name === 'Bots') {
+              const connected = data && data.bots && data.bots.server1 && data.bots.server2;
+              return { ...bot, status: connected ? 'connected' : 'disconnected' };
             }
-            // Pour le publisher
             if (bot.name === 'Publisher') {
-              return { ...bot, status: data.configured ? 'connected' : 'disconnected' };
+              return { ...bot, status: data && data.configured ? 'connected' : 'disconnected' };
             }
           }
           return { ...bot, status: 'disconnected' };
@@ -46,19 +55,18 @@ export default function ApiStatusBadge() {
     setBots(results);
   };
 
-  // Check status on mount and when apiUrl changes
+  // Check status on mount and whenever the API URL changes.  We wait a few
+  // seconds before the first check and then poll every 30 seconds.
   useEffect(() => {
-    // Attendre 3 secondes au démarrage pour que les serveurs Python démarrent
-    const initialTimer = setTimeout(() => {
+    const timer = setTimeout(() => {
       checkStatus();
     }, 3000);
-    // Auto-refresh every 30 secondes
     const interval = setInterval(checkStatus, 30000);
     return () => {
-      clearTimeout(initialTimer);
+      clearTimeout(timer);
       clearInterval(interval);
     };
-  }, []);
+  }, [apiUrl]);
 
   // Close dropdown when clicking outside
   useEffect(() => {

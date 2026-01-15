@@ -4,8 +4,8 @@ import { useApp } from '../state/appContext';
 import { useToast } from './ToastProvider';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useModalScrollLock } from '../hooks/useModalScrollLock';
-import { logger } from '../lib/logger';
-import LogsModal from './LogsModal';
+// The custom logger and LogsModal have been removed.  Logging is handled by
+// Koyeb, and the log viewer is no longer part of the frontend.
 
 export default function ConfigModal({ onClose }: { onClose?: () => void }) {
   const { showToast } = useToast();
@@ -20,7 +20,7 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
 
   const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('apiUrl') || '');
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('apiKey') || '');
-  const [showLogs, setShowLogs] = useState(false);
+  // The log viewer has been removed.  No local logs are displayed in this modal.
 
   // Hooks pour fermer avec Echap et bloquer le scroll du fond
   useEscapeKey(() => onClose?.(), true);
@@ -55,7 +55,8 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
       a.click();
       showToast("Sauvegarde téléchargée", "success");
     } catch (err: any) {
-      logger.error(err?.message || "Erreur export");
+      // If export fails, report to the console and notify the user
+      console.error(err?.message || "Erreur export");
       showToast("Erreur lors de l'export", "error");
     }
   };
@@ -147,13 +148,10 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
         <div className="modal-footer" style={{ padding: '16px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button onClick={handleExportConfig}>📤 Backup</button>
-            <button onClick={() => setShowLogs(true)}>📜 Logs</button>
           </div>
           <button onClick={onClose} className="btn-secondary">Fermer</button>
         </div>
       </div>
-
-      {showLogs && <LogsModal onClose={() => setShowLogs(false)} />}
     </div>
   );
 
