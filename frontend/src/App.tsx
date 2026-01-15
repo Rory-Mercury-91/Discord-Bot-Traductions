@@ -1,47 +1,75 @@
-import React, {useState, useEffect} from 'react';
-import { AppProvider, useApp } from './state/appContext';
-import { ToastProvider, useToast } from './components/ToastProvider';
-import PublicationType from './components/PublicationType';
-// LogsModal has been removed.  Logging is now handled entirely by Koyeb so
-// there is no separate UI to display local logs.
-import ContentEditor from './components/ContentEditor';
-import Preview from './components/Preview';
-import TemplatesModal from './components/TemplatesModal';
-import TagsModal from './components/TagsModal';
-import ConfigModal from './components/ConfigModal';
-import InstructionsManagerModal from './components/InstructionsManagerModal';
-import TraductorsModal from './components/TraductorsModal';
-import HistoryModal from './components/HistoryModal';
-import StatsModal from './components/StatsModal';
+import { useEffect, useState } from 'react';
 import ApiStatusBadge from './components/ApiStatusBadge';
+import ConfigModal from './components/ConfigModal';
+import ContentEditor from './components/ContentEditor';
+import HistoryModal from './components/HistoryModal';
+import InstructionsManagerModal from './components/InstructionsManagerModal';
+import Preview from './components/Preview';
+import PublicationType from './components/PublicationType';
 import ShortcutsHelpModal from './components/ShortcutsHelpModal';
-import { useConfirm } from './hooks/useConfirm';
+import StatsModal from './components/StatsModal';
+import TagsModal from './components/TagsModal';
+import TemplatesModal from './components/TemplatesModal';
+import { ToastProvider, useToast } from './components/ToastProvider';
+import TraductorsModal from './components/TraductorsModal';
+import { AppProvider, useApp } from './state/appContext';
 
 function AppContentInner() {
-  // A. On extrait UNIQUEMENT ce qui existe dans appContext.tsx
-  const { 
-    preview, 
-    uploadedImages, 
-    allVarsConfig, 
-    setInput,
+  const {
     apiStatus,
-    setApiStatus
+    setApiStatus,
+    preview,
+    inputs,
+    uploadedImages,
+    allVarsConfig,
+    setInput,
+    postTitle,
+    setPostTitle,
+    postTags,
+    setPostTags,
+    removeImage
   } = useApp();
 
   const { showToast } = useToast();
-  const { confirm } = useConfirm();
-  
+  const [previewMode, setPreviewMode] = useState<'raw' | 'styled'>('raw');
+
+  // Fonction pour copier le preview
+  const handleCopyPreview = async () => {
+    try {
+      await navigator.clipboard.writeText(preview);
+      showToast('Preview copié dans le presse-papier', 'success');
+    } catch (e) {
+      showToast('Erreur lors de la copie: ' + e, 'error');
+    }
+  };
+
+  // Fonction pour réinitialiser tous les champs
+  const handleResetFields = async () => {
+    // Reset toutes les variables
+    allVarsConfig.forEach(v => setInput(v.name, ''));
+    // Reset instruction
+    setInput('instruction', '');
+    // Reset titre et tags
+    setPostTitle('');
+    setPostTags('');
+    // Reset images (supprimer toutes)
+    while (uploadedImages.length > 0) {
+      removeImage(0);
+    }
+    showToast('Tous les champs ont été réinitialisés', 'success');
+  };
+
+  const mainImagePath = uploadedImages.find(img => img.isMain)?.path;
+
   // B. On garde tes états LOCAUX (ils sont bien ici)
   const [openTemplates, setOpenTemplates] = useState(false);
   const [openTags, setOpenTags] = useState(false);
   const [openConfig, setOpenConfig] = useState(false);
   const [openInstructions, setOpenInstructions] = useState(false);
   const [openTraductors, setOpenTraductors] = useState(false);
-  const [openHistory, setOpenHistory] = useState(false); // <--- openHistory est ICI
+  const [openHistory, setOpenHistory] = useState(false);
   const [openStats, setOpenStats] = useState(false);
   const [openShortcutsHelp, setOpenShortcutsHelp] = useState(false);
-  // Removed openLogs state – there is no log modal in the Koyeb version
-  const [previewMode, setPreviewMode] = useState<'raw' | 'styled'>('raw');
 
   // C. État local du Thème (il est bien ici aussi)
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -91,7 +119,7 @@ function AppContentInner() {
         const response = await fetch(`${cleanUrl}/api/status`);
         if (!response.ok) throw new Error();
         const data = await response.json();
-        setApiStatus(data); 
+        setApiStatus(data);
       } catch (err) {
         setApiStatus('disconnected');
       }
@@ -101,54 +129,27 @@ function AppContentInner() {
     return () => clearInterval(interval);
   }, [setApiStatus]);
 
-  const handleCopyPreview = async () => {
-    try { 
-      await navigator.clipboard.writeText(preview); 
-      showToast('Preview copié dans le presse-papier', 'success');
-    } catch(e){ 
-      showToast('Erreur lors de la copie: ' + e, 'error');
-    }
-  };
-
-  const handleResetFields = async () => {
-    const ok = await confirm({
-      title: 'Réinitialiser tous les champs',
-      message: 'Voulez-vous vraiment vider tous les champs (variables, tags, images) ? Cette action est irréversible.',
-      confirmText: 'Réinitialiser',
-      type: 'danger'
-    });
-    
-    if (!ok) return;
-
-    // Reset toutes les variables
-    allVarsConfig.forEach(v => setInput(v.name, ''));
-    showToast('Tous les champs ont été réinitialisés', 'info');
-  };
-
-  const mainImagePath = uploadedImages.find(img => img.isMain)?.path;
 
   return (
-    <AppProvider>
-      <ToastProvider>
-        <div className="app">
+    <div className="app">
           <header className="app-header">
-            <h1 style={{textAlign: 'center', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8}}>
-              <span style={{fontSize: 24, fontFamily: 'Noto Color Emoji, Segoe UI Emoji, Apple Color Emoji'}}>🇫🇷</span>
+            <h1 style={{ textAlign: 'center', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <span style={{ fontSize: 24, fontFamily: 'Noto Color Emoji, Segoe UI Emoji, Apple Color Emoji' }}>🇫🇷</span>
               Générateur de publication
             </h1>
-            <div style={{marginTop: 12}}>
-              <h3 style={{margin: 0, marginBottom: 8, fontSize: 14, color: 'var(--muted)'}}>Configurations globale</h3>
-              <div style={{display:'flex', gap:8, flexWrap:'wrap', alignItems:'center'}}>
-                <button onClick={()=>setOpenTemplates(true)}>📁 Gérer les Templates</button>
-                <button onClick={()=>setOpenTags(true)}>🏷️ Gérer les Tags</button>
-                <button onClick={()=>setOpenTraductors(true)}>👥 Gérer les Traducteurs</button>
-                <button onClick={()=>setOpenInstructions(true)}>📋 Gérer les Instructions</button>
-                <button onClick={()=>setOpenHistory(true)}>📋 Historique</button>
-                <button onClick={()=>setOpenStats(true)}>📈 Statistiques</button>
-                <button onClick={()=>setOpenConfig(true)}>⚙️ Configuration API</button>
+            <div style={{ marginTop: 12 }}>
+              <h3 style={{ margin: 0, marginBottom: 8, fontSize: 14, color: 'var(--muted)' }}>Configurations globale</h3>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button onClick={() => setOpenTemplates(true)}>📁 Gérer les Templates</button>
+                <button onClick={() => setOpenTags(true)}>🏷️ Gérer les Tags</button>
+                <button onClick={() => setOpenTraductors(true)}>👥 Gérer les Traducteurs</button>
+                <button onClick={() => setOpenInstructions(true)}>📋 Gérer les Instructions</button>
+                <button onClick={() => setOpenHistory(true)}>📋 Historique</button>
+                <button onClick={() => setOpenStats(true)}>📈 Statistiques</button>
+                <button onClick={() => setOpenConfig(true)}>⚙️ Configuration API</button>
                 {/* Removed logs button – Koyeb collects logs automatically */}
                 <ApiStatusBadge />
-                <button 
+                <button
                   onClick={() => setOpenShortcutsHelp(true)}
                   style={{
                     marginLeft: 'auto',
@@ -164,8 +165,8 @@ function AppContentInner() {
                 >
                   ❓
                 </button>
-                <button 
-                  onClick={toggleTheme} 
+                <button
+                  onClick={toggleTheme}
                   style={{
                     fontSize: 20,
                     width: 36,
@@ -182,37 +183,60 @@ function AppContentInner() {
               </div>
             </div>
           </header>
-          <main className="app-grid">
-            <section className="editor">
+          <main style={{
+            display: 'flex',
+            gap: 0,
+            flex: 1,
+            overflow: 'hidden',
+            minHeight: 0
+          }}>
+            {/* Colonne Éditeur - 60% */}
+            <section className="editor" style={{
+              flex: '0 0 60%',
+              overflowY: 'auto',
+              padding: '16px',
+              borderRight: '1px solid var(--border)'
+            }}>
               <PublicationType />
               <ContentEditor />
             </section>
-            <Preview
-              preview={preview}
-              previewMode={previewMode}
-              setPreviewMode={setPreviewMode}
-              onCopy={handleCopyPreview}
-              onReset={handleResetFields}
-              mainImagePath={mainImagePath}
-            />
+
+            {/* Colonne Preview - 40% */}
+            <section className="preview-column" style={{
+              flex: '0 0 40%',
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100%',
+              overflow: 'hidden',
+              background: 'var(--bg)',
+              padding: '16px',
+              borderLeft: '1px solid var(--border)'
+            }}>
+              <Preview
+                preview={preview || ''}
+                previewMode={previewMode}
+                setPreviewMode={setPreviewMode}
+                onCopy={handleCopyPreview}
+                onReset={handleResetFields}
+                mainImagePath={mainImagePath}
+              />
+            </section>
           </main>
 
-          {openTemplates && <TemplatesModal onClose={()=>setOpenTemplates(false)} />}
-          {openTags && <TagsModal onClose={()=>setOpenTags(false)} />}
-          {openConfig && <ConfigModal onClose={()=>setOpenConfig(false)} />}
-          {openInstructions && <InstructionsManagerModal onClose={()=>setOpenInstructions(false)} />}
-          {openTraductors && <TraductorsModal onClose={()=>setOpenTraductors(false)} />}
-          {openHistory && <HistoryModal onClose={()=>setOpenHistory(false)} />}
-          {openStats && <StatsModal onClose={()=>setOpenStats(false)} />}
-          {openShortcutsHelp && <ShortcutsHelpModal onClose={()=>setOpenShortcutsHelp(false)} />}
+          {openTemplates && <TemplatesModal onClose={() => setOpenTemplates(false)} />}
+          {openTags && <TagsModal onClose={() => setOpenTags(false)} />}
+          {openConfig && <ConfigModal onClose={() => setOpenConfig(false)} />}
+          {openInstructions && <InstructionsManagerModal onClose={() => setOpenInstructions(false)} />}
+          {openTraductors && <TraductorsModal onClose={() => setOpenTraductors(false)} />}
+          {openHistory && <HistoryModal onClose={() => setOpenHistory(false)} />}
+          {openStats && <StatsModal onClose={() => setOpenStats(false)} />}
+          {openShortcutsHelp && <ShortcutsHelpModal onClose={() => setOpenShortcutsHelp(false)} />}
           {/* Removed LogsModal – log display is no longer supported */}
         </div>
-      </ToastProvider>
-    </AppProvider>
   );
 }
 
-export default function App(){
+export default function App() {
   return (
     <AppProvider>
       <ToastProvider>

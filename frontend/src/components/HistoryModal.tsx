@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { useApp } from '../state/appContext';
+import { useApp, PublishedPost } from '../state/appContext';
 import { useToast } from './ToastProvider';
 import { useConfirm } from '../hooks/useConfirm';
 import ConfirmModal from './ConfirmModal';
@@ -57,9 +57,28 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
   useEscapeKey(() => onClose?.(), true);
   useModalScrollLock();
   
-  const { publishedPosts, deletePublishedPost, loadPostForEditing, loadPostForDuplication } = useApp();
+  const { publishedPosts, deletePublishedPost, loadPostForEditing, loadPostForDuplication, fetchHistoryFromAPI } = useApp();
   const { showToast } = useToast();
   const { confirm, confirmState, closeConfirm } = useConfirm();
+
+  // Gestion des erreurs et états de chargement
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Forcer le refresh de l'historique à l'ouverture de la modale
+  useEffect(() => {
+    setIsLoading(true);
+    setError(null);
+    fetchHistoryFromAPI()
+      .then(() => {
+        setIsLoading(false);
+      })
+      .catch((e) => {
+        setIsLoading(false);
+        setError('Erreur lors du chargement de l\'historique depuis l\'API');
+        console.error('Erreur chargement historique:', e);
+      });
+  }, []); // Exécuté une seule fois à l'ouverture
 
   // États pour recherche et filtres
   const [searchQuery, setSearchQuery] = useState('');
@@ -188,10 +207,15 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
     showToast('Publication supprimée de l\'historique', 'success');
   }
 
-  function handleEdit(post: any) {
-    loadPostForEditing(post);
-    showToast('Post chargé en mode édition', 'info');
-    if (onClose) onClose();
+  function handleEdit(post: PublishedPost) {
+    try {
+      loadPostForEditing(post);
+      showToast('Post chargé en mode édition', 'info');
+      if (onClose) onClose();
+    } catch (e: any) {
+      showToast('Erreur lors du chargement du post: ' + (e.message || 'inconnue'), 'error');
+      console.error('Erreur chargement post:', e);
+    }
   }
 
   function handleDuplicate(post: any) {
@@ -396,7 +420,28 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
 
         {/* Liste scrollable */}
         <div style={{ flex: 1, overflowY: 'auto', marginRight: -16, paddingRight: 16 }}>
-          {filteredAndSortedPosts.length === 0 ? (
+          {error && (
+            <div style={{ 
+              color: 'var(--error)', 
+              padding: 16, 
+              textAlign: 'center',
+              background: 'rgba(240, 71, 71, 0.1)',
+              borderRadius: 8,
+              marginBottom: 12
+            }}>
+              ⚠️ {error}
+            </div>
+          )}
+          {isLoading && (
+            <div style={{ 
+              color: 'var(--muted)', 
+              padding: 40, 
+              textAlign: 'center' 
+            }}>
+              ⏳ Chargement de l'historique...
+            </div>
+          )}
+          {!isLoading && filteredAndSortedPosts.length === 0 ? (
             <div style={{ 
               color: 'var(--muted)', 
               fontStyle: 'italic', 

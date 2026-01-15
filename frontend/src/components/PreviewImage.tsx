@@ -29,18 +29,21 @@ export default function PreviewImage({ imagePath }: PreviewImageProps) {
   }
 
   return (
-    <div style={{marginTop:12}}>
-      <img 
-        src={imageUrl}
-        style={{
-          width:'100%',
-          maxWidth:'600px',
-          height:'auto',
-          borderRadius:8,
-          display:'block'
-        }}
-        alt="Image principale"
-      />
-    </div>
+    <img 
+      src={imageUrl}
+      style={{
+        width:'100%',
+        maxWidth:'400px',
+        height:'auto',
+        borderRadius:4,
+        display:'block',
+        cursor:'pointer'
+      }}
+      alt="Image principale"
+      onClick={() => {
+        // Ouvrir l'image en grand (comportement Discord)
+        window.open(imageUrl, '_blank');
+      }}
+    />
   );
 }

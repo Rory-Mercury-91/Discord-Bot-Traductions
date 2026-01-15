@@ -111,6 +111,23 @@ export const tauriAPI = {
     }
   },
 
+
+  /**
+   * Sauvegarder une image depuis base64 (pour drag & drop uniquement)
+   */
+  async saveImageFromBase64(base64Data: string, fileName: string, mimeType: string) {
+    try {
+      const savedFileName = await invoke<string>('save_image_from_base64', {
+        base64Data,
+        fileName,
+        mimeType
+      });
+      return { ok: true, fileName: savedFileName };
+    } catch (error: any) {
+      return { ok: false, error: error.message || String(error) };
+    }
+  },
+
   /**
    * Lire une image en base64
    */

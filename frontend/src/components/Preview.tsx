@@ -1,4 +1,7 @@
-import React from 'react';
+import ReactMarkdown from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
+import remarkGfm from 'remark-gfm';
+import { useApp } from '../state/appContext';
 import PreviewImage from './PreviewImage';
 
 interface PreviewProps {
@@ -12,205 +15,475 @@ interface PreviewProps {
 
 // Map des émojis Discord courants (format :nom: → Unicode)
 const discordEmojis: Record<string, string> = {
-  // Smileys et émotions
+  // --- Tes manquants ---
+  'computer': '💻',
+  'point_down': '👇',
+  'sparkling_heart': '💖',
+  'flag_fr': '🇫🇷',
+
+  // --- Smileys & Émotions ---
   'smile': '😄', 'grinning': '😀', 'smiley': '😃', 'grin': '😁', 'laughing': '😆', 'satisfied': '😆',
   'joy': '😂', 'rofl': '🤣', 'relaxed': '☺️', 'blush': '😊', 'innocent': '😇', 'wink': '😉',
   'heart_eyes': '😍', 'kissing_heart': '😘', 'kissing': '😗', 'yum': '😋', 'stuck_out_tongue': '😛',
   'stuck_out_tongue_winking_eye': '😜', 'stuck_out_tongue_closed_eyes': '😝', 'thinking': '🤔',
   'neutral_face': '😐', 'expressionless': '😑', 'no_mouth': '😶', 'smirk': '😏', 'unamused': '😒',
   'roll_eyes': '🙄', 'grimacing': '😬', 'lying_face': '🤥', 'relieved': '😌', 'pensive': '😔',
-  'sleepy': '😪', 'drooling_face': '🤤', 'sleeping': '😴', 'mask': '😷', 'face_with_thermometer': '🤒',
-  'face_with_head_bandage': '🤕', 'nauseated_face': '🤢', 'sneezing_face': '🤧', 'dizzy_face': '😵',
-  'cowboy': '🤠', 'sunglasses': '😎', 'nerd': '🤓', 'confused': '😕', 'worried': '😟',
-  'slightly_frowning_face': '🙁', 'frowning': '☹️', 'persevere': '😣', 'confounded': '😖',
-  'tired_face': '😫', 'weary': '😩', 'triumph': '😤', 'angry': '😠', 'rage': '😡',
-  'sob': '😭', 'disappointed': '😞', 'sweat': '😓', 'cry': '😢', 'fearful': '😨',
-  'scream': '😱', 'flushed': '😳', 'disappointed_relieved': '😥', 'astonished': '😲',
-  'zipper_mouth': '🤐', 'hushed': '😯', 'exploding_head': '🤯', 'wave': '👋', 'raised_hand': '✋',
-  
-  // Gestes et mains
-  'ok_hand': '👌', 'thumbsup': '👍', '+1': '👍', 'thumbsdown': '👎', '-1': '👎', 'punch': '👊',
-  'fist': '✊', 'left_facing_fist': '🤛', 'right_facing_fist': '🤜', 'v': '✌️', 'crossed_fingers': '🤞',
-  'metal': '🤘', 'call_me': '🤙', 'point_left': '👈', 'point_right': '👉', 'point_up_2': '👆',
-  'point_down': '👇', 'point_up': '☝️', 'raised_hands': '🙌', 'pray': '🙏', 'clap': '👏',
-  'muscle': '💪', 'writing_hand': '✍️',
-  
-  // Cœurs et symboles
-  'heart': '❤️', 'orange_heart': '🧡', 'yellow_heart': '💛', 'green_heart': '💚', 'blue_heart': '💙',
-  'purple_heart': '💜', 'black_heart': '🖤', 'white_heart': '🤍', 'brown_heart': '🤎', 'broken_heart': '💔',
-  'heart_exclamation': '❣️', 'two_hearts': '💕', 'revolving_hearts': '💞', 'heartbeat': '💓',
-  'heartpulse': '💗', 'sparkling_heart': '💖', 'cupid': '💘', 'gift_heart': '💝', 'kiss': '💋',
-  'star2': '🌟', 'dizzy': '💫', 'sparkles': '✨', 'boom': '💥',
-  'zap': '⚡', 'zzz': '💤', 'sweat_drops': '💦', 'dash': '💨',
-  
-  // Animaux et nature
-  'dog': '🐶', 'cat': '🐱', 'mouse': '🐭', 'rabbit': '🐰', 'fox': '🦊', 'bear': '🐻',
-  'panda_face': '🐼', 'koala': '🐨', 'tiger': '🐯', 'lion': '🦁', 'cow': '🐮', 'pig': '🐷',
-  'frog': '🐸', 'monkey_face': '🐵', 'see_no_evil': '🙈', 'hear_no_evil': '🙉', 'speak_no_evil': '🙊',
-  'chicken': '🐔', 'penguin': '🐧', 'bird': '🐦', 'hatching_chick': '🐣', 'baby_chick': '🐤',
-  'bee': '🐝', 'bug': '🐛', 'butterfly': '🦋', 'snail': '🐌', 'shell': '🐚', 'turtle': '🐢',
-  'snake': '🐍', 'dragon': '🐉', 'whale': '🐋', 'dolphin': '🐬', 'fish': '🐟', 'octopus': '🐙',
+  'sleepy': '😪', 'sleeping': '😴', 'mask': '😷', 'thermometer_face': '🤒', 'head_bandage': '🤕',
+  'nauseated_face': '🤢', 'sneezing_face': '🤧', 'hot_face': '🥵', 'cold_face': '🥶', 'woozy_face': '🥴',
+  'dizzy_face': '😵', 'exploding_head': '🤯', 'cowboy': '🤠', 'partying_face': '🥳', 'monocle': '🧐',
+  'nerd': '🤓', 'sunglasses': '😎', 'clown': '🤡', 'shushing': '🤫', 'face_with_hand_over_mouth': '🤭',
+  'face_with_raised_eyebrow': '🤨', 'star_struck': '🤩', 'partying': '🥳',
+
+  // --- Symboles, Tech & Gaming (Très utiles pour tes posts) ---
+  'tada': '🎉', 'rocket': '🚀', 'fire': '🔥', 'sparkles': '✨', 'star': '⭐', 'check': '✅', 'white_check_mark': '✅', 'x': '❌',
+  'warning': '⚠️', 'error': '🚫', 'info': 'ℹ️', 'question': '❓', 'exclamation': '❗',
+  'desktop': '🖥️', 'keyboard': '⌨️', 'mouse': '🖱️', 'joystick': '🕹️', 'video_game': '🎮',
+  'gear': '⚙️', 'tools': '🛠️', 'wrench': '🔧', 'hammer': '🔨', 'package': '📦',
+  'link': '🔗', 'attachment': '📎', 'floppy_disk': '💾', 'cd': '💿', 'arrow_right': '➡️',
+  'arrow_down': '⬇️', 'arrow_up': '⬆️', 'double_arrow_right': '⏩', 'cool': '🆒', 'new': '🆕',
+
+  // --- Mains & Gestes ---
+  'thumbsup': '👍', 'thumbsdown': '👎', 'ok_hand': '👌', 'raised_hands': '🙌', 'clap': '👏',
+  'pray': '🙏', 'handshake': '🤝', 'muscle': '💪', 'point_up': '👆', 'point_left': '👈',
+  'point_right': '👉', 'wave': '👋', 'v': '✌️', 'fingers_crossed': '🤞',
+
+  // --- Cœurs & Formes ---
+  'heart': '❤️', 'blue_heart': '💙', 'green_heart': '💚', 'yellow_heart': '💛', 'purple_heart': '💜',
+  'black_heart': '🖤', 'orange_heart': '🧡', 'white_heart': '🤍', 'brown_heart': '🤎',
+  'broken_heart': '💔', 'heartbeat': '💓', 'heartpulse': '💗', 'cupid': '💘', 'revolving_hearts': '💞',
+
+  // --- Drapeaux ---
+  'flag_us': '🇺🇸', 'flag_gb': '🇬🇧', 'flag_jp': '🇯🇵', 'flag_de': '🇩🇪', 'flag_es': '🇪🇸',
+  'flag_it': '🇮🇹', 'flag_ru': '🇷🇺', 'flag_cn': '🇨🇳', 'flag_kr': '🇰🇷', 'flag_br': '🇧🇷',
+
+  // --- Divers ---
+  'bulb': '💡', 'moneybag': '💰', 'gift': '🎁', 'bell': '🔔', 'megaphone': '📣',
+  'loudspeaker': '📢', 'eye': '👁️', 'eyes': '👀', 'speech_balloon': '💬', 'thought_balloon': '💭'
 };
 
-function renderStyledPreview(text: string): string {
-  let html = text;
-  
-  // Convertir BBCode en HTML (AVANT les émojis pour que :flag_fr: dans **:flag_fr:** fonctionne)
-  // [b]...[/b] → <strong>...</strong>
-  html = html.replace(/\[b\](.*?)\[\/b\]/gi, '<strong>$1</strong>');
-  // [i]...[/i] → <em>...</em>
-  html = html.replace(/\[i\](.*?)\[\/i\]/gi, '<em>$1</em>');
-  // [u]...[/u] → <u>...</u>
-  html = html.replace(/\[u\](.*?)\[\/u\]/gi, '<u>$1</u>');
-  // [s]...[/s] → <s>...</s>
-  html = html.replace(/\[s\](.*?)\[\/s\]/gi, '<s>$1</s>');
-  // [code]...[/code] → <code>...</code>
-  html = html.replace(/\[code\](.*?)\[\/code\]/gi, '<code style="background:rgba(0,0,0,0.3);padding:2px 4px;border-radius:3px;">$1</code>');
-  // [url=...]...[/url] → <a>...</a>
-  html = html.replace(/\[url=(.*?)\](.*?)\[\/url\]/gi, '<a href="$1" target="_blank" style="color:var(--accent);text-decoration:underline;">$2</a>');
-  // [url]...[/url] → <a>...</a>
-  html = html.replace(/\[url\](.*?)\[\/url\]/gi, '<a href="$1" target="_blank" style="color:var(--accent);text-decoration:underline;">$1</a>');
-  // [color=...]...[/color] → <span>...</span>
-  html = html.replace(/\[color=(.*?)\](.*?)\[\/color\]/gi, '<span style="color:$1;">$2</span>');
-  // [size=...]...[/size] → <span>...</span>
-  html = html.replace(/\[size=(.*?)\](.*?)\[\/size\]/gi, '<span style="font-size:$1px;">$2</span>');
-  // [img]...[/img] → <img>
-  html = html.replace(/\[img\](.*?)\[\/img\]/gi, '<img src="$1" style="max-width:100%;height:auto;border-radius:4px;margin:8px 0;" />');
-  // [quote]...[/quote] → <blockquote>...</blockquote>
-  html = html.replace(/\[quote\](.*?)\[\/quote\]/gi, '<blockquote style="border-left:3px solid var(--accent);padding-left:12px;margin:8px 0;color:var(--muted);">$1</blockquote>');
-  
-  // Convertir Markdown basique en HTML (sans bibliothèque externe pour éviter les problèmes)
-  // **gras** ou __gras__
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
-  // *italique* ou _italique_
-  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-  html = html.replace(/_(.*?)_/g, '<em>$1</em>');
-  // `code`
-  html = html.replace(/`(.*?)`/g, '<code style="background:rgba(0,0,0,0.3);padding:2px 4px;border-radius:3px;">$1</code>');
-  // [lien](url)
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:var(--accent);text-decoration:underline;">$1</a>');
-  // # Titres - espacements très compacts comme Discord, ### = taille normale
-  html = html.replace(/^### (.*$)/gim, '<h3 style="margin:8px 0 -4px;font-size:16px;font-weight:600;line-height:1.2;">$1</h3>');
-  html = html.replace(/^## (.*$)/gim, '<h2 style="margin:8px 0 -6px;font-size:20px;font-weight:600;line-height:1.2;">$1</h2>');
-  html = html.replace(/^# (.*$)/gim, '<h1 style="margin:8px 0 -4px;font-size:24px;font-weight:600;line-height:1.2;">$1</h1>');
-  
-  // > citations - regrouper les lignes consécutives
-  html = html.replace(/(^> .*$(\n^> .*$)*)/gim, (match) => {
-    const lines = match.split('\n').map(line => line.replace(/^> /, '')).join('<br>');
-    return `<blockquote style="border-left:3px solid var(--accent);padding-left:12px;margin:8px 0;color:var(--muted);">${lines}</blockquote>`;
+// Fonction pour remplacer les émojis dans le texte
+function replaceEmojis(text: string): string {
+  return text.replace(/:([a-z0-9_]+):/g, (match, p1) => {
+    return discordEmojis[p1] || match;
   });
-  
-  // Convertir les émojis Discord :nom: en Unicode (APRÈS les styles pour éviter les conflits)
-  html = html.replace(/:([a-zA-Z0-9_+-]+):/g, (match, emojiName) => {
-    return discordEmojis[emojiName] || match;
-  });
-  
-  // Sauts de ligne
-  html = html.replace(/\n/g, '<br>');
-  
-  return html;
 }
 
-export default function Preview({ 
-  preview, 
-  previewMode, 
-  setPreviewMode, 
-  onCopy, 
+export default function Preview({
+  preview,
+  previewMode,
+  setPreviewMode,
+  onCopy,
   onReset,
-  mainImagePath 
+  mainImagePath
 }: PreviewProps) {
+  // Récupérer l'image principale depuis le contexte si mainImagePath n'est pas fourni
+  const { uploadedImages } = useApp();
+  const mainImage = mainImagePath
+    ? uploadedImages.find(img => img.path === mainImagePath)
+    : uploadedImages.find(img => img.isMain);
+
+  const imagePathToDisplay = mainImage?.path;
+
+  // Si le preview est vide, afficher un message
+  if (!preview || preview.trim() === '') {
+    return (
+      <div className="preview-section" style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        height: '100%',
+        minHeight: 0,
+        background: 'var(--bg)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'var(--muted)'
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>👁️</div>
+          <div style={{ fontSize: 16 }}>Aperçu</div>
+          <div style={{ fontSize: 12, marginTop: 8 }}>Le preview apparaîtra ici</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Pré-traiter le texte pour remplacer les émojis et gérer les placeholders
+  let processedPreview = replaceEmojis(preview);
+
+  // Remplacer les placeholders vides [Variable] par un style Discord
+  processedPreview = processedPreview.replace(
+    /\[([A-Za-z_][A-Za-z0-9_]*)\]/g,
+    (match, varName) => {
+      return `<span style="color:rgba(255,255,255,0.2); font-style:italic;">[${varName}]</span>`;
+    }
+  );
+
   return (
-    <div className="preview-container">
-      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8}}>
-        {/* Gauche : Preview + toggles Brut/Stylisé */}
-        <div style={{display:'flex', gap:8, alignItems:'center'}}>
-          <h5 style={{margin:0}}>👁️ Preview</h5>
-          <div style={{display:'flex', gap:4, background:'var(--bg)', borderRadius:6, padding:2}}>
-            <button 
-              onClick={()=>setPreviewMode('raw')}
-              style={{
-                padding:'6px 12px',
-                background: previewMode === 'raw' ? 'var(--accent)' : 'transparent',
-                color: previewMode === 'raw' ? 'white' : 'var(--muted)',
-                border:'none',
-                borderRadius:4,
-                cursor:'pointer',
-                fontSize:13,
-                height:32
-              }}
-            >
-              📝 Brut
-            </button>
-            <button 
-              onClick={()=>setPreviewMode('styled')}
-              style={{
-                padding:'6px 12px',
-                background: previewMode === 'styled' ? 'var(--accent)' : 'transparent',
-                color: previewMode === 'styled' ? 'white' : 'var(--muted)',
-                border:'none',
-                borderRadius:4,
-                cursor:'pointer',
-                fontSize:13,
-                height:32
-              }}
-            >
-              🎨 Stylisé
-            </button>
-          </div>
+    <div className="preview-section" style={{
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 12,
+      height: '100%',
+      minHeight: 0,
+      background: 'var(--bg)'
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 4, background: 'var(--bg)', borderRadius: 6, padding: 2 }}>
+          <button
+            onClick={() => setPreviewMode('styled')}
+            style={{
+              padding: '6px 12px',
+              background: previewMode === 'styled' ? 'var(--accent)' : 'transparent',
+              color: previewMode === 'styled' ? 'white' : 'var(--muted)',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontSize: 13,
+              height: 32
+            }}
+          >
+            🎨 Stylisé
+          </button>
+          <button
+            onClick={() => setPreviewMode('raw')}
+            style={{
+              padding: '6px 12px',
+              background: previewMode === 'raw' ? 'var(--accent)' : 'transparent',
+              color: previewMode === 'raw' ? 'white' : 'var(--muted)',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontSize: 13,
+              height: 32
+            }}
+          >
+            📝 Brut
+          </button>
         </div>
 
-        {/* Droite : Copier + Réinitialiser */}
-        <div style={{display:'flex', gap:8, alignItems:'center'}}>
-          <button 
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
             onClick={onCopy}
             style={{
-              padding:'6px 12px',
-              fontSize:13,
-              height:32,
-              border:'1px solid var(--border)',
-              borderRadius:4,
-              cursor:'pointer'
+              padding: '6px 12px',
+              fontSize: 13,
+              height: 32,
+              border: '1px solid var(--border)',
+              borderRadius: 4,
+              cursor: 'pointer',
+              background: 'transparent',
+              color: 'inherit'
             }}
           >
             📋 Copier
           </button>
-          <button 
+          <button
             onClick={onReset}
             style={{
-              background:'var(--error)', 
-              color:'white',
-              padding:'6px 12px',
-              fontSize:13,
-              height:32,
-              border:'none',
-              borderRadius:4,
-              cursor:'pointer'
+              background: 'var(--error)',
+              color: 'white',
+              padding: '6px 12px',
+              fontSize: 13,
+              height: 32,
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer'
             }}
           >
             🔄 Réinitialiser
           </button>
         </div>
       </div>
-      {previewMode === 'raw' ? (
-        <textarea readOnly rows={18} value={preview} style={{width:'100%', fontFamily:'monospace'}} />
-      ) : (
-        <div 
-          style={{
-            width:'100%',
-            minHeight:'450px',
-            border:'1px solid var(--border)',
-            borderRadius:6,
-            padding:12,
-            background:'var(--panel)',
-            overflow:'auto',
-            fontFamily:'system-ui, -apple-system, sans-serif'
-          }}
-        >
-          <div dangerouslySetInnerHTML={{__html: renderStyledPreview(preview)}} />
-          {mainImagePath && <PreviewImage imagePath={mainImagePath} />}
-        </div>
-      )}
+
+      <div className="preview-body" style={{ flex: 1, overflow: 'auto' }}>
+        {previewMode === 'raw' ? (
+          <textarea
+            readOnly
+            value={preview}
+            style={{
+              width: '100%',
+              height: '100%',
+              fontFamily: 'monospace',
+              padding: 12,
+              borderRadius: 6,
+              background: '#2b2d31',
+              color: '#dbdee1',
+              border: '1px solid var(--border)',
+              resize: 'none'
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              width: '100%',
+              minHeight: '100%',
+              padding: '16px 0',
+              background: '#313338',
+              borderRadius: 4,
+              overflow: 'auto'
+            }}
+          >
+            {/* Message Discord simulé */}
+            <div style={{
+              display: 'flex',
+              gap: 16,
+              padding: '0 16px',
+              fontFamily: "'gg sans', 'Noto Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+            }}>
+              {/* Avatar factice */}
+              <div style={{
+                width: 40,
+                height: 40,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #5865F2 0%, #7289DA 100%)',
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 18,
+                fontWeight: 600,
+                color: 'white'
+              }}>
+                GP
+              </div>
+
+              {/* Contenu du message */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {/* En-tête du message (nom + badge BOT + timestamp) */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginBottom: 4
+                }}>
+                  <span style={{
+                    fontSize: 16,
+                    fontWeight: 500,
+                    color: '#f2f3f5'
+                  }}>
+                    Générateur de Post
+                  </span>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 500,
+                    padding: '2px 6px',
+                    background: '#5865F2',
+                    color: 'white',
+                    borderRadius: 3,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    BOT
+                  </span>
+                  <span style={{
+                    fontSize: 12,
+                    color: '#b9bbbe',
+                    marginLeft: 4
+                  }}>
+                    Aujourd'hui à {new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+
+                {/* Contenu markdown */}
+                <div style={{
+                  fontSize: 16,
+                  lineHeight: '1.375rem',
+                  color: '#dbdee1',
+                  wordWrap: 'break-word',
+                  whiteSpace: 'pre-wrap',
+                  fontFamily: "'gg sans', 'Noto Sans', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+                }}
+                  className="discord-markdown-content"
+                >
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeRaw]}
+                    components={{
+                      // Headers - marges réduites pour style Discord compact
+                      h1: ({ children }) => (
+                        <h1 style={{
+                          fontSize: 20,
+                          fontWeight: 700,
+                          margin: '8px 0 4px 0',
+                          color: '#dbdee1',
+                          lineHeight: '1.375rem'
+                        }}>{children}</h1>
+                      ),
+                      h2: ({ children }) => (
+                        <h2 style={{
+                          fontSize: 18,
+                          fontWeight: 700,
+                          margin: '8px 0 4px 0',
+                          color: '#dbdee1',
+                          lineHeight: '1.375rem'
+                        }}>{children}</h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 style={{
+                          fontSize: 16,
+                          fontWeight: 700,
+                          margin: '8px 0 4px 0',
+                          color: '#dbdee1',
+                          lineHeight: '1.375rem'
+                        }}>{children}</h3>
+                      ),
+                      // Paragraphes - marges réduites pour style Discord compact
+                      p: ({ children }) => (
+                        <p style={{
+                          margin: 0,
+                          lineHeight: '1.375rem',
+                          marginBottom: '8px'
+                        }}>{children}</p>
+                      ),
+                      // Listes - compactées pour style Discord
+                      ul: ({ children }) => (
+                        <ul style={{
+                          margin: 0,
+                          paddingLeft: '20px',
+                          listStyle: 'none',
+                          marginBottom: '8px'
+                        }}>{children}</ul>
+                      ),
+                      ol: ({ children }) => (
+                        <ol style={{
+                          margin: 0,
+                          paddingLeft: '20px',
+                          listStyle: 'none',
+                          counterReset: 'list-counter',
+                          marginBottom: '8px'
+                        }}>{children}</ol>
+                      ),
+                      li: ({ children }) => (
+                        <li style={{
+                          margin: 0,
+                          position: 'relative',
+                          paddingLeft: '8px',
+                          lineHeight: '1.375rem',
+                          marginBottom: '2px'
+                        }}>
+                          <span style={{
+                            position: 'absolute',
+                            left: '-16px',
+                            color: '#b9bbbe',
+                            fontSize: '16px',
+                            lineHeight: '1.375rem'
+                          }}>•</span>
+                          {children}
+                        </li>
+                      ),
+                      // Gras
+                      strong: ({ children }) => (
+                        <strong style={{
+                          fontWeight: 700,
+                          color: '#dbdee1'
+                        }}>{children}</strong>
+                      ),
+                      // Italique
+                      em: ({ children }) => (
+                        <em style={{
+                          fontStyle: 'italic',
+                          color: '#dbdee1'
+                        }}>{children}</em>
+                      ),
+                      // Citations (blockquote) - style Discord précis
+                      blockquote: ({ children }) => (
+                        <div style={{
+                          borderLeft: '4px solid #4e5058',
+                          margin: '8px 0',
+                          color: '#b9bbbe',
+                          background: 'rgba(79, 84, 92, 0.1)',
+                          padding: '8px',
+                          borderRadius: 4,
+                          lineHeight: '1.375rem'
+                        }}>{children}</div>
+                      ),
+                      // Liens
+                      a: ({ href, children }) => (
+                        <a
+                          href={href}
+                          style={{
+                            color: '#00aff4',
+                            textDecoration: 'none'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.textDecoration = 'underline';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.textDecoration = 'none';
+                          }}
+                        >
+                          {children}
+                        </a>
+                      ),
+                      // Code inline vs block
+                      code: ({ className, children, ...props }) => {
+                        // Si className existe et commence par "language-", c'est un bloc de code
+                        const isBlock = className && className.startsWith('language-');
+
+                        if (isBlock) {
+                          return (
+                            <code
+                              className={className}
+                              style={{
+                                display: 'block',
+                                background: '#2b2d31',
+                                padding: '12px',
+                                borderRadius: 4,
+                                fontFamily: 'Consolas, "Courier New", monospace',
+                                fontSize: '0.9em',
+                                color: '#e3e4e6',
+                                overflow: 'auto',
+                                margin: '8px 0'
+                              }}
+                              {...props}
+                            >
+                              {children}
+                            </code>
+                          );
+                        }
+                        // Code inline
+                        return (
+                          <code
+                            style={{
+                              background: 'rgba(79, 84, 92, 0.3)',
+                              padding: '2px 4px',
+                              borderRadius: 3,
+                              fontFamily: 'Consolas, "Courier New", monospace',
+                              fontSize: '0.9em',
+                              color: '#e3e4e6'
+                            }}
+                            {...props}
+                          >
+                            {children}
+                          </code>
+                        );
+                      },
+                      // Saut de ligne - pas d'espace supplémentaire
+                      br: () => <br style={{ lineHeight: '1.375rem' }} />
+                    }}
+                  >
+                    {processedPreview}
+                  </ReactMarkdown>
+                </div>
+
+                {/* Image principale affichée comme pièce jointe Discord */}
+                {imagePathToDisplay && (
+                  <div style={{
+                    marginTop: 16,
+                    borderRadius: 4,
+                    overflow: 'hidden',
+                    maxWidth: '400px',
+                    border: '1px solid rgba(79, 84, 92, 0.3)',
+                    background: '#2b2d31'
+                  }}>
+                    <PreviewImage imagePath={imagePathToDisplay} />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

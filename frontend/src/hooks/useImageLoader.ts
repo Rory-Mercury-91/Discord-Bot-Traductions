@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { tauriAPI } from '../lib/tauri-api';
 
 /**
- * Hook pour charger une image depuis le filesystem via IPC
+ * Hook pour charger une image depuis le filesystem via IPC (logique legacy restaurée)
  * Convertit le buffer en ObjectURL pour l'affichage
  */
 export function useImageLoader(imagePath: string | undefined) {
@@ -14,6 +14,7 @@ export function useImageLoader(imagePath: string | undefined) {
     if (!imagePath) {
       setImageUrl('');
       setIsLoading(false);
+      setError(null);
       return;
     }
 
@@ -21,12 +22,13 @@ export function useImageLoader(imagePath: string | undefined) {
     let objectUrl: string | null = null;
 
     async function loadImage() {
-      if (!imagePath) return; // Guard supplémentaire pour TypeScript
+      if (!imagePath) return;
       
       try {
         setIsLoading(true);
         setError(null);
 
+        // Lire l'image depuis le filesystem via Tauri (comme dans la version legacy)
         const result = await tauriAPI.readImage(imagePath);
         
         if (!result.ok || !result.buffer) {
@@ -45,6 +47,11 @@ export function useImageLoader(imagePath: string | undefined) {
           ext === 'png' ? 'image/png' :
           ext === 'gif' ? 'image/gif' :
           ext === 'webp' ? 'image/webp' :
+          ext === 'avif' ? 'image/avif' :
+          ext === 'bmp' ? 'image/bmp' :
+          ext === 'svg' ? 'image/svg+xml' :
+          ext === 'ico' ? 'image/x-icon' :
+          ext === 'tiff' || ext === 'tif' ? 'image/tiff' :
           'image/' + ext;
 
         // Create Blob and ObjectURL

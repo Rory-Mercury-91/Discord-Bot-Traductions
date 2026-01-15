@@ -63,12 +63,56 @@ async fn test_api_connection() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+async fn save_image_from_base64(
+    app: AppHandle,
+    base64_data: String,
+    file_name: String,
+    _mime_type: String,
+) -> Result<String, String> {
+    // Décoder le base64
+    let image_data = general_purpose::STANDARD
+        .decode(&base64_data)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+    
+    // Utiliser le même workdir que les autres commandes
+    let workdir = get_python_workdir(&app)?;
+    let images_dir = workdir.join("images");
+    
+    // Créer le dossier images/ s'il n'existe pas
+    fs::create_dir_all(&images_dir)
+        .map_err(|e| format!("Failed to create images directory: {}", e))?;
+    
+    // Générer un nom de fichier unique avec timestamp (comme dans la version legacy)
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let sanitized_name = file_name.replace(|c: char| !c.is_alphanumeric() && c != '.' && c != '-', "_");
+    let final_name = format!("image_{}_{}", timestamp, sanitized_name);
+    let file_path = images_dir.join(&final_name);
+    
+    // Écrire le fichier
+    fs::write(&file_path, image_data)
+        .map_err(|e| format!("Failed to write image file: {}", e))?;
+    
+    // Retourner le nom du fichier (comme save_image)
+    Ok(final_name)
+}
+
+#[tauri::command]
 async fn publish_post(payload: PublishPayload) -> Result<serde_json::Value, String> {
     let api_key = std::env::var("PUBLISHER_API_KEY").unwrap_or_default();
     let client = reqwest::Client::new();
     let base_url = std::env::var("PUBLISHER_API_URL")
         .unwrap_or_else(|_| "https://dependent-klarika-rorymercury91-e1486cf2.koyeb.app".to_string());
     let url = format!("{}/api/forum-post", base_url.trim_end_matches('/'));
+    
+    // NOTE: Pour diagnostiquer l'IP utilisée pour les requêtes Discord, 
+    // ajoutez des logs dans publisher_api.py (Python) qui affichent:
+    // - L'IP source de la requête HTTP reçue (request.remote)
+    // - L'IP utilisée pour les requêtes vers Discord (via un service comme ipify.org ou httpbin.org/ip)
+    // Exemple dans Python: print(f"IP source requête: {request.remote}, IP sortante Discord: {outgoing_ip}")
+    
     let response = client.post(&url)
         .json(&payload)
         .header("X-API-KEY", api_key)
@@ -105,29 +149,51 @@ async fn save_image(app: AppHandle, source_path: String) -> Result<String, Strin
 #[tauri::command]
 async fn read_image(app: AppHandle, image_path: String) -> Result<String, String> {
     let workdir = get_python_workdir(&app)?;
-    let full_path = workdir.join("images").join(&image_path);
+    // Nettoyer le chemin pour éviter les doublons images/images/
+    let clean_path = image_path.trim_start_matches("images/").trim_start_matches("images\\");
+    let full_path = workdir.join("images").join(&clean_path);
     let bytes = fs::read(&full_path)
         .map_err(|e| format!("Erreur lecture image: {}", e))?;
-    Ok(format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(&bytes)))
+    
+    // Détecter le type MIME depuis l'extension
+    let ext = clean_path.split('.').last().unwrap_or("png").to_lowercase();
+    let mime_type = match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "bmp" => "image/bmp",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "tiff" | "tif" => "image/tiff",
+        _ => "image/png",
+    };
+    
+    Ok(format!("data:{};base64,{}", mime_type, general_purpose::STANDARD.encode(&bytes)))
 }
 
 // Commande : Supprimer une image
 #[tauri::command]
 async fn delete_image(app: AppHandle, image_path: String) -> Result<(), String> {
     let workdir = get_python_workdir(&app)?;
-    let full_path = workdir.join("images").join(&image_path);
+    // Nettoyer le chemin pour éviter les doublons images/images/
+    let clean_path = image_path.trim_start_matches("images/").trim_start_matches("images\\");
+    let full_path = workdir.join("images").join(&clean_path);
     fs::remove_file(&full_path)
         .map_err(|e| format!("Erreur suppression image: {}", e))?;
     Ok(())
 }
 
-// Commande : Obtenir la taille d'une image (en octets)
+// Commande : Obtenir la taille d'une image (en octets)
 #[tauri::command]
 async fn get_image_size(app: AppHandle, image_path: String) -> Result<u64, String> {
     let workdir = get_python_workdir(&app)?;
-    let full_path = workdir.join("images").join(&image_path);
+    // Nettoyer le chemin pour éviter les doublons images/images/
+    let clean_path = image_path.trim_start_matches("images/").trim_start_matches("images\\");
+    let full_path = workdir.join("images").join(&clean_path);
     let metadata = fs::metadata(&full_path)
-        .map_err(|e| format!("Erreur metadata image: {}", e))?;
+        .map_err(|e| format!("Erreur lecture métadonnées image: {}", e))?;
     Ok(metadata.len())
 }
 
@@ -227,6 +293,7 @@ pub fn run() {
             test_api_connection,
             publish_post,
             save_image,
+            save_image_from_base64,
             read_image,
             delete_image,
             get_image_size,

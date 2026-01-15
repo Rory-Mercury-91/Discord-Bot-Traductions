@@ -63,15 +63,36 @@ select option[value=""] {
 *{box-sizing:border-box}
 html,body,#root{height:100%;}
 body{margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Color Emoji'; background: var(--bg); color:var(--text); transition: background 0.3s, color 0.3s}
-.app{width:100%; margin:0 auto;}
-.app-header{padding:12px 16px; border-radius:0; background:var(--panel); border:1px solid var(--border); border-left:0; border-right:0;}
-.app-grid{display:grid; grid-template-columns:1fr; gap:16px; margin-top:16px; padding:0 24px;}
-.editor{background:var(--panel); padding:12px; border-radius:8px; border:1px solid var(--border); display:flex; flex-direction:column; gap:12px}
-.preview-container{background:var(--panel); padding:12px; border-radius:8px; border:1px solid var(--border); display:flex; flex-direction:column; gap:12px}
+.app{width:100%; margin:0 auto; display: flex; flex-direction: column; height: 100vh; overflow: hidden;}
+.app-header{
+  padding:12px 16px; 
+  border-radius:0; 
+  background:var(--panel); 
+  border:1px solid var(--border); 
+  border-left:0; 
+  border-right:0;
+  flex-shrink: 0;
+}
 
-/* Layout responsive - Desktop: 60% content / 40% preview */
-@media (min-width: 1024px) {
-  .app-grid{grid-template-columns: 6fr 4fr;}
+/* Layout responsive - Desktop: côte à côte, Mobile: empilé */
+@media (max-width: 768px) {
+  main {
+    flex-direction: column !important;
+    height: auto !important;
+  }
+  
+  .editor {
+    flex: 1 1 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border) !important;
+  }
+  
+  .preview-column {
+    flex: 1 1 100% !important;
+    position: relative !important;
+    height: auto !important;
+    max-height: 70vh;
+  }
 }
 
 button{background:transparent; border:1px solid var(--border); color:inherit; padding:8px 10px; border-radius:6px; cursor:pointer}
@@ -81,3 +102,12 @@ button{background:transparent; border:1px solid var(--border); color:inherit; pa
 /* App-specific styles */
 .app h1{margin:0; font-size:18px}
 .app-header h1{font-size:18px}
+
+/* Discord markdown content - style compact */
+.discord-markdown-content > *:last-child {
+  margin-bottom: 0 !important;
+}
+
+.discord-markdown-content p:last-child {
+  margin-bottom: 0 !important;
+}

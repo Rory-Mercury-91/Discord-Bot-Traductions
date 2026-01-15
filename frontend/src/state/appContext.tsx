@@ -1,6 +1,5 @@
-import React, {createContext, useContext, useEffect, useMemo, useState} from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import ErrorModal from '../components/ErrorModal';
-import { useDebounce } from '../hooks/useDebounce';
 import { tauriAPI } from '../lib/tauri-api';
 // The local logger has been removed.  Koyeb collects logs automatically, so
 // there is no need to import or use the custom logger.
@@ -40,22 +39,28 @@ export type PublishedPost = {
   tags: string;            // Tags CSV
   template: string;        // "my" ou "partner"
   imagePath?: string;      // Chemin image locale (si utilisée)
-  
+  translationType?: string; // Type de traduction (Automatique, Semi-automatique, Manuelle)
+  isIntegrated?: boolean;  // Traduction intégrée au jeu
+
   // Données Discord (reçues après publication)
   threadId: string;        // ID du thread forum
   messageId: string;       // ID du premier message
   discordUrl: string;      // https://discord.com/channels/...
   forumId: number;         // FORUM_MY_ID ou FORUM_PARTNER_ID
+
+  // Données des inputs sauvegardées pour la réédition
+  savedInputs?: Record<string, string>; // Tous les inputs sauvegardés
+  templateId?: string;     // ID du template utilisé
 };
 
 const defaultVarsConfig: VarConfig[] = [
-  {name: 'Game_name', label: 'Nom du jeu', placeholder: 'Lost Solace'},
-  {name: 'Game_version', label: 'Version du jeu', placeholder: 'v0.1'},
-  {name: 'Translate_version', label: 'Version de la traduction', placeholder: 'v0.1'},
-  {name: 'Game_link', label: 'Lien du jeu', placeholder: 'https://...'},
-  {name: 'Translate_link', label: 'Lien de la traduction', placeholder: 'https://...'},
-  {name: 'Traductor', label: 'Traducteur', placeholder: 'Rory Mercury 91', hasSaveLoad: true},
-  {name: 'Overview', label: 'Synopsis', placeholder: 'Synopsis du jeu...', type: 'textarea'}
+  { name: 'Game_name', label: 'Nom du jeu', placeholder: 'Lost Solace' },
+  { name: 'Game_version', label: 'Version du jeu', placeholder: 'v0.1' },
+  { name: 'Translate_version', label: 'Version de la traduction', placeholder: 'v0.1' },
+  { name: 'Game_link', label: 'Lien du jeu', placeholder: 'https://...' },
+  { name: 'Translate_link', label: 'Lien de la traduction', placeholder: 'https://...' },
+  { name: 'Traductor', label: 'Traducteur', placeholder: 'Rory Mercury 91', hasSaveLoad: true },
+  { name: 'Overview', label: 'Synopsis', placeholder: 'Synopsis du jeu...', type: 'textarea' }
 ];
 
 const defaultTemplates: Template[] = [
@@ -63,16 +68,18 @@ const defaultTemplates: Template[] = [
     id: 'mes',
     name: 'Mes traductions',
     type: 'my',
-    content: `## :flag_fr: [Game_name] est disponible en français ! :tada:
+    content: `## :flag_fr: La traduction de française de [Game_name] est disponible ! :tada:
 
-Salut l'équipe ! Le patch est enfin prêt, vous pouvez l'installer dès maintenant pour profiter du titre dans notre langue. Bon jeu à tous ! :point_down:
+Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. Bon jeu à tous ! :point_down:
 
 ### :computer: Infos du Mod & Liens de Téléchargement
-* **Titre du jeu :** [Game_name]
-* **Version du jeu :** [Game_version]
-* **Version traduite :** [Translate_version]
-* **Lien du jeu (VO) :** [Accès au jeu original]([Game_link])
+* **Nom du jeu :** [Game_name]
+* **Version du jeu :** \`[Game_version]\`
+* **Version traduite :** \`[Translate_version]\`
+* **Type de traduction :** [Translation_Type]
+* **Lien du jeu :** [Accès au jeu original]([Game_link])
 * **Lien de la Traduction :** [Téléchargez la traduction FR ici !]([Translate_link])
+
 > **Synopsis du jeu :**
 > [Overview]
 [instruction]
@@ -84,17 +91,19 @@ Pour m'encourager et soutenir mes efforts :
     id: 'partenaire',
     name: 'Traductions partenaire',
     type: 'partner',
-    content: `## :flag_fr: [Game_name] est disponible en français ! :tada:
+    content: `## :flag_fr: La traduction de française de [Game_name] est disponible ! :tada:
 
-Salut l'équipe ! Le patch est enfin prêt, vous pouvez l'installer dès maintenant pour profiter du titre dans notre langue. Bon jeu à tous ! :point_down:
+Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. Bon jeu à tous ! :point_down:
 
 ### :computer: Infos du Mod & Liens de Téléchargement
 * **Traducteur :** [Traductor]
-* **Titre du jeu :** [Game_name]
-* **Version du jeu :** [Game_version]
-* **Version traduite :** [Translate_version]
-* **Lien du jeu (VO) :** [Accès au jeu original]([Game_link])
+* **Nom du jeu :** [Game_name]
+* **Version du jeu :** \`[Game_version]\`
+* **Version traduite :** \`[Translate_version]\`
+* **Type de traduction :** [Translation_Type]
+* **Lien du jeu :** [Accès au jeu original]([Game_link])
 * **Lien de la Traduction :** [Téléchargez la traduction FR ici !]([Translate_link])
+
 > **Synopsis du jeu :**
 > [Overview]
 [instruction]`
@@ -106,6 +115,7 @@ type AppContextValue = {
   addTemplate: (t: Template) => void;
   updateTemplate: (idx: number, t: Template) => void;
   deleteTemplate: (idx: number) => void;
+  restoreDefaultTemplates: () => void;
   currentTemplateIdx: number;
   setCurrentTemplateIdx: (n: number) => void;
   allVarsConfig: VarConfig[];
@@ -114,37 +124,42 @@ type AppContextValue = {
   deleteVarConfig: (idx: number) => void;
   inputs: Record<string, string>;
   setInput: (name: string, value: string) => void;
+  translationType: string;
+  setTranslationType: (type: string) => void;
+  isIntegrated: boolean;
+  setIsIntegrated: (value: boolean) => void;
   preview: string;
   savedTags: Tag[];
   addSavedTag: (t: Tag) => void;
   deleteSavedTag: (idx: number) => void;
 
-  savedInstructions: Record<string,string>;
-  saveInstruction: (name:string, text:string) => void;
-  deleteInstruction: (name:string) => void;
+  savedInstructions: Record<string, string>;
+  saveInstruction: (name: string, text: string) => void;
+  deleteInstruction: (name: string) => void;
 
   savedTraductors: string[];
-  saveTraductor: (name:string) => void;
-  deleteTraductor: (idx:number) => void;
+  saveTraductor: (name: string) => void;
+  deleteTraductor: (idx: number) => void;
 
-  uploadedImages: Array<{id:string,path:string,isMain:boolean}>;
+  uploadedImages: Array<{ id: string, path: string, name: string, isMain: boolean }>;
   addImages: (files: FileList | File[]) => void;
-  removeImage: (idx:number) => void;
-  setMainImage: (idx:number) => void;
+  addImageFromPath: (filePath: string) => Promise<void>;
+  removeImage: (idx: number) => void;
+  setMainImage: (idx: number) => void;
 
   // Post & API
   postTitle: string;
-  setPostTitle: (s:string) => void;
+  setPostTitle: (s: string) => void;
   postTags: string;
-  setPostTags: (s:string) => void;
+  setPostTags: (s: string) => void;
 
   apiUrl: string;
   publishInProgress: boolean;
   lastPublishResult: string | null;
-  publishPost: () => Promise<{ok:boolean, data?:any, error?:string}>;
+  publishPost: () => Promise<{ ok: boolean, data?: any, error?: string }>;
 
   // Error handling
-  showErrorModal: (error: {code?: string | number; message: string; context?: string; httpStatus?: number; discordError?: any}) => void;
+  showErrorModal: (error: { code?: string | number; message: string; context?: string; httpStatus?: number; discordError?: any }) => void;
 
   // History
   publishedPosts: PublishedPost[];
@@ -155,6 +170,7 @@ type AppContextValue = {
   // Edit mode
   editingPostId: string | null;
   setEditingPostId: (id: string | null) => void;
+  setEditingPostData: (post: PublishedPost | null) => void;
   loadPostForEditing: (post: PublishedPost) => void;
   loadPostForDuplication: (post: PublishedPost) => void;
 
@@ -169,61 +185,78 @@ type AppContextValue = {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-export function AppProvider({children}: {children: React.ReactNode}){
-      // Discord config global
-      const [discordConfig, setDiscordConfig] = useState<any>(() => {
-        try {
-          const raw = localStorage.getItem('discordConfig');
-          if(raw) return JSON.parse(raw);
-        } catch {}
-        return {};
-      });
-    // API status global
-    const [apiStatus, setApiStatus] = useState<string>("unknown");
+export function AppProvider({ children }: { children: React.ReactNode }) {
+  // Discord config global
+  const [discordConfig, setDiscordConfig] = useState<any>(() => {
+    try {
+      const raw = localStorage.getItem('discordConfig');
+      if (raw) return JSON.parse(raw);
+    } catch { }
+    return {};
+  });
+  // API status global
+  const [apiStatus, setApiStatus] = useState<string>("unknown");
   const [templates, setTemplates] = useState<Template[]>(() => {
-    try{
+    try {
       const raw = localStorage.getItem('customTemplates');
-      if(raw) return JSON.parse(raw);
-    }catch(e){}
+      if (raw) return JSON.parse(raw);
+    } catch (e) { }
     return defaultTemplates;
   });
 
   const [allVarsConfig, setAllVarsConfig] = useState<VarConfig[]>(() => {
-    try{
+    try {
       const raw = localStorage.getItem('customVariables');
-      if(raw) {
+      if (raw) {
         const vars = JSON.parse(raw);
         // Migration: supprimer l'ancienne variable install_instructions qui est remplacée par le système d'instructions
         return vars.filter((v: VarConfig) => v.name !== 'install_instructions');
       }
-    }catch(e){}
+    } catch (e) { }
     return defaultVarsConfig;
   });
 
   const [currentTemplateIdx, setCurrentTemplateIdx] = useState<number>(0);
 
-  const [inputs, setInputs] = useState<Record<string,string>>(() => {
+  const [inputs, setInputs] = useState<Record<string, string>>(() => {
     // load some defaults from localStorage if present
-    const obj: Record<string,string> = {};
+    const obj: Record<string, string> = {};
     allVarsConfig.forEach(v => obj[v.name] = '');
-    try{
+    try {
       const raw = localStorage.getItem('savedInputs');
-      if(raw){
+      if (raw) {
         const parsed = JSON.parse(raw);
         Object.assign(obj, parsed);
       }
-    }catch(e){}
+    } catch (e) { }
     return obj;
   });
 
-  const [savedInstructions, setSavedInstructions] = useState<Record<string,string>>(() => {
-    try{ const raw = localStorage.getItem('savedInstructions'); if(raw) return JSON.parse(raw); }catch(e){}
+  const [savedInstructions, setSavedInstructions] = useState<Record<string, string>>(() => {
+    try { const raw = localStorage.getItem('savedInstructions'); if (raw) return JSON.parse(raw); } catch (e) { }
     return {};
   });
 
   const [savedTraductors, setSavedTraductors] = useState<string[]>(() => {
-    try{ const raw = localStorage.getItem('savedTraductors'); if(raw) return JSON.parse(raw); }catch(e){}
+    try { const raw = localStorage.getItem('savedTraductors'); if (raw) return JSON.parse(raw); } catch (e) { }
     return [];
+  });
+
+  // Translation type and integration state
+  const [translationType, setTranslationType] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('translationType');
+      return saved || 'Automatique';
+    } catch (e) { }
+    return 'Automatique';
+  });
+
+  const [isIntegrated, setIsIntegrated] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('isIntegrated');
+      return saved === 'true';
+    } catch (e) { }
+    return false;
   });
 
   // Error modal state
@@ -236,46 +269,50 @@ export function AppProvider({children}: {children: React.ReactNode}){
     timestamp: number;
   } | null>(null);
 
-  const showErrorModal = (error: {code?: string | number; message: string; context?: string; httpStatus?: number; discordError?: any}) => {
+  const showErrorModal = (error: { code?: string | number; message: string; context?: string; httpStatus?: number; discordError?: any }) => {
     setErrorModalData({
       ...error,
       timestamp: Date.now()
     });
   };
 
-  const [uploadedImages, setUploadedImages] = useState<Array<{id:string,path:string,isMain:boolean}>>(() => {
-    try{ 
-      const raw = localStorage.getItem('uploadedImages'); 
-      if(raw) {
+  const [uploadedImages, setUploadedImages] = useState<Array<{ id: string, path: string, name: string, isMain: boolean }>>(() => {
+    try {
+      const raw = localStorage.getItem('uploadedImages');
+      if (raw) {
         const parsed = JSON.parse(raw);
         // Migration: convert old dataUrl format to new path format
-        if(parsed.length > 0 && parsed[0].dataUrl) {
+        if (parsed.length > 0 && parsed[0].dataUrl) {
           return []; // Reset old format images
         }
-        return parsed;
+        // Migration: ajouter name si manquant
+        return parsed.map((img: any) => ({
+          ...img,
+          name: img.name || img.path?.split(/[/\\]/).pop() || 'image'
+        }));
       }
-    }catch(e){}
+    } catch (e) { }
     return [];
   });
 
   const [savedTags, setSavedTags] = useState<Tag[]>(() => {
-    try{ const raw = localStorage.getItem('savedTags'); if(raw) return JSON.parse(raw); }catch(e){}
+    try { const raw = localStorage.getItem('savedTags'); if (raw) return JSON.parse(raw); } catch (e) { }
     return [];
   });
 
   // Post fields and API configuration
   const [postTitle, setPostTitle] = useState<string>(() => {
-    try{ const raw = localStorage.getItem('postTitle'); return raw || ''; }catch(e){ return ''; }
+    try { const raw = localStorage.getItem('postTitle'); return raw || ''; } catch (e) { return ''; }
   });
   const [postTags, setPostTags] = useState<string>(() => {
-    try{ const raw = localStorage.getItem('postTags'); return raw || ''; }catch(e){ return ''; }
+    try { const raw = localStorage.getItem('postTags'); return raw || ''; } catch (e) { return ''; }
   });
 
   // API Configuration - URL is now hardcoded for local API
   // Définir l’URL de base en consultant d’abord localStorage, puis .env, et enfin un fallback Koyeb
-  const defaultApiBase = 
+  const defaultApiBase =
     localStorage.getItem('apiBase') ||
-    import.meta.env.VITE_PUBLISHER_API_URL || 
+    import.meta.env.VITE_PUBLISHER_API_URL ||
     'https://dependent-klarika-rorymercury91-e1486cf2.koyeb.app';
 
   // L’URL complète pour publier un post (sans la partie forum-post par défaut)
@@ -283,13 +320,16 @@ export function AppProvider({children}: {children: React.ReactNode}){
 
   const [publishInProgress, setPublishInProgress] = useState<boolean>(false);
   const [lastPublishResult, setLastPublishResult] = useState<string | null>(null);
+  
+  // Rate limit protection (cooldown de 60 secondes après une erreur 429)
+  const [rateLimitCooldown, setRateLimitCooldown] = useState<number | null>(null);
 
   // Published posts history
   const [publishedPosts, setPublishedPosts] = useState<PublishedPost[]>(() => {
-    try{ 
-      const raw = localStorage.getItem('publishedPosts'); 
-      if(raw) return JSON.parse(raw);
-    }catch(e){}
+    try {
+      const raw = localStorage.getItem('publishedPosts');
+      if (raw) return JSON.parse(raw);
+    } catch (e) { }
     return [];
   });
 
@@ -297,8 +337,8 @@ export function AppProvider({children}: {children: React.ReactNode}){
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingPostData, setEditingPostData] = useState<PublishedPost | null>(null);
 
-  useEffect(()=>{ localStorage.setItem('postTitle', postTitle); },[postTitle]);
-  useEffect(()=>{ localStorage.setItem('postTags', postTags); },[postTags]);
+  useEffect(() => { localStorage.setItem('postTitle', postTitle); }, [postTitle]);
+  useEffect(() => { localStorage.setItem('postTags', postTags); }, [postTags]);
 
   // Envoyer la configuration Discord à l'API au démarrage
   useEffect(() => {
@@ -327,13 +367,13 @@ export function AppProvider({children}: {children: React.ReactNode}){
     return () => clearTimeout(timer);
   }, [defaultApiBase]);
 
-  useEffect(()=>{
+  useEffect(() => {
     localStorage.setItem('customTemplates', JSON.stringify(templates));
-  },[templates]);
+  }, [templates]);
 
-  useEffect(()=>{
+  useEffect(() => {
     localStorage.setItem('publishedPosts', JSON.stringify(publishedPosts));
-  },[publishedPosts]);
+  }, [publishedPosts]);
 
   // History management functions
   const addPublishedPost = (p: PublishedPost) => {
@@ -341,281 +381,426 @@ export function AppProvider({children}: {children: React.ReactNode}){
   };
 
   const updatePublishedPost = (id: string, updates: Partial<PublishedPost>) => {
-    setPublishedPosts(prev => prev.map(post => post.id === id ? {...post, ...updates} : post));
+    setPublishedPosts(prev => prev.map(post => post.id === id ? { ...post, ...updates } : post));
   };
 
   const deletePublishedPost = (id: string) => {
     setPublishedPosts(prev => prev.filter(post => post.id !== id));
   };
 
-  async function publishPost(){
-      const title = (postTitle || '').trim();
-      const content = preview || '';
-      const tags = postTags || '';
-      const templateType = (templates[currentTemplateIdx]?.type) || '';
-      const isEditMode = editingPostId !== null && editingPostData !== null;
-
-      // CHANGEMENT ICI : Lire l'URL depuis localStorage
-      const storedApiUrl = localStorage.getItem('apiUrl');
+  // Fonction pour récupérer l'historique depuis l'API
+  async function fetchHistoryFromAPI() {
+    try {
       const baseUrl = localStorage.getItem('apiBase') || defaultApiBase;
-      const apiEndpoint = `${baseUrl}/api/forum-post`;
-
-      // Logging removed – publication started
-
-      // Validation: titre obligatoire
-      if(!title || title.length === 0){ 
-          // Logging removed – title missing
-          setLastPublishResult('❌ Titre obligatoire');
-          showErrorModal({
-              code: 'VALIDATION_ERROR',
-              message: 'Le titre du post est obligatoire',
-              context: 'Validation avant publication',
-              httpStatus: 400
-          });
-          return {ok:false, error:'missing_title'}; 
-      }
+      const apiKey = localStorage.getItem('apiKey') || '';
+      const endpoint = `${baseUrl}/api/history`;
       
-      // Validation: API endpoint requis
-      if(!baseUrl || baseUrl.trim().length === 0){ 
-          // Logging removed – API URL missing
-          setLastPublishResult('❌ URL API manquante dans Configuration');
-          showErrorModal({
-              code: 'CONFIG_ERROR',
-              message: 'URL de l\'API manquante',
-              context: 'Veuillez configurer l\'URL Koyeb dans Configuration API',
-              httpStatus: 500
-          });
-          return {ok:false, error:'missing_api_url'}; 
-      }
-      
-      // Validation: template type obligatoire
-      if(templateType !== 'my' && templateType !== 'partner') {
-          // Logging removed – invalid template type
-          setLastPublishResult('❌ Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés');
-          showErrorModal({
-              code: 'VALIDATION_ERROR',
-              message: 'Type de template invalide',
-              context: 'Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés',
-              httpStatus: 400
-          });
-          return {ok:false, error:'invalid_template_type'};
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+          'X-API-KEY': apiKey,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          // L'endpoint n'existe pas encore, on garde localStorage
+          console.log('⚠️ Endpoint /api/history non disponible, utilisation de localStorage');
+          return;
+        }
+        throw new Error(`Erreur ${response.status}: ${response.statusText}`);
       }
 
-      setPublishInProgress(true);
-      setLastPublishResult(null);
-
-      try{
-          // Logging removed – preparing payload
-          
-          // Créer FormData pour multipart/form-data
-          const formData = new FormData();
-          formData.append('title', title);
-          formData.append('content', content);
-          formData.append('tags', tags);
-          formData.append('template', templateType);
-          
-          // Add edit mode info if updating
-          if(isEditMode) {
-              formData.append('threadId', editingPostData.threadId);
-              formData.append('messageId', editingPostData.messageId);
-              formData.append('isUpdate', 'true');
-              // Logging removed – edit mode activated
-          }
-          
-          // Process all images
-          if(uploadedImages.length > 0) {
-              // Logging removed – processing images
-              for(let i = 0; i < uploadedImages.length; i++) {
-                  const img = uploadedImages[i];
-                  if(!img.path) continue;
-                  try {
-                      // Read image from filesystem
-                      const imgResult = await tauriAPI.readImage(img.path);
-                      if(imgResult.ok && imgResult.buffer) {
-                          // Convert to Blob
-                          const buffer = new Uint8Array(imgResult.buffer);
-                          const blob = new Blob([buffer]);
-                          const ext = (img.path.split('.').pop() || 'png').toLowerCase();
-                          const filename = img.path.split('_').slice(2).join('_');
-                          
-                          // Append to FormData
-                          formData.append(`image_${i}`, blob, filename);
-                          if(img.isMain) {
-                              formData.append('main_image_index', i.toString());
-                          }
-                      }
-                  } catch(e) {
-                      console.error('Failed to read image:', img.path, e);
-                  }
-              }
-          }
-
-          // Récupérer la clé API
-          const apiKey = localStorage.getItem('apiKey') || '';
-
-          // Logging removed – API request
-          
-          // Faire la requête avec fetch
-          const response = await fetch(apiEndpoint, {
-              method: 'POST',
-              headers: {
-                  'X-API-KEY': apiKey
-              },
-              body: formData
-          });
-
-          const res = await response.json();
-          
-          // Logging removed – API response received
-          
-          if(!response.ok){ 
-              setLastPublishResult('Erreur API: '+(res.error||'unknown'));
-              
-              const isNetworkError = !response.status || response.status === 0;
-              
-              showErrorModal({
-                  code: res.error || 'API_ERROR',
-                  message: isNetworkError 
-                      ? 'L\'API n\'est pas accessible. Vérifiez l\'URL Koyeb.' 
-                      : (res.error || 'Erreur inconnue'),
-                  context: isEditMode ? 'Mise à jour du post Discord' : 'Publication du post Discord',
-                  httpStatus: response.status || 0,
-                  discordError: res
-              });
-              return {ok:false, error:res.error};
-          }
-          
-          // Build success message
-          let successMsg = isEditMode ? 'Mise à jour réussie' : 'Publication réussie';
-          setLastPublishResult(successMsg);
-          
-          // Logging removed – publication finished
-          
-          // Save to history or update existing post
-          if(res.thread_id && res.message_id) {
-              if(isEditMode && editingPostId) {
-                  const updatedPost: Partial<PublishedPost> = {
-                      timestamp: Date.now(),
-                      title,
-                      content,
-                      tags,
-                      template: templateType,
-                      imagePath: uploadedImages.find(i=>i.isMain)?.path,
-                      discordUrl: res.thread_url || res.url || editingPostData.discordUrl
-                  };
-                  updatePublishedPost(editingPostId, updatedPost);
-                  setEditingPostId(null);
-                  setEditingPostData(null);
-              } else {
-                  const newPost: PublishedPost = {
-                      id: `post_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                      timestamp: Date.now(),
-                      title,
-                      content,
-                      tags,
-                      template: templateType,
-                      imagePath: uploadedImages.find(i=>i.isMain)?.path,
-                      threadId: res.thread_id,
-                      messageId: res.message_id,
-                      discordUrl: res.thread_url || res.url || '',
-                      forumId: res.forum_id || 0
-                  };
-                  addPublishedPost(newPost);
-              }
-          }
-          
-          return {ok:true, data: res};
-      }catch(e:any){
-          // Logging removed – exception during publication
-          setLastPublishResult('Erreur envoi: '+String(e?.message || e));
-          showErrorModal({
-              code: 'NETWORK_ERROR',
-              message: String(e?.message || e),
-              context: 'Exception lors de la publication',
-              httpStatus: 0
-          });
-          return {ok:false, error: String(e?.message || e)};
-      }finally{
-          setPublishInProgress(false);
+      const data = await response.json();
+      if (Array.isArray(data.posts) || Array.isArray(data)) {
+        const posts = Array.isArray(data.posts) ? data.posts : data;
+        // Fusionner avec l'historique local (éviter les doublons)
+        setPublishedPosts(prev => {
+          const existingIds = new Set(prev.map(p => p.id));
+          const newPosts = posts.filter((p: PublishedPost) => !existingIds.has(p.id));
+          return [...newPosts, ...prev].sort((a, b) => b.timestamp - a.timestamp);
+        });
+        console.log(`✅ Historique récupéré: ${posts.length} posts`);
       }
-  }
-
-
-  useEffect(()=>{
-    localStorage.setItem('customVariables', JSON.stringify(allVarsConfig));
-  },[allVarsConfig]);
-
-  useEffect(()=>{
-    localStorage.setItem('savedTags', JSON.stringify(savedTags));
-  },[savedTags]);
-
-  useEffect(()=>{
-    localStorage.setItem('savedInputs', JSON.stringify(inputs));
-  },[inputs]);
-
-  useEffect(()=>{
-    localStorage.setItem('savedInstructions', JSON.stringify(savedInstructions));
-  },[savedInstructions]);
-
-  useEffect(()=>{
-    localStorage.setItem('savedTraductors', JSON.stringify(savedTraductors));
-  },[savedTraductors]);
-
-  useEffect(()=>{
-    localStorage.setItem('uploadedImages', JSON.stringify(uploadedImages));
-  },[uploadedImages]);
-
-  function addTemplate(t: Template){
-    setTemplates(prev => [...prev, t]);
-  }
-  function updateTemplate(idx:number, t:Template){
-    setTemplates(prev => { const copy = [...prev]; copy[idx]=t; return copy; });
-  }
-  function deleteTemplate(idx:number){
-    setTemplates(prev => { const copy = [...prev]; copy.splice(idx,1); return copy; });
-    setCurrentTemplateIdx(0);
-  }
-
-  function addVarConfig(v: VarConfig){
-    setAllVarsConfig(prev => [...prev, {...v, isCustom: true}]);
-  }
-  function updateVarConfig(idx: number, v: VarConfig){
-    setAllVarsConfig(prev => { const copy = [...prev]; copy[idx] = {...v, isCustom: copy[idx].isCustom}; return copy; });
-  }
-  function deleteVarConfig(idx: number){
-    const varName = allVarsConfig[idx]?.name;
-    setAllVarsConfig(prev => { const copy = [...prev]; copy.splice(idx, 1); return copy; });
-    // Nettoyer l'input associé
-    if(varName){
-      setInputs(prev => { const copy = {...prev}; delete copy[varName]; return copy; });
+    } catch (e: any) {
+      console.error('❌ Erreur lors de la récupération de l\'historique:', e);
+      // Ne pas bloquer l'utilisateur, on garde localStorage
     }
   }
 
-  function setInput(name:string, value:string){
-    setInputs(prev => ({...prev, [name]: value}));
+  async function publishPost() {
+    const title = (postTitle || '').trim();
+    const content = preview || '';
+    const tags = postTags || '';
+    const templateType = (templates[currentTemplateIdx]?.type) || '';
+    const isEditMode = editingPostId !== null && editingPostData !== null;
+
+    // CHANGEMENT ICI : Lire l'URL depuis localStorage
+    const storedApiUrl = localStorage.getItem('apiUrl');
+    const baseUrl = localStorage.getItem('apiBase') || defaultApiBase;
+    const apiEndpoint = `${baseUrl}/api/forum-post`;
+
+    // Logging removed – publication started
+
+    // Validation: titre obligatoire
+    if (!title || title.length === 0) {
+      // Logging removed – title missing
+      setLastPublishResult('❌ Titre obligatoire');
+      showErrorModal({
+        code: 'VALIDATION_ERROR',
+        message: 'Le titre du post est obligatoire',
+        context: 'Validation avant publication',
+        httpStatus: 400
+      });
+      return { ok: false, error: 'missing_title' };
+    }
+
+    // Validation: API endpoint requis
+    if (!baseUrl || baseUrl.trim().length === 0) {
+      // Logging removed – API URL missing
+      setLastPublishResult('❌ URL API manquante dans Configuration');
+      showErrorModal({
+        code: 'CONFIG_ERROR',
+        message: 'URL de l\'API manquante',
+        context: 'Veuillez configurer l\'URL Koyeb dans Configuration API',
+        httpStatus: 500
+      });
+      return { ok: false, error: 'missing_api_url' };
+    }
+
+    // Validation: template type obligatoire
+    if (templateType !== 'my' && templateType !== 'partner') {
+      // Logging removed – invalid template type
+      setLastPublishResult('❌ Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés');
+      showErrorModal({
+        code: 'VALIDATION_ERROR',
+        message: 'Type de template invalide',
+        context: 'Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés',
+        httpStatus: 400
+      });
+      return { ok: false, error: 'invalid_template_type' };
+    }
+
+    // Vérifier le cooldown rate limit
+    if (rateLimitCooldown !== null && Date.now() < rateLimitCooldown) {
+      const remainingSeconds = Math.ceil((rateLimitCooldown - Date.now()) / 1000);
+      setLastPublishResult(`⏳ Rate limit actif. Attendez ${remainingSeconds} secondes.`);
+      showErrorModal({
+        code: 'RATE_LIMIT_COOLDOWN',
+        message: `Rate limit actif`,
+        context: `Veuillez attendre ${remainingSeconds} secondes avant de réessayer pour éviter un bannissement IP.`,
+        httpStatus: 429
+      });
+      return { ok: false, error: 'rate_limit_cooldown' };
+    }
+
+    setPublishInProgress(true);
+    setLastPublishResult(null);
+
+    try {
+      // Logging removed – preparing payload
+
+      // Créer FormData pour multipart/form-data
+      const formData = new FormData();
+      formData.append('title', title);
+      formData.append('content', content);
+      formData.append('tags', tags);
+      formData.append('template', templateType);
+
+      // Add edit mode info if updating
+      if (isEditMode) {
+        formData.append('threadId', editingPostData.threadId);
+        formData.append('messageId', editingPostData.messageId);
+        formData.append('isUpdate', 'true');
+        // Logging removed – edit mode activated
+      }
+
+      // Process all images (comme dans la version legacy)
+      if (uploadedImages.length > 0) {
+        const images = [];
+        for (const img of uploadedImages) {
+          if (!img.path) continue;
+          try {
+            // Read image from filesystem
+            const imgResult = await tauriAPI.readImage(img.path);
+            if (imgResult.ok && imgResult.buffer) {
+              // Convert array back to Uint8Array then to base64 (par chunks pour éviter la récursion)
+              const buffer = new Uint8Array(imgResult.buffer);
+              // Conversion base64 par chunks pour éviter "Maximum call stack size exceeded"
+              let base64 = '';
+              const chunkSize = 8192; // 8KB chunks
+              for (let i = 0; i < buffer.length; i += chunkSize) {
+                const chunk = buffer.slice(i, i + chunkSize);
+                base64 += String.fromCharCode(...chunk);
+              }
+              base64 = btoa(base64);
+              const ext = (img.path.split('.').pop() || 'png').toLowerCase();
+              // Support for all modern image formats
+              const mimeTypes: Record<string, string> = {
+                'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+                'png': 'image/png', 'gif': 'image/gif',
+                'webp': 'image/webp', 'avif': 'image/avif',
+                'bmp': 'image/bmp', 'svg': 'image/svg+xml',
+                'ico': 'image/x-icon', 'tiff': 'image/tiff', 'tif': 'image/tiff'
+              };
+              const mimeType = mimeTypes[ext] || 'image/' + ext;
+              images.push({
+                dataUrl: `data:${mimeType};base64,${base64}`,
+                filename: img.path.split('_').slice(2).join('_'), // Remove timestamp prefix
+                isMain: img.isMain
+              });
+            }
+          } catch (e) {
+            console.error('Failed to read image:', img.path, e);
+          }
+        }
+        if (images.length > 0) {
+          // Ajouter les images au FormData comme dans la version legacy
+          for (let i = 0; i < images.length; i++) {
+            const img = images[i];
+            if (!img.dataUrl) continue;
+
+            const parts = img.dataUrl.split(',');
+            const meta = parts[0] || '';
+            const data = parts[1] || '';
+            const m = meta.match(/data:([^;]+);/);
+            const contentType = m ? m[1] : 'application/octet-stream';
+            const buffer = Uint8Array.from(atob(data), c => c.charCodeAt(0));
+            const blob = new Blob([buffer], { type: contentType });
+            formData.append(`image_${i}`, blob, img.filename || `image_${i}.png`);
+
+            // Mark which image is main
+            if (img.isMain) {
+              formData.append('main_image_index', String(i));
+            }
+          }
+        }
+      }
+
+      // Récupérer la clé API
+      const apiKey = localStorage.getItem('apiKey') || '';
+
+      // Logging removed – API request
+
+      // Faire la requête avec fetch
+      const response = await fetch(apiEndpoint, {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': apiKey
+        },
+        body: formData
+      });
+
+      const res = await response.json();
+
+      // Logging removed – API response received
+
+      if (!response.ok) {
+        // Gestion spéciale du rate limit 429
+        if (response.status === 429) {
+          const cooldownEnd = Date.now() + 60000; // 60 secondes
+          setRateLimitCooldown(cooldownEnd);
+          setLastPublishResult('❌ Rate limit Discord (429). Cooldown de 60 secondes activé.');
+          showErrorModal({
+            code: 'RATE_LIMIT_429',
+            message: 'Rate limit Discord atteint',
+            context: 'Discord a limité les requêtes. Le bouton de publication sera désactivé pendant 60 secondes pour éviter un bannissement IP. Ne tentez PAS de republier immédiatement.',
+            httpStatus: 429,
+            discordError: res
+          });
+          // Démarrer un timer pour désactiver le cooldown après 60 secondes
+          setTimeout(() => {
+            setRateLimitCooldown(null);
+            setLastPublishResult(null);
+          }, 60000);
+          return { ok: false, error: 'rate_limit_429' };
+        }
+
+        setLastPublishResult('Erreur API: ' + (res.error || 'unknown'));
+
+        const isNetworkError = !response.status || response.status === 0;
+
+        showErrorModal({
+          code: res.error || 'API_ERROR',
+          message: isNetworkError
+            ? 'L\'API n\'est pas accessible. Vérifiez l\'URL Koyeb.'
+            : (res.error || 'Erreur inconnue'),
+          context: isEditMode ? 'Mise à jour du post Discord' : 'Publication du post Discord',
+          httpStatus: response.status || 0,
+          discordError: res
+        });
+        return { ok: false, error: res.error };
+      }
+      
+      // Réinitialiser le cooldown en cas de succès
+      if (rateLimitCooldown !== null) {
+        setRateLimitCooldown(null);
+      }
+      
+      // Réinitialiser le cooldown en cas de succès
+      if (rateLimitCooldown !== null) {
+        setRateLimitCooldown(null);
+      }
+
+      // Build success message
+      let successMsg = isEditMode ? 'Mise à jour réussie' : 'Publication réussie';
+      setLastPublishResult(successMsg);
+
+      // Logging removed – publication finished
+
+      // Save to history or update existing post
+      if (res.thread_id && res.message_id) {
+        if (isEditMode && editingPostId) {
+          const updatedPost: Partial<PublishedPost> = {
+            timestamp: Date.now(),
+            title,
+            content,
+            tags,
+            template: templateType,
+            imagePath: uploadedImages.find(i => i.isMain)?.path,
+            translationType,
+            isIntegrated,
+            savedInputs: { ...inputs },
+            templateId: templates[currentTemplateIdx]?.id,
+            discordUrl: res.thread_url || res.url || editingPostData.discordUrl
+          };
+          updatePublishedPost(editingPostId, updatedPost);
+          setEditingPostId(null);
+          setEditingPostData(null);
+        } else {
+          const newPost: PublishedPost = {
+            id: `post_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            timestamp: Date.now(),
+            title,
+            content,
+            tags,
+            template: templateType,
+            imagePath: uploadedImages.find(i => i.isMain)?.path,
+            translationType,
+            isIntegrated,
+            savedInputs: { ...inputs },
+            templateId: templates[currentTemplateIdx]?.id,
+            threadId: res.thread_id,
+            messageId: res.message_id,
+            discordUrl: res.thread_url || res.url || '',
+            forumId: res.forum_id || (templateType === 'my' ? 1427703869844230317 : 1427703869844230318)
+          };
+          addPublishedPost(newPost);
+        }
+      }
+
+      return { ok: true, data: res };
+    } catch (e: any) {
+      // Logging removed – exception during publication
+      setLastPublishResult('Erreur envoi: ' + String(e?.message || e));
+      showErrorModal({
+        code: 'NETWORK_ERROR',
+        message: String(e?.message || e),
+        context: 'Exception lors de la publication',
+        httpStatus: 0
+      });
+      return { ok: false, error: String(e?.message || e) };
+    } finally {
+      setPublishInProgress(false);
+    }
   }
 
-  function addSavedTag(t:Tag){
+
+  useEffect(() => {
+    localStorage.setItem('customVariables', JSON.stringify(allVarsConfig));
+  }, [allVarsConfig]);
+
+  useEffect(() => {
+    localStorage.setItem('savedTags', JSON.stringify(savedTags));
+  }, [savedTags]);
+
+  useEffect(() => {
+    localStorage.setItem('savedInputs', JSON.stringify(inputs));
+  }, [inputs]);
+
+  useEffect(() => {
+    localStorage.setItem('translationType', translationType);
+  }, [translationType]);
+
+  useEffect(() => {
+    localStorage.setItem('isIntegrated', String(isIntegrated));
+  }, [isIntegrated]);
+
+  useEffect(() => {
+    localStorage.setItem('savedInstructions', JSON.stringify(savedInstructions));
+  }, [savedInstructions]);
+
+  useEffect(() => {
+    localStorage.setItem('savedTraductors', JSON.stringify(savedTraductors));
+  }, [savedTraductors]);
+
+  useEffect(() => {
+    localStorage.setItem('uploadedImages', JSON.stringify(uploadedImages));
+  }, [uploadedImages]);
+
+  function addTemplate(t: Template) {
+    setTemplates(prev => [...prev, t]);
+  }
+  function updateTemplate(idx: number, t: Template) {
+    setTemplates(prev => { const copy = [...prev]; copy[idx] = t; return copy; });
+  }
+  function deleteTemplate(idx: number) {
+    setTemplates(prev => { const copy = [...prev]; copy.splice(idx, 1); return copy; });
+    setCurrentTemplateIdx(0);
+  }
+
+  function restoreDefaultTemplates() {
+    setTemplates(defaultTemplates);
+    setCurrentTemplateIdx(0);
+    // Sauvegarder dans localStorage
+    try {
+      localStorage.setItem('customTemplates', JSON.stringify(defaultTemplates));
+    } catch (e) {
+      console.error('Erreur lors de la sauvegarde des templates par défaut:', e);
+    }
+  }
+
+  function addVarConfig(v: VarConfig) {
+    setAllVarsConfig(prev => [...prev, { ...v, isCustom: true }]);
+  }
+  function updateVarConfig(idx: number, v: VarConfig) {
+    setAllVarsConfig(prev => { const copy = [...prev]; copy[idx] = { ...v, isCustom: copy[idx].isCustom }; return copy; });
+  }
+  function deleteVarConfig(idx: number) {
+    const varName = allVarsConfig[idx]?.name;
+    setAllVarsConfig(prev => { const copy = [...prev]; copy.splice(idx, 1); return copy; });
+    // Nettoyer l'input associé
+    if (varName) {
+      setInputs(prev => { const copy = { ...prev }; delete copy[varName]; return copy; });
+    }
+  }
+
+  function setInput(name: string, value: string) {
+    setInputs(prev => ({ ...prev, [name]: value }));
+  }
+
+  function addSavedTag(t: Tag) {
     setSavedTags(prev => [...prev, t]);
   }
-  function deleteSavedTag(idx:number){
-    setSavedTags(prev => { const copy = [...prev]; copy.splice(idx,1); return copy; });
+  function deleteSavedTag(idx: number) {
+    setSavedTags(prev => { const copy = [...prev]; copy.splice(idx, 1); return copy; });
   }
 
   // Instructions saved
-  function saveInstruction(name:string, text:string){
-    setSavedInstructions(prev => ({...prev, [name]: text}));
+  function saveInstruction(name: string, text: string) {
+    setSavedInstructions(prev => ({ ...prev, [name]: text }));
   }
-  function deleteInstruction(name:string){
-    setSavedInstructions(prev => { const copy = {...prev}; delete copy[name]; return copy; });
+  function deleteInstruction(name: string) {
+    setSavedInstructions(prev => { const copy = { ...prev }; delete copy[name]; return copy; });
   }
 
   // Traductors
-  function saveTraductor(name:string){
+  function saveTraductor(name: string) {
     setSavedTraductors(prev => prev.includes(name) ? prev : [...prev, name]);
   }
-  function deleteTraductor(idx:number){
-    setSavedTraductors(prev => { const copy = [...prev]; copy.splice(idx,1); return copy; });
+  function deleteTraductor(idx: number) {
+    setSavedTraductors(prev => { const copy = [...prev]; copy.splice(idx, 1); return copy; });
   }
 
   // Images
@@ -659,7 +844,7 @@ export function AppProvider({children}: {children: React.ReactNode}){
 
         // Convertir en JPEG si c'est un PNG (plus petite taille)
         const outputFormat = file.type === 'image/png' ? 'image/jpeg' : file.type;
-        
+
         canvas.toBlob(
           (blob) => {
             if (!blob) {
@@ -687,85 +872,191 @@ export function AppProvider({children}: {children: React.ReactNode}){
     });
   }
 
-  async function addImages(files: FileList | File[]){
+  // Fonction pour ajouter une image depuis un chemin de fichier (bouton Parcourir)
+  async function addImageFromPath(filePath: string) {
+    try {
+      // Sauvegarder l'image dans le dossier images/ via Tauri
+      const result = await tauriAPI.saveImage(filePath);
+      if (result.ok && result.fileName) {
+        // Extraire le nom du fichier depuis le chemin sauvegardé
+        const fileName = result.fileName.split(/[/\\]/).pop() || filePath.split(/[/\\]/).pop() || 'image';
+
+        setUploadedImages(prev => {
+          const next = [...prev, {
+            id: Date.now().toString() + '_' + Math.random().toString(36).substr(2, 9),
+            path: result.fileName,
+            name: fileName,
+            isMain: prev.length === 0
+          }];
+          return next;
+        });
+      }
+    } catch (e) {
+      console.error('Failed to save image from path:', e);
+    }
+  }
+
+  // Fonction pour ajouter des images depuis File objects (drag & drop)
+  async function addImages(files: FileList | File[]) {
     const fileArray = Array.from(files as any) as File[];
-    for(const file of fileArray) {
-      if(!file.type.startsWith('image/')) continue;
+    for (const file of fileArray) {
+      if (!file.type.startsWith('image/')) continue;
       try {
         // Compresser l'image si nécessaire
         const processedFile = await compressImage(file);
-        
-        // Save image to filesystem via IPC
-        const result = await tauriAPI.saveImage((processedFile as any).path || (file as any).path);
-        if(result.ok && result.fileName) {
+
+        // Les File objects en JavaScript n'ont jamais de propriété path
+        // On doit toujours convertir en base64 et utiliser la commande Tauri
+        let result;
+        try {
+          // Convertir le File en base64 avec FileReader (plus efficace et évite la récursion)
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const dataUrl = reader.result as string;
+              // Extraire la partie base64 (après "data:image/...;base64,")
+              const base64Data = dataUrl.split(',')[1];
+              resolve(base64Data);
+            };
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsDataURL(processedFile);
+          });
+
+          // Utiliser tauriAPI pour sauvegarder depuis base64
+          result = await tauriAPI.saveImageFromBase64(
+            base64,
+            processedFile.name,
+            processedFile.type
+          );
+
+          if (!result.ok) {
+            throw new Error(result.error || 'Failed to save image from base64');
+          }
+        } catch (invokeError: any) {
+          console.error('Failed to save image from base64:', invokeError);
+          // Relancer l'erreur pour qu'elle soit gérée par le catch parent
+          throw invokeError;
+        }
+
+        if (result.ok && result.fileName) {
+          // Extraire le nom du fichier depuis le chemin sauvegardé
+          const fileName = result.fileName.split(/[/\\]/).pop() || file.name;
+
           setUploadedImages(prev => {
-            const next = [...prev, {id: Date.now().toString(), path: result.fileName, isMain: prev.length===0}];
+            const next = [...prev, {
+              id: Date.now().toString() + '_' + Math.random().toString(36).substr(2, 9),
+              path: result.fileName,
+              name: fileName,
+              isMain: prev.length === 0
+            }];
             return next;
           });
         }
-      } catch(e) {
+      } catch (e) {
         console.error('Failed to save image:', e);
       }
     }
   }
 
-  async function removeImage(idx:number){
+  async function removeImage(idx: number) {
     const img = uploadedImages[idx];
-    if(img?.path) {
+    if (img?.path) {
       try {
         // Delete image file from filesystem
         await tauriAPI.deleteImage(img.path);
-      } catch(e) {
+      } catch (e) {
         console.error('Failed to delete image:', e);
       }
     }
-    setUploadedImages(prev => { const copy = [...prev]; copy.splice(idx,1); if(copy.length && !copy.some(i=>i.isMain)) copy[0].isMain = true; return copy; });
+    setUploadedImages(prev => { const copy = [...prev]; copy.splice(idx, 1); if (copy.length && !copy.some(i => i.isMain)) copy[0].isMain = true; return copy; });
   }
 
-  function setMainImage(idx:number){
-    setUploadedImages(prev => prev.map((i,s) => ({...i, isMain: s===idx})));
+  function setMainImage(idx: number) {
+    setUploadedImages(prev => prev.map((i, s) => ({ ...i, isMain: s === idx })));
   }
 
-  // Debounce des inputs pour éviter de recalculer le preview à chaque frappe
-  const debouncedInputs = useDebounce(inputs, 300);
-  const debouncedCurrentTemplateIdx = useDebounce(currentTemplateIdx, 100);
+  // SUPPRESSION COMPLÈTE DU DEBOUNCE pour un rendu instantané
+  // Le preview dépend directement de inputs et currentTemplateIdx
 
-  const preview = useMemo(()=>{
-    const tpl = templates[debouncedCurrentTemplateIdx];
-    if(!tpl) return '';
-    const format = (tpl as any).format || 'markdown';
+  // ============================================
+  // PREVIEW ENGINE - Logique legacy restaurée
+  // ============================================
+  // Dépend directement de inputs (RAW state) et currentTemplateIdx
+  // Logique simplifiée et robuste de la version legacy
+  const preview = useMemo(() => {
+    const tpl = templates[currentTemplateIdx];
+    if (!tpl) return '';
 
     let content = tpl.content;
 
-    // Replace variables
+    // Remplacement des variables depuis allVarsConfig
     allVarsConfig.forEach(varConfig => {
       const name = varConfig.name;
-      const val = (debouncedInputs[name] || '').trim();
+      const val = (inputs[name] || '').trim();
       let finalVal = val;
-      if(format === 'markdown' && name === 'overview' && val){
-        const lines = val.split('\n').map(l=>l.trim()).filter(Boolean);
+
+      // Formatage spécial pour 'overview' (minuscule dans legacy) ou 'Overview' (majuscule)
+      // Legacy utilise: lines.join('\n> ') qui ajoute > entre les lignes
+      if ((name === 'overview' || name === 'Overview') && val) {
+        const lines = val.split('\n').map(l => l.trim()).filter(Boolean);
+        // Legacy: join avec '\n> ' ajoute > entre les lignes (première ligne sans >)
         finalVal = lines.join('\n> ');
-        
-        // Inject instructions right after overview if present
-        const instructionContent = (debouncedInputs['instruction'] || '').trim();
-        if(instructionContent) {
-          finalVal += '\n\n**Instructions d\'installation :**\n' + instructionContent.split('\n').map(l => l.trim()).filter(Boolean).map(l => '* ' + l).join('\n');
+
+        // Injecter les instructions directement après overview si présentes
+        const instructionContent = (inputs['instruction'] || '').trim();
+        if (instructionContent) {
+          const instructionLines = instructionContent.split('\n')
+            .map(l => l.trim())
+            .filter(Boolean);
+
+          // Numéroter les instructions (1, 2, 3...) et les formater dans un bloc de code
+          const numberedInstructions = instructionLines
+            .map((l, index) => `${index + 1}. ${l}`)
+            .join('\n');
+
+          finalVal += '\n\n```Instructions d\'installation :\n' +
+            numberedInstructions +
+            '\n```';
         }
       }
-      content = content.split('['+name+']').join(finalVal || '['+name+']');
+
+      // Remplacement dans le template
+      content = content.split('[' + name + ']').join(finalVal || '[' + name + ']');
     });
 
-    // Remove [instruction] placeholder if not already replaced within overview
+    // Remplacement de [Translation_Type] par la valeur actuelle
+    // Si isIntegrated est activé, afficher "Intégrée (Type)"
+    const displayTranslationType = isIntegrated
+      ? `${translationType} (Intégrée)`
+      : translationType;
+    content = content.split('[Translation_Type]').join(displayTranslationType);
+
+    // Logique Smart Integrated
+    if (isIntegrated) {
+      // Supprimer la ligne contenant [Translate_link] (peut être dans un lien markdown ou seul)
+      // Pattern: ligne complète contenant [Translate_link], avec ou sans markdown
+      content = content.replace(/^.*\[Translate_link\].*$/gm, '');
+
+      // Supprimer aussi la ligne contenant le label "Lien de la Traduction" ou "Lien de la traduction"
+      // Gérer les variations avec ou sans majuscule, avec ou sans markdown
+      content = content.replace(/^.*\*\s*\*\*Lien de la [Tt]raduction\s*:\s*\*\*.*$/gm, '');
+
+      // Nettoyer les lignes vides multiples qui pourraient résulter de la suppression
+      content = content.replace(/\n\n\n+/g, '\n\n');
+    }
+
+    // Supprimer [instruction] placeholder si pas déjà remplacé dans overview
     content = content.split('[instruction]').join('');
 
     return content;
-  }, [templates, debouncedCurrentTemplateIdx, allVarsConfig, debouncedInputs]);
+  }, [templates, currentTemplateIdx, allVarsConfig, inputs, translationType, isIntegrated]);
 
   const value: AppContextValue = {
     templates,
     addTemplate,
     updateTemplate,
     deleteTemplate,
+    restoreDefaultTemplates,
     currentTemplateIdx,
     setCurrentTemplateIdx,
     allVarsConfig,
@@ -774,6 +1065,10 @@ export function AppProvider({children}: {children: React.ReactNode}){
     deleteVarConfig,
     inputs,
     setInput,
+    translationType,
+    setTranslationType,
+    isIntegrated,
+    setIsIntegrated,
     preview,
     savedTags,
     addSavedTag,
@@ -789,6 +1084,7 @@ export function AppProvider({children}: {children: React.ReactNode}){
 
     uploadedImages,
     addImages,
+    addImageFromPath,
     removeImage,
     setMainImage,
 
@@ -812,17 +1108,51 @@ export function AppProvider({children}: {children: React.ReactNode}){
     addPublishedPost,
     updatePublishedPost,
     deletePublishedPost,
+    fetchHistoryFromAPI,
+    
+    // Rate limit protection
+    rateLimitCooldown,
 
     // Edit mode
     editingPostId,
     setEditingPostId,
+    setEditingPostData,
     loadPostForEditing: (post: PublishedPost) => {
       setEditingPostId(post.id);
       setEditingPostData(post);
       setPostTitle(post.title);
       setPostTags(post.tags);
-      const templateIdx = templates.findIndex(t => t.type === post.template);
-      if(templateIdx !== -1) setCurrentTemplateIdx(templateIdx);
+
+      // Restaurer le type de traduction et l'intégration
+      if (post.translationType) {
+        setTranslationType(post.translationType);
+      }
+      if (post.isIntegrated !== undefined) {
+        setIsIntegrated(post.isIntegrated);
+      }
+
+      // Restaurer les inputs sauvegardés
+      if (post.savedInputs) {
+        Object.keys(post.savedInputs).forEach(key => {
+          setInput(key, post.savedInputs![key] || '');
+        });
+      }
+
+      // Restaurer le template utilisé
+      if (post.templateId) {
+        const templateIdx = templates.findIndex(t => t.id === post.templateId);
+        if (templateIdx !== -1) {
+          setCurrentTemplateIdx(templateIdx);
+        } else {
+          // Fallback sur le type de template
+          const templateIdxByType = templates.findIndex(t => t.type === post.template);
+          if (templateIdxByType !== -1) setCurrentTemplateIdx(templateIdxByType);
+        }
+      } else {
+        // Fallback sur le type de template
+        const templateIdx = templates.findIndex(t => t.type === post.template);
+        if (templateIdx !== -1) setCurrentTemplateIdx(templateIdx);
+      }
     },
     loadPostForDuplication: (post: PublishedPost) => {
       setEditingPostId(null);
@@ -830,7 +1160,7 @@ export function AppProvider({children}: {children: React.ReactNode}){
       setPostTitle(post.title);
       setPostTags(post.tags);
       const templateIdx = templates.findIndex(t => t.type === post.template);
-      if(templateIdx !== -1) setCurrentTemplateIdx(templateIdx);
+      if (templateIdx !== -1) setCurrentTemplateIdx(templateIdx);
     },
 
     // API status global
@@ -856,8 +1186,8 @@ export function AppProvider({children}: {children: React.ReactNode}){
   );
 }
 
-export function useApp(){
+export function useApp() {
   const ctx = useContext(AppContext);
-  if(!ctx) throw new Error('useApp must be used inside AppProvider');
+  if (!ctx) throw new Error('useApp must be used inside AppProvider');
   return ctx;
 }
