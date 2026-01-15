@@ -345,223 +345,215 @@ export function AppProvider({children}: {children: React.ReactNode}){
   };
 
   async function publishPost(){
-    // Build and send a multipart/form-data request to apiUrl
-    const title = (postTitle || '').trim(); // Uniquement le champ "Titre du post"
-    const content = preview || '';
-    const tags = postTags || '';
-    const templateType = (templates[currentTemplateIdx]?.type) || '';
-    const isEditMode = editingPostId !== null && editingPostData !== null;
+      const title = (postTitle || '').trim();
+      const content = preview || '';
+      const tags = postTags || '';
+      const templateType = (templates[currentTemplateIdx]?.type) || '';
+      const isEditMode = editingPostId !== null && editingPostData !== null;
 
-    // Log début de publication
-    await logger.publish('Démarrage', {
-      isEditMode,
-      title,
-      templateType,
-      tagsCount: tags.split(',').filter(t => t.trim()).length,
-      imagesCount: uploadedImages.length,
-      contentLength: content.length
-    });
+      // CHANGEMENT ICI : Lire l'URL depuis localStorage ou utiliser localhost par défaut
+      const storedApiUrl = localStorage.getItem('apiUrl');
+      const baseUrl = storedApiUrl || 'http://localhost:8080';
+      const apiEndpoint = `${baseUrl}/api/forum-post`;
 
-    // Validation: titre obligatoire (uniquement postTitle)
-    if(!title || title.length === 0){ 
-      await logger.error('Validation échouée: Titre manquant');
-      setLastPublishResult('❌ Titre obligatoire');
-      showErrorModal({
-        code: 'VALIDATION_ERROR',
-        message: 'Le titre du post est obligatoire',
-        context: 'Validation avant publication',
-        httpStatus: 400
+      await logger.publish('Démarrage', {
+          isEditMode,
+          title,
+          templateType,
+          tagsCount: tags.split(',').filter(t => t.trim()).length,
+          imagesCount: uploadedImages.length,
+          contentLength: content.length,
+          apiUrl: apiEndpoint // Log l'URL utilisée
       });
-      return {ok:false, error:'missing_title'}; 
-    }
-    
-    // Validation: API endpoint requis (should always be available locally)
-    if(!apiUrl || apiUrl.trim().length === 0){ 
-      await logger.error('Validation échouée: URL API manquante');
-      setLastPublishResult('❌ Erreur interne : URL API manquante');
-      showErrorModal({
-        code: 'CONFIG_ERROR',
-        message: 'Erreur interne : L\'URL de l\'API locale est manquante',
-        context: 'Configuration interne',
-        httpStatus: 500
-      });
-      return {ok:false, error:'missing_api_url'}; 
-    }
-    
-    // Validation: template type obligatoire (my/partner uniquement)
-    if(templateType !== 'my' && templateType !== 'partner') {
-      await logger.error('Validation échouée: Type de template invalide', {templateType});
-      setLastPublishResult('❌ Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés');
-      showErrorModal({
-        code: 'VALIDATION_ERROR',
-        message: 'Type de template invalide',
-        context: 'Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés',
-        httpStatus: 400
-      });
-      return {ok:false, error:'invalid_template_type'};
-    }
 
-    setPublishInProgress(true);
-    setLastPublishResult(null);
-
-    try{
-      await logger.info('Préparation du payload');
-      const mainPayload: any = { title, content, tags, template: templateType };
-      
-      // Add edit mode info if updating
-      if(isEditMode) {
-        mainPayload.threadId = editingPostData.threadId;
-        mainPayload.messageId = editingPostData.messageId;
-        mainPayload.isUpdate = true;
-        await logger.info('Mode édition activé', {
-          threadId: editingPostData.threadId,
-          messageId: editingPostData.messageId
-        });
+      // Validation: titre obligatoire
+      if(!title || title.length === 0){ 
+          await logger.error('Validation échouée: Titre manquant');
+          setLastPublishResult('❌ Titre obligatoire');
+          showErrorModal({
+              code: 'VALIDATION_ERROR',
+              message: 'Le titre du post est obligatoire',
+              context: 'Validation avant publication',
+              httpStatus: 400
+          });
+          return {ok:false, error:'missing_title'}; 
       }
       
-      // Process all images (not just main image)
-      if(uploadedImages.length > 0) {
-        await logger.info(`Traitement de ${uploadedImages.length} image(s)`);
-        const images = [];
-        for(const img of uploadedImages) {
-          if(!img.path) continue;
-          try {
-            // Read image from filesystem
-            const imgResult = await tauriAPI.readImage(img.path);
-            if(imgResult.ok && imgResult.buffer) {
-              // Convert array back to Uint8Array then to base64
-              const buffer = new Uint8Array(imgResult.buffer);
-              const base64 = btoa(String.fromCharCode(...buffer));
-              const ext = (img.path.split('.').pop() || 'png').toLowerCase();
-              // Support for all modern image formats
-              const mimeTypes: Record<string, string> = {
-                'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
-                'png': 'image/png', 'gif': 'image/gif',
-                'webp': 'image/webp', 'avif': 'image/avif',
-                'bmp': 'image/bmp', 'svg': 'image/svg+xml',
-                'ico': 'image/x-icon', 'tiff': 'image/tiff', 'tif': 'image/tiff'
-              };
-              const mimeType = mimeTypes[ext] || 'image/' + ext;
-              images.push({
-                dataUrl: `data:${mimeType};base64,${base64}`,
-                filename: img.path.split('_').slice(2).join('_'), // Remove timestamp prefix
-                isMain: img.isMain
-              });
-            }
-          } catch(e) {
-            console.error('Failed to read image:', img.path, e);
-          }
-        }
-        if(images.length > 0) {
-          mainPayload.images = images;
-          await logger.info(`${images.length} image(s) traitée(s) avec succès`);
-        }
+      // Validation: API endpoint requis
+      if(!baseUrl || baseUrl.trim().length === 0){ 
+          await logger.error('Validation échouée: URL API manquante');
+          setLastPublishResult('❌ URL API manquante dans Configuration');
+          showErrorModal({
+              code: 'CONFIG_ERROR',
+              message: 'URL de l\'API manquante',
+              context: 'Veuillez configurer l\'URL Koyeb dans Configuration API',
+              httpStatus: 500
+          });
+          return {ok:false, error:'missing_api_url'}; 
+      }
+      
+      // Validation: template type obligatoire
+      if(templateType !== 'my' && templateType !== 'partner') {
+          await logger.error('Validation échouée: Type de template invalide', {templateType});
+          setLastPublishResult('❌ Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés');
+          showErrorModal({
+              code: 'VALIDATION_ERROR',
+              message: 'Type de template invalide',
+              context: 'Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés',
+              httpStatus: 400
+          });
+          return {ok:false, error:'invalid_template_type'};
       }
 
-      await logger.api('POST', '/api/publish', mainPayload);
-      const res = await tauriAPI.publishPost(mainPayload);
-      
-      await logger.info('Réponse de l\'API reçue', {
-        ok: res.ok,
-        status: res.status,
-        hasData: !!res.data,
-        error: res.error
-      });
-      
-      if(!res.ok){ 
-        setLastPublishResult('Erreur interne');
-        showErrorModal({
-          code: 'INTERNAL_ERROR',
-          message: 'Impossible de communiquer avec l\'API locale',
-          context: 'Communication IPC avec le processus principal',
-          httpStatus: 500
-        });
-        return {ok:false, error:'internal'}; 
-      }
-      if(!res.ok){ 
-        setLastPublishResult('Erreur API: '+(res.error||'unknown'));
-        
-        // Special handling for network errors - API not accessible
-        const isNetworkError = !res.status || res.status === 0 || 
-                              (res.error && (res.error.includes('fetch') || res.error.includes('network')));
-        
-        showErrorModal({
-          code: res.error || 'API_ERROR',
-          message: isNetworkError 
-            ? 'L\'API locale n\'est pas accessible. Vérifiez que l\'application s\'est lancée correctement.' 
-            : (res.error || 'Erreur inconnue'),
-          context: isEditMode ? 'Mise à jour du post Discord' : 'Publication du post Discord',
-          httpStatus: res.status || 0,
-          discordError: res.data
-        });
-        return {ok:false, error:res.error};
-      }
-      
-      // Build success message with rate limit info
-      let successMsg = isEditMode ? 'Mise à jour réussie' : 'Publication réussie';
-      if(res.rateLimit?.remaining !== null && res.rateLimit?.limit !== null) {
-        successMsg += ` (${res.rateLimit?.remaining ?? 0}/${res.rateLimit?.limit ?? 0} requêtes restantes)`;
-      }
-      setLastPublishResult(successMsg);
-      
-      await logger.success('Publication terminée', {
-        threadId: res.data?.thread_id,
-        messageId: res.data?.message_id,
-        discordUrl: res.data?.thread_url || res.data?.url,
-        rateLimit: res.rateLimit
-      });
-      
-      // Save to history or update existing post
-      if(res.data && res.data.thread_id && res.data.message_id) {
-        if(isEditMode && editingPostId) {
-          // Update existing post in history
-          const updatedPost: Partial<PublishedPost> = {
-            timestamp: Date.now(), // Update timestamp
-            title,
-            content,
-            tags,
-            template: templateType,
-            imagePath: uploadedImages.find(i=>i.isMain)?.path,
-            discordUrl: res.data.thread_url || res.data.url || editingPostData.discordUrl
-          };
-          updatePublishedPost(editingPostId, updatedPost);
+      setPublishInProgress(true);
+      setLastPublishResult(null);
+
+      try{
+          await logger.info('Préparation du payload');
           
-          // Clear edit mode
-          setEditingPostId(null);
-          setEditingPostData(null);
-        } else {
-          // Add new post to history
-          const newPost: PublishedPost = {
-            id: `post_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            timestamp: Date.now(),
-            title,
-            content,
-            tags,
-            template: templateType,
-            imagePath: uploadedImages.find(i=>i.isMain)?.path,
-            threadId: res.data.thread_id,
-            messageId: res.data.message_id,
-            discordUrl: res.data.thread_url || res.data.url || '',
-            forumId: res.data.forum_id || 0
-          };
-          addPublishedPost(newPost);
-        }
+          // Créer FormData pour multipart/form-data
+          const formData = new FormData();
+          formData.append('title', title);
+          formData.append('content', content);
+          formData.append('tags', tags);
+          formData.append('template', templateType);
+          
+          // Add edit mode info if updating
+          if(isEditMode) {
+              formData.append('threadId', editingPostData.threadId);
+              formData.append('messageId', editingPostData.messageId);
+              formData.append('isUpdate', 'true');
+              await logger.info('Mode édition activé', {
+                  threadId: editingPostData.threadId,
+                  messageId: editingPostData.messageId
+              });
+          }
+          
+          // Process all images
+          if(uploadedImages.length > 0) {
+              await logger.info(`Traitement de ${uploadedImages.length} image(s)`);
+              for(let i = 0; i < uploadedImages.length; i++) {
+                  const img = uploadedImages[i];
+                  if(!img.path) continue;
+                  try {
+                      // Read image from filesystem
+                      const imgResult = await tauriAPI.readImage(img.path);
+                      if(imgResult.ok && imgResult.buffer) {
+                          // Convert to Blob
+                          const buffer = new Uint8Array(imgResult.buffer);
+                          const blob = new Blob([buffer]);
+                          const ext = (img.path.split('.').pop() || 'png').toLowerCase();
+                          const filename = img.path.split('_').slice(2).join('_');
+                          
+                          // Append to FormData
+                          formData.append(`image_${i}`, blob, filename);
+                          if(img.isMain) {
+                              formData.append('main_image_index', i.toString());
+                          }
+                      }
+                  } catch(e) {
+                      console.error('Failed to read image:', img.path, e);
+                  }
+              }
+          }
+
+          // Récupérer la clé API
+          const apiKey = localStorage.getItem('apiKey') || '';
+
+          await logger.api('POST', apiEndpoint, { hasImages: uploadedImages.length });
+          
+          // Faire la requête avec fetch
+          const response = await fetch(apiEndpoint, {
+              method: 'POST',
+              headers: {
+                  'X-API-KEY': apiKey
+              },
+              body: formData
+          });
+
+          const res = await response.json();
+          
+          await logger.info('Réponse de l\'API reçue', {
+              ok: response.ok,
+              status: response.status,
+              hasData: !!res.thread_id,
+              error: res.error
+          });
+          
+          if(!response.ok){ 
+              setLastPublishResult('Erreur API: '+(res.error||'unknown'));
+              
+              const isNetworkError = !response.status || response.status === 0;
+              
+              showErrorModal({
+                  code: res.error || 'API_ERROR',
+                  message: isNetworkError 
+                      ? 'L\'API n\'est pas accessible. Vérifiez l\'URL Koyeb.' 
+                      : (res.error || 'Erreur inconnue'),
+                  context: isEditMode ? 'Mise à jour du post Discord' : 'Publication du post Discord',
+                  httpStatus: response.status || 0,
+                  discordError: res
+              });
+              return {ok:false, error:res.error};
+          }
+          
+          // Build success message
+          let successMsg = isEditMode ? 'Mise à jour réussie' : 'Publication réussie';
+          setLastPublishResult(successMsg);
+          
+          await logger.success('Publication terminée', {
+              threadId: res.thread_id,
+              messageId: res.message_id,
+              discordUrl: res.thread_url || res.url
+          });
+          
+          // Save to history or update existing post
+          if(res.thread_id && res.message_id) {
+              if(isEditMode && editingPostId) {
+                  const updatedPost: Partial<PublishedPost> = {
+                      timestamp: Date.now(),
+                      title,
+                      content,
+                      tags,
+                      template: templateType,
+                      imagePath: uploadedImages.find(i=>i.isMain)?.path,
+                      discordUrl: res.thread_url || res.url || editingPostData.discordUrl
+                  };
+                  updatePublishedPost(editingPostId, updatedPost);
+                  setEditingPostId(null);
+                  setEditingPostData(null);
+              } else {
+                  const newPost: PublishedPost = {
+                      id: `post_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                      timestamp: Date.now(),
+                      title,
+                      content,
+                      tags,
+                      template: templateType,
+                      imagePath: uploadedImages.find(i=>i.isMain)?.path,
+                      threadId: res.thread_id,
+                      messageId: res.message_id,
+                      discordUrl: res.thread_url || res.url || '',
+                      forumId: res.forum_id || 0
+                  };
+                  addPublishedPost(newPost);
+              }
+          }
+          
+          return {ok:true, data: res};
+      }catch(e:any){
+          await logger.error('Exception lors de la publication', e);
+          setLastPublishResult('Erreur envoi: '+String(e?.message || e));
+          showErrorModal({
+              code: 'NETWORK_ERROR',
+              message: String(e?.message || e),
+              context: 'Exception lors de la publication',
+              httpStatus: 0
+          });
+          return {ok:false, error: String(e?.message || e)};
+      }finally{
+          setPublishInProgress(false);
       }
-      
-      return {ok:true, data: res.data};
-    }catch(e:any){
-      await logger.error('Exception lors de la publication', e);
-      setLastPublishResult('Erreur envoi: '+String(e?.message || e));
-      showErrorModal({
-        code: 'NETWORK_ERROR',
-        message: String(e?.message || e),
-        context: 'Exception lors de la publication',
-        httpStatus: 0
-      });
-      return {ok:false, error: String(e?.message || e)};
-    }finally{
-      setPublishInProgress(false);
-    }
   }
 
 

@@ -1,6 +1,5 @@
 """
-API Publisher - Serveur 1 : Création de posts Discord
-API REST pour créer des posts de forum Discord automatiquement
+API Publisher - Corrigé pour gérer FormData ET JSON
 """
 
 import os
@@ -9,20 +8,19 @@ import json
 import time
 import asyncio
 import logging
+import base64
 from datetime import datetime
 from typing import Optional, Tuple
 import aiohttp
 from aiohttp import web
 from dotenv import load_dotenv
 
-# Fix encoding pour Windows
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
 
 load_dotenv()
 
-# --- LOGGING CONFIGURATION ---
 LOG_FILE = "errors.log"
 logging.basicConfig(
     level=logging.INFO,
@@ -34,9 +32,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- CONFIGURATION PUBLISHER ---
 class Config:
-    """Configuration dynamique qui peut être modifiée via API"""
     def __init__(self):
         self.DISCORD_PUBLISHER_TOKEN = os.getenv("DISCORD_PUBLISHER_TOKEN", "")
         self.PUBLISHER_API_KEY = os.getenv("PUBLISHER_API_KEY", "")
@@ -48,7 +44,6 @@ class Config:
         self.configured = bool(self.DISCORD_PUBLISHER_TOKEN and self.FORUM_MY_ID and self.FORUM_PARTNER_ID)
     
     def update_from_frontend(self, config_data: dict):
-        """Met à jour la configuration depuis les données du frontend"""
         if 'discordPublisherToken' in config_data and config_data['discordPublisherToken']:
             self.DISCORD_PUBLISHER_TOKEN = config_data['discordPublisherToken']
         if 'publisherForumMyId' in config_data and config_data['publisherForumMyId']:
@@ -57,17 +52,11 @@ class Config:
             self.FORUM_PARTNER_ID = int(config_data['publisherForumPartnerId'])
         
         self.configured = bool(self.DISCORD_PUBLISHER_TOKEN and self.FORUM_MY_ID and self.FORUM_PARTNER_ID)
-        logger.info(f"✅ Configuration mise à jour via frontend (configured: {self.configured})")
+        logger.info(f"✅ Configuration mise à jour (configured: {self.configured})")
 
 config = Config()
 
-
-# --- SUPPRESSION DU SERVEUR FLASK ET DES THREADS ---
-# Ce module est maintenant destiné à être intégré dans main_bots.py via aiohttp
-
-# --- RATE LIMITING TRACKING ---
 class RateLimitTracker:
-    """Suit les limites de taux de l'API Discord"""
     def __init__(self):
         self.remaining: Optional[int] = None
         self.limit: Optional[int] = None
@@ -75,7 +64,6 @@ class RateLimitTracker:
         self.last_updated: Optional[float] = None
     
     def update_from_headers(self, headers: dict):
-        """Met à jour les informations de rate limit depuis les headers de réponse Discord"""
         try:
             if 'X-RateLimit-Remaining' in headers:
                 self.remaining = int(headers['X-RateLimit-Remaining'])
@@ -87,7 +75,7 @@ class RateLimitTracker:
             if self.remaining is not None and self.remaining < 5:
                 logger.warning(f"⚠️  Rate limit proche: {self.remaining} requêtes restantes")
         except (ValueError, KeyError) as e:
-            logger.error(f"Erreur lors de la lecture des headers de rate limit: {e}")
+            logger.error(f"Erreur lecture headers rate limit: {e}")
     
     def get_info(self) -> dict:
         info = {
@@ -100,23 +88,13 @@ class RateLimitTracker:
             reset_in = max(0, self.reset_at - time.time())
             info["reset_in_seconds"] = int(reset_in)
         return info
-    
-    def should_wait(self) -> Tuple[bool, float]:
-        if self.remaining is not None and self.remaining == 0 and self.reset_at:
-            wait_time = max(0, self.reset_at - time.time())
-            if wait_time > 0:
-                return True, wait_time
-        return False, 0.0
 
 rate_limiter = RateLimitTracker()
 
-# --- UTILS ---
 def _auth_headers():
-    """Retourne les headers d'authentification Discord"""
     return {"Authorization": f"Bot {config.DISCORD_PUBLISHER_TOKEN}"}
 
-async def _discord_request_with_retry(session, method, path, headers=None, json_data=None, data=None):
-    """Effectue une requête Discord avec retry"""
+async def _discord_request(session, method, path, headers=None, json_data=None, data=None):
     url = f"{config.DISCORD_API_BASE}{path}"
     try:
         async with session.request(method, url, headers=headers, json=json_data, data=data) as resp:
@@ -131,38 +109,26 @@ async def _discord_request_with_retry(session, method, path, headers=None, json_
         return 500, {"error": str(e)}, {}
 
 async def _discord_get(session: aiohttp.ClientSession, path: str):
-    """GET sur l'API Discord"""
-    status, data, _ = await _discord_request_with_retry(session, "GET", path, headers=_auth_headers())
+    status, data, _ = await _discord_request(session, "GET", path, headers=_auth_headers())
     return status, data
 
 async def _discord_patch_json(session: aiohttp.ClientSession, path: str, payload: dict):
-    """PATCH JSON sur l'API Discord"""
-    status, data, _ = await _discord_request_with_retry(
+    status, data, _ = await _discord_request(
         session, "PATCH", path,
         headers={**_auth_headers(), "Content-Type": "application/json"},
         json_data=payload
     )
     return status, data
 
-async def _discord_patch_form(session: aiohttp.ClientSession, path: str, form: aiohttp.FormData):
-    """PATCH FormData sur l'API Discord"""
-    status, data, _ = await _discord_request_with_retry(
-        session, "PATCH", path, headers=_auth_headers(), data=form
-    )
-    return status, data
-
 async def _discord_post_form(session, path, form):
-    """POST FormData sur l'API Discord"""
-    return await _discord_request_with_retry(session, "POST", path, headers=_auth_headers(), data=form)
+    return await _discord_request(session, "POST", path, headers=_auth_headers(), data=form)
 
 def _split_tags(tags_raw):
-    """Découpe une chaîne de tags séparés par virgule ou espace"""
     if not tags_raw:
         return []
     return [t.strip() for t in tags_raw.replace(';', ',').replace('|', ',').split(',') if t.strip()]
 
 def _with_cors(request, resp):
-    """Ajoute les headers CORS à la réponse aiohttp"""
     origin = request.headers.get("Origin", "*")
     resp.headers["Access-Control-Allow-Origin"] = config.ALLOWED_ORIGINS if config.ALLOWED_ORIGINS != '*' else origin
     resp.headers["Access-Control-Allow-Methods"] = "GET,POST,PATCH,OPTIONS"
@@ -171,13 +137,11 @@ def _with_cors(request, resp):
     return resp
 
 def _pick_forum_id(template):
-    """Choisit l'ID du forum selon le template ('my' ou 'partner')"""
     if template == "partner":
         return config.FORUM_PARTNER_ID
     return config.FORUM_MY_ID
 
 async def _resolve_applied_tag_ids(session: aiohttp.ClientSession, forum_id: int, tags_raw: str) -> list:
-    """Résout les tags demandés en IDs Discord valides"""
     wanted = _split_tags(tags_raw)
     if not wanted:
         return []
@@ -215,7 +179,6 @@ async def _resolve_applied_tag_ids(session: aiohttp.ClientSession, forum_id: int
     return uniq
 
 async def _create_forum_post(session, forum_id, title, content, tags_raw, images):
-    """Crée un nouveau post de forum sur Discord"""
     applied_tag_ids = await _resolve_applied_tag_ids(session, forum_id, tags_raw)
 
     payload = {"name": title, "message": {"content": content if content else " "}}
@@ -248,74 +211,21 @@ async def _create_forum_post(session, forum_id, title, content, tags_raw, images
         "thread_url": f"https://discord.com/channels/{guild_id}/{thread_id}" if guild_id and thread_id else None,
     }
 
-async def _update_forum_post(session, thread_id, message_id, forum_id, title, content, tags_raw, images):
-    """Met à jour un post de forum existant sur Discord"""
-    if title is not None or tags_raw is not None:
-        payload = {}
-        if title:
-            payload["name"] = title
-        if tags_raw is not None:
-            applied_tag_ids = await _resolve_applied_tag_ids(session, forum_id, tags_raw)
-            payload["applied_tags"] = applied_tag_ids
-        
-        if payload:
-            status, data = await _discord_patch_json(session, f"/channels/{thread_id}", payload)
-            if status >= 300:
-                return False, {"status": status, "discord": data, "step": "update_thread"}
-    
-    if content is not None or images:
-        if images:
-            payload = {}
-            if content is not None:
-                payload["content"] = content if content else " "
-            
-            form = aiohttp.FormData()
-            form.add_field("payload_json", json.dumps(payload), content_type="application/json")
-            
-            for i, img in enumerate(images):
-                if img.get("bytes") and img.get("filename"):
-                    form.add_field(
-                        f"files[{i}]",
-                        img["bytes"],
-                        filename=img["filename"],
-                        content_type=img.get("content_type") or "application/octet-stream",
-                    )
-            
-            status, data = await _discord_patch_form(session, f"/channels/{thread_id}/messages/{message_id}", form)
-        else:
-            payload = {"content": content if content else " "}
-            status, data = await _discord_patch_json(session, f"/channels/{thread_id}/messages/{message_id}", payload)
-        
-        if status >= 300:
-            return False, {"status": status, "discord": data, "step": "update_message"}
-    
-    status, thread_data = await _discord_get(session, f"/channels/{thread_id}")
-    guild_id = thread_data.get("guild_id") if status < 300 else None
-    
-    return True, {
-        "thread_id": thread_id,
-        "message_id": message_id,
-        "guild_id": guild_id,
-        "thread_url": f"https://discord.com/channels/{guild_id}/{thread_id}" if guild_id and thread_id else None,
-    }
-
 # --- HANDLERS HTTP ---
 async def health(request: web.Request):
-    """Endpoint de santé avec informations de rate limit"""
     resp = web.json_response({
         "ok": True,
         "service": "discord-publisher-api",
+        "configured": config.configured,
         "rate_limit": rate_limiter.get_info()
     })
     return _with_cors(request, resp)
 
 async def options_handler(request: web.Request):
-    """Handler pour les requêtes OPTIONS (CORS preflight)"""
     resp = web.Response(status=204)
     return _with_cors(request, resp)
 
 async def configure(request: web.Request):
-    """Endpoint POST /api/configure"""
     try:
         data = await request.json()
         config.update_from_frontend(data)
@@ -327,7 +237,7 @@ async def configure(request: web.Request):
         })
         return _with_cors(request, resp)
     except Exception as e:
-        logger.error(f"Erreur lors de la configuration: {e}")
+        logger.error(f"Erreur configuration: {e}")
         resp = web.json_response({
             "ok": False,
             "error": "configuration_failed",
@@ -336,9 +246,12 @@ async def configure(request: web.Request):
         return _with_cors(request, resp)
 
 async def forum_post(request: web.Request):
-    """Endpoint principal : POST /api/forum-post"""
-
-    # --- Vérification de la clé API ---
+    """
+    Endpoint principal : POST /api/forum-post
+    Accepte maintenant FormData depuis le frontend Tauri
+    """
+    
+    # Vérification clé API
     api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
     if not api_key or api_key != config.PUBLISHER_API_KEY:
         resp = web.json_response({
@@ -352,7 +265,7 @@ async def forum_post(request: web.Request):
         resp = web.json_response({
             "ok": False, 
             "error": "not_configured",
-            "message": "API non configurée."
+            "message": "API non configurée. Définissez DISCORD_PUBLISHER_TOKEN et les IDs de forum."
         }, status=503)
         return _with_cors(request, resp)
 
@@ -361,15 +274,9 @@ async def forum_post(request: web.Request):
     tags = ""
     template = "my"
     images = []
-    main_image_index = 0
 
-    ctype = request.headers.get("Content-Type", "")
-
+    # Parser le FormData
     try:
-        if "multipart/form-data" not in ctype:
-            resp = web.json_response({"ok": False, "error": "expected_multipart_form_data"}, status=400)
-            return _with_cors(request, resp)
-
         reader = await request.multipart()
         async for part in reader:
             if part.name == "title":
@@ -380,39 +287,29 @@ async def forum_post(request: web.Request):
                 tags = (await part.text()).strip()
             elif part.name == "template":
                 template = (await part.text()).strip()
-            elif part.name == "main_image_index":
-                try:
-                    main_image_index = int(await part.text())
-                except:
-                    pass
             elif part.name and part.name.startswith("image_"):
                 if part.filename:
                     images.append({
                         "bytes": await part.read(decode=False),
                         "filename": part.filename,
-                        "content_type": part.headers.get("Content-Type"),
+                        "content_type": part.headers.get("Content-Type", "image/png"),
                     })
-            elif part.name == "image":
-                if part.filename:
-                    images.append({
-                        "bytes": await part.read(decode=False),
-                        "filename": part.filename,
-                        "content_type": part.headers.get("Content-Type"),
-                    })
-
     except Exception as e:
-        resp = web.json_response({"ok": False, "error": "bad_request", "details": str(e)}, status=400)
+        logger.error(f"Erreur parsing FormData: {e}")
+        resp = web.json_response({
+            "ok": False, 
+            "error": "bad_request", 
+            "details": str(e)
+        }, status=400)
         return _with_cors(request, resp)
-
-    if images and 0 <= main_image_index < len(images):
-        main_img = images.pop(main_image_index)
-        images.insert(0, main_img)
 
     if not title:
         resp = web.json_response({"ok": False, "error": "missing_title"}, status=400)
         return _with_cors(request, resp)
 
     forum_id = _pick_forum_id(template)
+    
+    logger.info(f"📝 Publication: {title} (template: {template}, forum: {forum_id})")
 
     async with aiohttp.ClientSession() as session:
         ok, result = await _create_forum_post(
@@ -425,9 +322,16 @@ async def forum_post(request: web.Request):
         )
 
     if not ok:
-        resp = web.json_response({"ok": False, "error": "discord_error", "details": result}, status=500)
+        logger.error(f"❌ Échec publication: {result}")
+        resp = web.json_response({
+            "ok": False, 
+            "error": "discord_error", 
+            "details": result
+        }, status=500)
         return _with_cors(request, resp)
 
+    logger.info(f"✅ Publication réussie: {result.get('thread_url')}")
+    
     resp = web.json_response({
         "ok": True,
         "template": template,
@@ -438,98 +342,9 @@ async def forum_post(request: web.Request):
     return _with_cors(request, resp)
 
 async def forum_post_update(request: web.Request):
-    """Endpoint PATCH /api/forum-post/{thread_id}/{message_id}"""
-    thread_id = request.match_info.get("thread_id", "")
-    message_id = request.match_info.get("message_id", "")
-    
-    if not thread_id or not message_id:
-        resp = web.json_response({"ok": False, "error": "missing_thread_or_message_id"}, status=400)
-        return _with_cors(request, resp)
-
-    title = None
-    content = None
-    tags = None
-    template = "my"
-    images = []
-    main_image_index = 0
-
-    ctype = request.headers.get("Content-Type", "")
-
-    try:
-        if "multipart/form-data" not in ctype:
-            resp = web.json_response({"ok": False, "error": "expected_multipart_form_data"}, status=400)
-            return _with_cors(request, resp)
-
-        reader = await request.multipart()
-        async for part in reader:
-            if part.name == "title":
-                title = (await part.text()).strip()
-            elif part.name == "content":
-                content = (await part.text()).strip()
-            elif part.name == "tags":
-                tags = (await part.text()).strip()
-            elif part.name == "template":
-                template = (await part.text()).strip()
-            elif part.name == "main_image_index":
-                try:
-                    main_image_index = int(await part.text())
-                except:
-                    pass
-            elif part.name and part.name.startswith("image_"):
-                if part.filename:
-                    images.append({
-                        "bytes": await part.read(decode=False),
-                        "filename": part.filename,
-                        "content_type": part.headers.get("Content-Type"),
-                    })
-            elif part.name == "image":
-                if part.filename:
-                    images.append({
-                        "bytes": await part.read(decode=False),
-                        "filename": part.filename,
-                        "content_type": part.headers.get("Content-Type"),
-                    })
-
-    except Exception as e:
-        resp = web.json_response({"ok": False, "error": "bad_request", "details": str(e)}, status=400)
-        return _with_cors(request, resp)
-
-    if images and 0 <= main_image_index < len(images):
-        main_img = images.pop(main_image_index)
-        images.insert(0, main_img)
-
-    forum_id = _pick_forum_id(template)
-
-    async with aiohttp.ClientSession() as session:
-        ok, result = await _update_forum_post(
-            session=session,
-            thread_id=thread_id,
-            message_id=message_id,
-            forum_id=forum_id,
-            title=title,
-            content=content,
-            tags_raw=tags,
-            images=images if images else None,
-        )
-
-    if not ok:
-        resp = web.json_response({"ok": False, "error": "discord_error", "details": result}, status=500)
-        return _with_cors(request, resp)
-
+    """Endpoint PATCH (non utilisé pour l'instant)"""
     resp = web.json_response({
-        "ok": True,
-        "template": template,
-        "forum_id": forum_id,
-        "rate_limit": rate_limiter.get_info(),
-        **result
-    })
+        "ok": False,
+        "error": "not_implemented"
+    }, status=501)
     return _with_cors(request, resp)
-
-
-# --- EXPORT DES HANDLERS POUR INTEGRATION ---
-# Utilise ces fonctions dans main_bots.py pour ajouter les routes à ton app aiohttp
-# Exemple : app.router.add_post("/api/forum-post", forum_post)
-
-
-# --- SUPPRESSION DU BLOC __main__ ---
-# Ce module n'est plus exécutable seul, il doit être intégré dans main_bots.py

@@ -9,6 +9,15 @@ from dotenv import load_dotenv
 from bot_server1 import bot as bot1
 from bot_server2 import bot as bot2
 
+# Import des handlers du publisher
+from publisher_api import (
+    health as publisher_health,
+    options_handler,
+    configure,
+    forum_post,
+    forum_post_update
+)
+
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
@@ -24,7 +33,7 @@ logger = logging.getLogger("orchestrator")
 
 PORT = int(os.getenv("PORT", 8080))
 
-# Route /api/status pour Tauri
+# Route /api/status pour les bots
 async def health(request):
     status = {
         "status": "ok",
@@ -37,10 +46,22 @@ async def health(request):
 
 def make_app():
     app = web.Application()
+    
+    # Routes de santé des bots
     app.router.add_get("/health", health)
-    app.router.add_route("OPTIONS", "/api/status", lambda r: web.Response(status=204))
     app.router.add_get("/api/status", health)
-    # Ajoute ici les autres routes de ton API Publisher si besoin
+    
+    # Routes Publisher API - AJOUT CRITIQUE
+    app.router.add_options("/api/configure", options_handler)
+    app.router.add_post("/api/configure", configure)
+    
+    app.router.add_options("/api/forum-post", options_handler)
+    app.router.add_post("/api/forum-post", forum_post)
+    app.router.add_patch("/api/forum-post/{thread_id}/{message_id}", forum_post_update)
+    
+    # Route de santé du publisher
+    app.router.add_get("/api/publisher/health", publisher_health)
+    
     return app
 
 @bot1.event
@@ -55,9 +76,23 @@ async def on_ready():
 async def start():
     TOKEN1 = os.getenv("DISCORD_TOKEN")
     TOKEN2 = os.getenv("DISCORD_TOKEN_F95")
+    
+    if not TOKEN1:
+        logger.error("❌ DISCORD_TOKEN manquant dans .env")
+        return
+    if not TOKEN2:
+        logger.error("❌ DISCORD_TOKEN_F95 manquant dans .env")
+        return
+    
     app = make_app()
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', PORT)
+    
+    logger.info(f"🚀 Démarrage serveur sur le port {PORT}")
+    
     await asyncio.gather(
-        web._run_app(app, port=PORT),
+        site.start(),
         bot1.start(TOKEN1),
         bot2.start(TOKEN2)
     )
