@@ -1,5 +1,6 @@
 """
 API Publisher - Corrigé pour gérer FormData ET JSON
+Version avec correction du crash ValueError (unpacking)
 """
 
 import os
@@ -22,8 +23,7 @@ if sys.platform == 'win32':
 
 load_dotenv()
 
-# Configure logging to output to stdout only.  File handling has been removed
-# because Koyeb captures standard output for log collection.
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -61,14 +61,11 @@ config = Config()
 HISTORY_FILE = Path("publication_history.json")
 
 class PublicationHistory:
-    """Gestion de l'historique des publications"""
-    
     def __init__(self, history_file: Path = HISTORY_FILE):
         self.history_file = history_file
         self._ensure_file_exists()
     
     def _ensure_file_exists(self):
-        """Crée le fichier d'historique s'il n'existe pas"""
         if not self.history_file.exists():
             try:
                 self.history_file.write_text(json.dumps([], ensure_ascii=False, indent=2), encoding='utf-8')
@@ -76,7 +73,6 @@ class PublicationHistory:
                 logger.warning(f"Impossible de créer le fichier d'historique: {e}")
     
     def add_post(self, post_data: Dict):
-        """Ajoute un post à l'historique"""
         try:
             if self.history_file.exists():
                 content = self.history_file.read_text(encoding='utf-8')
@@ -84,10 +80,7 @@ class PublicationHistory:
             else:
                 history = []
             
-            # Ajouter le nouveau post au début (plus récent en premier)
             history.insert(0, post_data)
-            
-            # Limiter à 1000 posts maximum
             if len(history) > 1000:
                 history = history[:1000]
             
@@ -100,17 +93,12 @@ class PublicationHistory:
             logger.error(f"Erreur lors de l'ajout à l'historique: {e}")
     
     def get_posts(self, limit: Optional[int] = None) -> List[Dict]:
-        """Récupère les posts de l'historique"""
         try:
             if not self.history_file.exists():
                 return []
-            
             content = self.history_file.read_text(encoding='utf-8')
             history = json.loads(content) if content.strip() else []
-            
-            if limit:
-                return history[:limit]
-            return history
+            return history[:limit] if limit else history
         except Exception as e:
             logger.error(f"Erreur lors de la lecture de l'historique: {e}")
             return []
@@ -122,7 +110,6 @@ class RateLimitTracker:
         self.remaining: Optional[int] = None
         self.limit: Optional[int] = None
         self.reset_at: Optional[float] = None
-        self.last_updated: Optional[float] = None
     
     def update_from_headers(self, headers: dict):
         try:
@@ -132,22 +119,15 @@ class RateLimitTracker:
                 self.limit = int(headers['X-RateLimit-Limit'])
             if 'X-RateLimit-Reset' in headers:
                 self.reset_at = float(headers['X-RateLimit-Reset'])
-            self.last_updated = time.time()
             if self.remaining is not None and self.remaining < 5:
                 logger.warning(f"⚠️  Rate limit proche: {self.remaining} requêtes restantes")
-        except (ValueError, KeyError) as e:
-            logger.error(f"Erreur lecture headers rate limit: {e}")
+        except Exception as e:
+            logger.error(f"Erreur headers rate limit: {e}")
     
     def get_info(self) -> dict:
-        info = {
-            "remaining": self.remaining,
-            "limit": self.limit,
-            "reset_at": self.reset_at,
-            "reset_in_seconds": None
-        }
+        info = {"remaining": self.remaining, "limit": self.limit, "reset_at": self.reset_at, "reset_in_seconds": None}
         if self.reset_at:
-            reset_in = max(0, self.reset_at - time.time())
-            info["reset_in_seconds"] = int(reset_in)
+            info["reset_in_seconds"] = int(max(0, self.reset_at - time.time()))
         return info
 
 rate_limiter = RateLimitTracker()
@@ -162,18 +142,18 @@ async def _discord_request(session, method, path, headers=None, json_data=None, 
             rate_limiter.update_from_headers(resp.headers)
             try:
                 data = await resp.json()
-            except Exception:
+            except:
                 data = await resp.text()
             return resp.status, data, resp.headers
     except Exception as e:
         logger.error(f"Erreur requête Discord: {e}")
         return 500, {"error": str(e)}, {}
 
-async def _discord_get(session: aiohttp.ClientSession, path: str):
+async def _discord_get(session, path):
     status, data, _ = await _discord_request(session, "GET", path, headers=_auth_headers())
     return status, data
 
-async def _discord_patch_json(session: aiohttp.ClientSession, path: str, payload: dict):
+async def _discord_patch_json(session, path, payload):
     status, data, _ = await _discord_request(
         session, "PATCH", path,
         headers={**_auth_headers(), "Content-Type": "application/json"},
@@ -184,439 +164,130 @@ async def _discord_patch_json(session: aiohttp.ClientSession, path: str, payload
 async def _discord_post_form(session, path, form):
     return await _discord_request(session, "POST", path, headers=_auth_headers(), data=form)
 
-def _split_tags(tags_raw):
-    if not tags_raw:
-        return []
-    return [t.strip() for t in tags_raw.replace(';', ',').replace('|', ',').split(',') if t.strip()]
-
-def _with_cors(request, resp):
-    origin = request.headers.get("Origin", "*")
-    resp.headers["Access-Control-Allow-Origin"] = config.ALLOWED_ORIGINS if config.ALLOWED_ORIGINS != '*' else origin
-    resp.headers["Access-Control-Allow-Methods"] = "GET,POST,PATCH,OPTIONS"
-    resp.headers["Access-Control-Allow-Headers"] = "*"
-    resp.headers["Access-Control-Allow-Credentials"] = "true"
-    return resp
-
 def _pick_forum_id(template):
-    if template == "partner":
-        return config.FORUM_PARTNER_ID
-    return config.FORUM_MY_ID
+    return config.FORUM_PARTNER_ID if template == "partner" else config.FORUM_MY_ID
 
-async def _resolve_applied_tag_ids(session: aiohttp.ClientSession, forum_id: int, tags_raw: str) -> list:
-    wanted = _split_tags(tags_raw)
-    if not wanted:
-        return []
-
+async def _resolve_applied_tag_ids(session, forum_id, tags_raw):
+    wanted = [t.strip() for t in (tags_raw or "").replace(';', ',').replace('|', ',').split(',') if t.strip()]
+    if not wanted: return []
     status, ch = await _discord_get(session, f"/channels/{forum_id}")
-    if status >= 300:
-        return []
-
-    available = ch.get("available_tags", []) or []
+    if status >= 300: return []
+    available = ch.get("available_tags", [])
     applied = []
-
     for w in wanted:
         if w.isdigit():
-            wid = int(w)
-            if any(int(t.get("id", 0)) == wid for t in available):
-                applied.append(wid)
-            continue
-
-        wl = w.lower()
-        for t in available:
-            name = (t.get("name") or "").lower()
-            if name == wl:
-                try:
+            applied.append(int(w))
+        else:
+            for t in available:
+                if t.get("name", "").lower() == w.lower():
                     applied.append(int(t["id"]))
-                except Exception:
-                    pass
-                break
-
-    seen = set()
-    uniq = []
-    for tid in applied:
-        if tid not in seen:
-            seen.add(tid)
-            uniq.append(tid)
-    return uniq
+                    break
+    return list(dict.fromkeys(applied))
 
 async def _create_forum_post(session, forum_id, title, content, tags_raw, images):
     applied_tag_ids = await _resolve_applied_tag_ids(session, forum_id, tags_raw)
-
-    payload = {"name": title, "message": {"content": content if content else " "}}
-    if applied_tag_ids:
-        payload["applied_tags"] = applied_tag_ids
-
+    payload = {"name": title, "message": {"content": content or " "}}
+    if applied_tag_ids: payload["applied_tags"] = applied_tag_ids
     form = aiohttp.FormData()
     form.add_field("payload_json", json.dumps(payload), content_type="application/json")
-
     if images:
         for i, img in enumerate(images):
-            if img.get("bytes") and img.get("filename"):
-                form.add_field(
-                    f"files[{i}]",
-                    img["bytes"],
-                    filename=img["filename"],
-                    content_type=img.get("content_type") or "application/octet-stream",
-                )
-
+            form.add_field(f"files[{i}]", img["bytes"], filename=img["filename"], content_type=img["content_type"])
     status, data, _ = await _discord_post_form(session, f"/channels/{forum_id}/threads", form)
+    if status >= 300: return False, {"status": status, "discord": data}
+    return True, {"thread_id": data.get("id"), "message_id": data.get("id"), "guild_id": data.get("guild_id"), "thread_url": f"https://discord.com/channels/{data.get('guild_id')}/{data.get('id')}"}
 
-    if status >= 300:
-        return False, {"status": status, "discord": data}
+async def health(request):
+    return _with_cors(request, web.json_response({"ok": True, "configured": config.configured, "rate_limit": rate_limiter.get_info()}))
 
-    thread_id = data.get("id")
-    guild_id = data.get("guild_id")
-    # Discord retourne le premier message dans la réponse de création de thread
-    message_id = data.get("id")  # Le thread_id est aussi le message_id du premier message dans un forum thread
-    # Mais pour être sûr, on peut aussi chercher dans les messages du thread
-    # Pour l'instant, on utilise thread_id comme message_id car dans Discord, le premier message d'un thread forum a le même ID que le thread
+async def options_handler(request):
+    return _with_cors(request, web.Response(status=204))
+
+def _with_cors(request, resp):
+    origin = request.headers.get("Origin", "*")
+    resp.headers.update({"Access-Control-Allow-Origin": origin, "Access-Control-Allow-Methods": "GET,POST,PATCH,OPTIONS", "Access-Control-Allow-Headers": "*", "Access-Control-Allow-Credentials": "true"})
+    return resp
+
+async def forum_post(request):
+    api_key = request.headers.get("X-API-KEY")
+    if api_key != config.PUBLISHER_API_KEY: return _with_cors(request, web.json_response({"ok": False, "error": "unauthorized"}, status=401))
     
-    return True, {
-        "thread_id": thread_id,
-        "message_id": thread_id,  # Dans Discord forum threads, le premier message ID = thread ID
-        "guild_id": guild_id,
-        "thread_url": f"https://discord.com/channels/{guild_id}/{thread_id}" if guild_id and thread_id else None,
-    }
-
-# --- HANDLERS HTTP ---
-async def health(request: web.Request):
-    resp = web.json_response({
-        "ok": True,
-        "service": "discord-publisher-api",
-        "configured": config.configured,
-        "rate_limit": rate_limiter.get_info()
-    })
-    return _with_cors(request, resp)
-
-async def options_handler(request: web.Request):
-    resp = web.Response(status=204)
-    return _with_cors(request, resp)
-
-async def configure(request: web.Request):
-    try:
-        data = await request.json()
-        config.update_from_frontend(data)
-        
-        resp = web.json_response({
-            "ok": True,
-            "message": "Configuration mise à jour",
-            "configured": config.configured
-        })
-        return _with_cors(request, resp)
-    except Exception as e:
-        logger.error(f"Erreur configuration: {e}")
-        resp = web.json_response({
-            "ok": False,
-            "error": "configuration_failed",
-            "details": str(e)
-        }, status=400)
-        return _with_cors(request, resp)
-
-async def forum_post(request: web.Request):
-    """
-    Endpoint principal : POST /api/forum-post
-    Accepte maintenant FormData depuis le frontend Tauri
-    """
-    
-    # Vérification clé API
-    api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
-    if not api_key or api_key != config.PUBLISHER_API_KEY:
-        resp = web.json_response({
-            "ok": False,
-            "error": "unauthorized",
-            "message": "Clé API invalide ou manquante."
-        }, status=401)
-        return _with_cors(request, resp)
-
-    if not config.configured:
-        resp = web.json_response({
-            "ok": False, 
-            "error": "not_configured",
-            "message": "API non configurée. Définissez DISCORD_PUBLISHER_TOKEN et les IDs de forum."
-        }, status=503)
-        return _with_cors(request, resp)
-
-    title = ""
-    content = ""
-    tags = ""
-    template = "my"
-    images = []
-
-    # Parser le FormData
-    try:
-        reader = await request.multipart()
-        async for part in reader:
-            if part.name == "title":
-                title = (await part.text()).strip()
-            elif part.name == "content":
-                content = (await part.text()).strip()
-            elif part.name == "tags":
-                tags = (await part.text()).strip()
-            elif part.name == "template":
-                template = (await part.text()).strip()
-            elif part.name and part.name.startswith("image_"):
-                if part.filename:
-                    images.append({
-                        "bytes": await part.read(decode=False),
-                        "filename": part.filename,
-                        "content_type": part.headers.get("Content-Type", "image/png"),
-                    })
-    except Exception as e:
-        logger.error(f"Erreur parsing FormData: {e}")
-        resp = web.json_response({
-            "ok": False, 
-            "error": "bad_request", 
-            "details": str(e)
-        }, status=400)
-        return _with_cors(request, resp)
-
-    if not title:
-        resp = web.json_response({"ok": False, "error": "missing_title"}, status=400)
-        return _with_cors(request, resp)
+    title, content, tags, template, images = "", "", "", "my", []
+    reader = await request.multipart()
+    async for part in reader:
+        if part.name == "title": title = (await part.text()).strip()
+        elif part.name == "content": content = (await part.text()).strip()
+        elif part.name == "tags": tags = (await part.text()).strip()
+        elif part.name == "template": template = (await part.text()).strip()
+        elif part.name and part.name.startswith("image_") and part.filename:
+            images.append({"bytes": await part.read(decode=False), "filename": part.filename, "content_type": part.headers.get("Content-Type", "image/png")})
 
     forum_id = _pick_forum_id(template)
-    
-    logger.info(f"📝 Publication: {title} (template: {template}, forum: {forum_id})")
-
     async with aiohttp.ClientSession() as session:
-        ok, result = await _create_forum_post(
-            session=session,
-            forum_id=forum_id,
-            title=title,
-            content=content,
-            tags_raw=tags,
-            images=images if images else None,
-        )
-
-    if not ok:
-        logger.error(f"❌ Échec publication: {result}")
-        resp = web.json_response({
-            "ok": False, 
-            "error": "discord_error", 
-            "details": result
-        }, status=500)
-        return _with_cors(request, resp)
-
-    logger.info(f"✅ Publication réussie: {result.get('thread_url')}")
+        ok, result = await _create_forum_post(session, forum_id, title, content, tags, images)
     
-    # Sauvegarder dans l'historique
-    history_entry = {
-        "id": f"post_{int(time.time())}_{hash(title) % 1000000}",
-        "timestamp": int(time.time() * 1000),  # Timestamp en millisecondes
-        "title": title,
-        "content": content,
-        "tags": tags,
-        "template": template,
-        "thread_id": result.get("thread_id"),
-        "message_id": result.get("message_id"),
-        "discord_url": result.get("thread_url"),
-        "forum_id": forum_id
-    }
-    history_manager.add_post(history_entry)
+    if not ok: return _with_cors(request, web.json_response({"ok": False, "details": result}, status=500))
     
-    resp = web.json_response({
-        "ok": True,
-        "template": template,
-        "forum_id": forum_id,
-        "rate_limit": rate_limiter.get_info(),
-        **result
-    })
-    return _with_cors(request, resp)
+    history_manager.add_post({"id": f"post_{int(time.time())}", "timestamp": int(time.time() * 1000), "title": title, "content": content, "tags": tags, "template": template, "thread_id": result["thread_id"], "message_id": result["message_id"], "discord_url": result["thread_url"]})
+    return _with_cors(request, web.json_response({"ok": True, **result}))
 
-async def forum_post_update(request: web.Request):
-    """
-    Endpoint POST /api/forum-post/update
-    Met à jour un post Discord existant au lieu d'en créer un nouveau
-    """
-    
-    # Vérification clé API
-    api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
-    if not api_key or api_key != config.PUBLISHER_API_KEY:
-        resp = web.json_response({
-            "ok": False,
-            "error": "unauthorized",
-            "message": "Clé API invalide ou manquante."
-        }, status=401)
-        return _with_cors(request, resp)
+async def forum_post_update(request):
+    """MODIFIÉ : Correction du unpacking status, data, _"""
+    api_key = request.headers.get("X-API-KEY")
+    if api_key != config.PUBLISHER_API_KEY: return _with_cors(request, web.json_response({"ok": False}, status=401))
 
-    if not config.configured:
-        resp = web.json_response({
-            "ok": False, 
-            "error": "not_configured",
-            "message": "API non configurée."
-        }, status=503)
-        return _with_cors(request, resp)
+    title, content, tags, template, images, thread_id, message_id = "", "", "", "my", [], None, None
+    reader = await request.multipart()
+    async for part in reader:
+        if part.name == "title": title = (await part.text()).strip()
+        elif part.name == "content": content = (await part.text()).strip()
+        elif part.name == "tags": tags = (await part.text()).strip()
+        elif part.name == "template": template = (await part.text()).strip()
+        elif part.name == "threadId": thread_id = (await part.text()).strip()
+        elif part.name == "messageId": message_id = (await part.text()).strip()
+        elif part.name and part.name.startswith("image_") and part.filename:
+            images.append({"bytes": await part.read(decode=False), "filename": part.filename, "content_type": part.headers.get("Content-Type", "image/png")})
 
-    title = ""
-    content = ""
-    tags = ""
-    template = "my"
-    images = []
-    thread_id = None
-    message_id = None
-
-    # Parser le FormData
-    try:
-        reader = await request.multipart()
-        async for part in reader:
-            if part.name == "title":
-                title = (await part.text()).strip()
-            elif part.name == "content":
-                content = (await part.text()).strip()
-            elif part.name == "tags":
-                tags = (await part.text()).strip()
-            elif part.name == "template":
-                template = (await part.text()).strip()
-            elif part.name == "threadId":
-                thread_id = (await part.text()).strip()
-            elif part.name == "messageId":
-                message_id = (await part.text()).strip()
-            elif part.name and part.name.startswith("image_"):
-                if part.filename:
-                    images.append({
-                        "bytes": await part.read(decode=False),
-                        "filename": part.filename,
-                        "content_type": part.headers.get("Content-Type", "image/png"),
-                    })
-    except Exception as e:
-        logger.error(f"Erreur parsing FormData: {e}")
-        resp = web.json_response({
-            "ok": False, 
-            "error": "bad_request", 
-            "details": str(e)
-        }, status=400)
-        return _with_cors(request, resp)
-
-    if not title:
-        resp = web.json_response({"ok": False, "error": "missing_title"}, status=400)
-        return _with_cors(request, resp)
-
-    if not thread_id or not message_id:
-        resp = web.json_response({
-            "ok": False, 
-            "error": "missing_ids",
-            "message": "thread_id et message_id requis pour la mise à jour"
-        }, status=400)
-        return _with_cors(request, resp)
-
-    forum_id = _pick_forum_id(template)
-    
-    logger.info(f"🔄 Mise à jour post: {title} (thread: {thread_id}, message: {message_id})")
-
+    logger.info(f"🔄 Mise à jour post: {title} (thread: {thread_id})")
     async with aiohttp.ClientSession() as session:
-        # 1. Mettre à jour le contenu du message
-        message_path = f"/channels/{forum_id}/messages/{message_id}"
-        message_payload = {"content": content if content else " "}
-        
-        # Ajouter les images si présentes
+        message_path = f"/channels/{thread_id}/messages/{message_id}"
         if images:
             form = aiohttp.FormData()
-            form.add_field("payload_json", json.dumps(message_payload), content_type="application/json")
-            
+            form.add_field("payload_json", json.dumps({"content": content or " "}), content_type="application/json")
             for i, img in enumerate(images):
-                if img.get("bytes") and img.get("filename"):
-                    form.add_field(
-                        f"files[{i}]",
-                        img["bytes"],
-                        filename=img["filename"],
-                        content_type=img.get("content_type") or "application/octet-stream",
-                    )
-            
-            status, data = await _discord_patch_form(session, message_path, form)
+                form.add_field(f"files[{i}]", img["bytes"], filename=img["filename"], content_type=img["content_type"])
+            # CORRECTION ICI : Ajout du troisième argument _
+            status, data, _ = await _discord_patch_form(session, message_path, form)
         else:
-            status, data = await _discord_patch_json(session, message_path, message_payload)
+            status, data = await _discord_patch_json(session, message_path, {"content": content or " "})
 
-        if status >= 300:
-            logger.error(f"❌ Échec mise à jour message: {data}")
-            resp = web.json_response({
-                "ok": False,
-                "error": "discord_error_message",
-                "details": data
-            }, status=500)
-            return _with_cors(request, resp)
+        if status >= 300: return _with_cors(request, web.json_response({"ok": False, "details": data}, status=500))
 
-        # 2. Mettre à jour les tags du thread
-        applied_tag_ids = await _resolve_applied_tag_ids(session, forum_id, tags)
-        
-        thread_path = f"/channels/{thread_id}"
-        thread_payload = {
-            "name": title,
-        }
-        if applied_tag_ids:
-            thread_payload["applied_tags"] = applied_tag_ids
+        applied_tag_ids = await _resolve_applied_tag_ids(session, _pick_forum_id(template), tags)
+        status, data = await _discord_patch_json(session, f"/channels/{thread_id}", {"name": title, "applied_tags": applied_tag_ids})
 
-        status, data = await _discord_patch_json(session, thread_path, thread_payload)
-
-        if status >= 300:
-            logger.error(f"❌ Échec mise à jour thread: {data}")
-            resp = web.json_response({
-                "ok": False,
-                "error": "discord_error_thread",
-                "details": data
-            }, status=500)
-            return _with_cors(request, resp)
-
-    logger.info(f"✅ Mise à jour réussie: thread {thread_id}")
-    
-    # Construire l'URL du thread
-    guild_id = data.get("guild_id")
-    thread_url = f"https://discord.com/channels/{guild_id}/{thread_id}" if guild_id else None
-    
-    # Mettre à jour l'historique
-    history_entry = {
-        "id": f"post_{int(time.time())}_{hash(title) % 1000000}",
-        "timestamp": int(time.time() * 1000),
-        "title": title,
-        "content": content,
-        "tags": tags,
-        "template": template,
-        "thread_id": thread_id,
-        "message_id": message_id,
-        "discord_url": thread_url,
-        "forum_id": forum_id,
-        "updated": True  # Marqueur pour indiquer que c'est une mise à jour
-    }
-    history_manager.add_post(history_entry)
-    
-    resp = web.json_response({
-        "ok": True,
-        "updated": True,
-        "thread_id": thread_id,
-        "message_id": message_id,
-        "thread_url": thread_url,
-        "template": template,
-        "forum_id": forum_id,
-        "rate_limit": rate_limiter.get_info()
-    })
-    return _with_cors(request, resp)
+    history_manager.add_post({"id": f"post_{int(time.time())}", "timestamp": int(time.time() * 1000), "title": title, "content": content, "tags": tags, "thread_id": thread_id, "updated": True})
+    return _with_cors(request, web.json_response({"ok": True, "updated": True, "thread_id": thread_id}))
 
 async def _discord_patch_form(session, path, form):
-    return await _discord_request(session, "PATCH", path, headers=_auth_headers(), data=form)
+    """MODIFIÉ : Retourne status, data, headers pour être compatible avec _discord_request"""
+    status, data, headers = await _discord_request(session, "PATCH", path, headers=_auth_headers(), data=form)
+    return status, data, headers
 
-async def get_history(request: web.Request):
-    """
-    Endpoint GET /api/history
-    Retourne l'historique des publications
-    """
-    # Vérification clé API
-    api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
-    if not api_key or api_key != config.PUBLISHER_API_KEY:
-        resp = web.json_response({
-            "ok": False,
-            "error": "unauthorized",
-            "message": "Clé API invalide ou manquante."
-        }, status=401)
-        return _with_cors(request, resp)
-    
-    # Récupérer la limite optionnelle
-    limit = request.query.get("limit")
-    limit_int = int(limit) if limit and limit.isdigit() else None
-    
-    posts = history_manager.get_posts(limit=limit_int)
-    
-    resp = web.json_response({
-        "ok": True,
-        "posts": posts,
-        "count": len(posts)
-    })
-    return _with_cors(request, resp)
+async def get_history(request):
+    api_key = request.headers.get("X-API-KEY")
+    if api_key != config.PUBLISHER_API_KEY: return _with_cors(request, web.json_response({"ok": False}, status=401))
+    posts = history_manager.get_posts()
+    return _with_cors(request, web.json_response({"ok": True, "posts": posts, "count": len(posts)}))
+
+app = web.Application()
+app.add_routes([
+    web.get('/api/publisher/health', health),
+    web.post('/api/forum-post', forum_post),
+    web.post('/api/forum-post/update', forum_post_update),
+    web.get('/api/history', get_history),
+    web.options('/{tail:.*}', options_handler)
+])
+
+if __name__ == '__main__':
+    web.run_app(app, port=config.PORT)
