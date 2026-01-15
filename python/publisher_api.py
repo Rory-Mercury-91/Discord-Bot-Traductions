@@ -198,7 +198,7 @@ async def _create_forum_post(session, forum_id, title, content, tags_raw, images
                     content_type=img.get("content_type") or "application/octet-stream",
                 )
 
-    status, data = await _discord_post_form(session, f"/channels/{forum_id}/threads", form)
+    status, data, _ = await _discord_post_form(session, f"/channels/{forum_id}/threads", form)
 
     if status >= 300:
         return False, {"status": status, "discord": data}
