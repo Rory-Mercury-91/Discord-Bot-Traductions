@@ -52,13 +52,16 @@ def make_app():
     app.router.add_get("/health", health)
     app.router.add_get("/api/status", health)
     
-    # Routes Publisher API - AJOUT CRITIQUE
+    # Routes Publisher API
     app.router.add_options("/api/configure", options_handler)
     app.router.add_post("/api/configure", configure)
     
     app.router.add_options("/api/forum-post", options_handler)
     app.router.add_post("/api/forum-post", forum_post)
-    app.router.add_patch("/api/forum-post/{thread_id}/{message_id}", forum_post_update)
+    
+    # NOUVEAU : Route pour mise à jour
+    app.router.add_options("/api/forum-post/update", options_handler)
+    app.router.add_post("/api/forum-post/update", forum_post_update)
     
     # Route de santé du publisher
     app.router.add_get("/api/publisher/health", publisher_health)

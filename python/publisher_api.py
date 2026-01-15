@@ -424,12 +424,174 @@ async def forum_post(request: web.Request):
     return _with_cors(request, resp)
 
 async def forum_post_update(request: web.Request):
-    """Endpoint PATCH (non utilisé pour l'instant)"""
+    """
+    Endpoint POST /api/forum-post/update
+    Met à jour un post Discord existant au lieu d'en créer un nouveau
+    """
+    
+    # Vérification clé API
+    api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
+    if not api_key or api_key != config.PUBLISHER_API_KEY:
+        resp = web.json_response({
+            "ok": False,
+            "error": "unauthorized",
+            "message": "Clé API invalide ou manquante."
+        }, status=401)
+        return _with_cors(request, resp)
+
+    if not config.configured:
+        resp = web.json_response({
+            "ok": False, 
+            "error": "not_configured",
+            "message": "API non configurée."
+        }, status=503)
+        return _with_cors(request, resp)
+
+    title = ""
+    content = ""
+    tags = ""
+    template = "my"
+    images = []
+    thread_id = None
+    message_id = None
+
+    # Parser le FormData
+    try:
+        reader = await request.multipart()
+        async for part in reader:
+            if part.name == "title":
+                title = (await part.text()).strip()
+            elif part.name == "content":
+                content = (await part.text()).strip()
+            elif part.name == "tags":
+                tags = (await part.text()).strip()
+            elif part.name == "template":
+                template = (await part.text()).strip()
+            elif part.name == "threadId":
+                thread_id = (await part.text()).strip()
+            elif part.name == "messageId":
+                message_id = (await part.text()).strip()
+            elif part.name and part.name.startswith("image_"):
+                if part.filename:
+                    images.append({
+                        "bytes": await part.read(decode=False),
+                        "filename": part.filename,
+                        "content_type": part.headers.get("Content-Type", "image/png"),
+                    })
+    except Exception as e:
+        logger.error(f"Erreur parsing FormData: {e}")
+        resp = web.json_response({
+            "ok": False, 
+            "error": "bad_request", 
+            "details": str(e)
+        }, status=400)
+        return _with_cors(request, resp)
+
+    if not title:
+        resp = web.json_response({"ok": False, "error": "missing_title"}, status=400)
+        return _with_cors(request, resp)
+
+    if not thread_id or not message_id:
+        resp = web.json_response({
+            "ok": False, 
+            "error": "missing_ids",
+            "message": "thread_id et message_id requis pour la mise à jour"
+        }, status=400)
+        return _with_cors(request, resp)
+
+    forum_id = _pick_forum_id(template)
+    
+    logger.info(f"🔄 Mise à jour post: {title} (thread: {thread_id}, message: {message_id})")
+
+    async with aiohttp.ClientSession() as session:
+        # 1. Mettre à jour le contenu du message
+        message_path = f"/channels/{forum_id}/messages/{message_id}"
+        message_payload = {"content": content if content else " "}
+        
+        # Ajouter les images si présentes
+        if images:
+            form = aiohttp.FormData()
+            form.add_field("payload_json", json.dumps(message_payload), content_type="application/json")
+            
+            for i, img in enumerate(images):
+                if img.get("bytes") and img.get("filename"):
+                    form.add_field(
+                        f"files[{i}]",
+                        img["bytes"],
+                        filename=img["filename"],
+                        content_type=img.get("content_type") or "application/octet-stream",
+                    )
+            
+            status, data = await _discord_patch_form(session, message_path, form)
+        else:
+            status, data = await _discord_patch_json(session, message_path, message_payload)
+
+        if status >= 300:
+            logger.error(f"❌ Échec mise à jour message: {data}")
+            resp = web.json_response({
+                "ok": False,
+                "error": "discord_error_message",
+                "details": data
+            }, status=500)
+            return _with_cors(request, resp)
+
+        # 2. Mettre à jour les tags du thread
+        applied_tag_ids = await _resolve_applied_tag_ids(session, forum_id, tags)
+        
+        thread_path = f"/channels/{thread_id}"
+        thread_payload = {
+            "name": title,
+        }
+        if applied_tag_ids:
+            thread_payload["applied_tags"] = applied_tag_ids
+
+        status, data = await _discord_patch_json(session, thread_path, thread_payload)
+
+        if status >= 300:
+            logger.error(f"❌ Échec mise à jour thread: {data}")
+            resp = web.json_response({
+                "ok": False,
+                "error": "discord_error_thread",
+                "details": data
+            }, status=500)
+            return _with_cors(request, resp)
+
+    logger.info(f"✅ Mise à jour réussie: thread {thread_id}")
+    
+    # Construire l'URL du thread
+    guild_id = data.get("guild_id")
+    thread_url = f"https://discord.com/channels/{guild_id}/{thread_id}" if guild_id else None
+    
+    # Mettre à jour l'historique
+    history_entry = {
+        "id": f"post_{int(time.time())}_{hash(title) % 1000000}",
+        "timestamp": int(time.time() * 1000),
+        "title": title,
+        "content": content,
+        "tags": tags,
+        "template": template,
+        "thread_id": thread_id,
+        "message_id": message_id,
+        "discord_url": thread_url,
+        "forum_id": forum_id,
+        "updated": True  # Marqueur pour indiquer que c'est une mise à jour
+    }
+    history_manager.add_post(history_entry)
+    
     resp = web.json_response({
-        "ok": False,
-        "error": "not_implemented"
-    }, status=501)
+        "ok": True,
+        "updated": True,
+        "thread_id": thread_id,
+        "message_id": message_id,
+        "thread_url": thread_url,
+        "template": template,
+        "forum_id": forum_id,
+        "rate_limit": rate_limiter.get_info()
+    })
     return _with_cors(request, resp)
+
+async def _discord_patch_form(session, path, form):
+    return await _discord_request(session, "PATCH", path, headers=_auth_headers(), data=form)
 
 async def get_history(request: web.Request):
     """

@@ -167,7 +167,7 @@ type AppContextValue = {
   updatePublishedPost: (id: string, p: Partial<PublishedPost>) => void;
   deletePublishedPost: (id: string) => void;
   fetchHistoryFromAPI: () => Promise<void>;
-  
+
   // Rate limit protection
   rateLimitCooldown: number | null;
 
@@ -324,7 +324,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const [publishInProgress, setPublishInProgress] = useState<boolean>(false);
   const [lastPublishResult, setLastPublishResult] = useState<string | null>(null);
-  
+
   // Rate limit protection (cooldown de 60 secondes après une erreur 429)
   const [rateLimitCooldown, setRateLimitCooldown] = useState<number | null>(null);
 
@@ -398,7 +398,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const baseUrl = localStorage.getItem('apiBase') || defaultApiBase;
       const apiKey = localStorage.getItem('apiKey') || '';
       const endpoint = `${baseUrl}/api/history`;
-      
+
       const response = await fetch(endpoint, {
         method: 'GET',
         headers: {
@@ -419,24 +419,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const data = await response.json();
       if (Array.isArray(data.posts) || Array.isArray(data)) {
         const koyebPosts = Array.isArray(data.posts) ? data.posts : data;
-        
+
         // Récupérer l'historique local actuel
         const localPosts = publishedPosts;
         const localIds = new Set(localPosts.map(p => p.id));
-        
+
         // Fusionner : Koyeb (backup récent) + localStorage (complet)
         // On ajoute seulement les posts de Koyeb qui ne sont pas déjà dans localStorage
         const newPostsFromKoyeb = koyebPosts.filter((p: any) => {
           // Vérifier par thread_id et message_id pour éviter les doublons même si l'ID local diffère
           const koyebThreadId = p.thread_id || p.threadId;
           const koyebMessageId = p.message_id || p.messageId;
-          
-          return !localPosts.some(local => 
+
+          return !localPosts.some(local =>
             (local.threadId === koyebThreadId && local.messageId === koyebMessageId) ||
             local.id === p.id
           );
         });
-        
+
         if (newPostsFromKoyeb.length > 0) {
           // Ajouter les nouveaux posts de Koyeb au début (plus récents)
           setPublishedPosts(prev => {
@@ -462,16 +462,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const templateType = (templates[currentTemplateIdx]?.type) || '';
     const isEditMode = editingPostId !== null && editingPostData !== null;
 
-    // CHANGEMENT ICI : Lire l'URL depuis localStorage
     const storedApiUrl = localStorage.getItem('apiUrl');
     const baseUrl = localStorage.getItem('apiBase') || defaultApiBase;
-    const apiEndpoint = `${baseUrl}/api/forum-post`;
 
-    // Logging removed – publication started
+    // CHANGEMENT : endpoint différent selon le mode
+    const apiEndpoint = isEditMode
+      ? `${baseUrl}/api/forum-post/update`  // Nouvel endpoint pour update
+      : `${baseUrl}/api/forum-post`;
 
     // Validation: titre obligatoire
     if (!title || title.length === 0) {
-      // Logging removed – title missing
       setLastPublishResult('❌ Titre obligatoire');
       showErrorModal({
         code: 'VALIDATION_ERROR',
@@ -484,7 +484,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // Validation: API endpoint requis
     if (!baseUrl || baseUrl.trim().length === 0) {
-      // Logging removed – API URL missing
       setLastPublishResult('❌ URL API manquante dans Configuration');
       showErrorModal({
         code: 'CONFIG_ERROR',
@@ -497,7 +496,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // Validation: template type obligatoire
     if (templateType !== 'my' && templateType !== 'partner') {
-      // Logging removed – invalid template type
       setLastPublishResult('❌ Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés');
       showErrorModal({
         code: 'VALIDATION_ERROR',
@@ -525,8 +523,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLastPublishResult(null);
 
     try {
-      // Logging removed – preparing payload
-
       // Créer FormData pour multipart/form-data
       const formData = new FormData();
       formData.append('title', title);
@@ -534,35 +530,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       formData.append('tags', tags);
       formData.append('template', templateType);
 
-      // Add edit mode info if updating
-      if (isEditMode) {
+      // NOUVEAU : Ajouter les données de mise à jour si en mode édition
+      if (isEditMode && editingPostData) {
         formData.append('threadId', editingPostData.threadId);
         formData.append('messageId', editingPostData.messageId);
         formData.append('isUpdate', 'true');
-        // Logging removed – edit mode activated
+        console.log('🔄 Mode édition activé:', {
+          threadId: editingPostData.threadId,
+          messageId: editingPostData.messageId
+        });
       }
 
-      // Process all images (comme dans la version legacy)
+      // Process all images (comme avant)
       if (uploadedImages.length > 0) {
         const images = [];
         for (const img of uploadedImages) {
           if (!img.path) continue;
           try {
-            // Read image from filesystem
             const imgResult = await tauriAPI.readImage(img.path);
             if (imgResult.ok && imgResult.buffer) {
-              // Convert array back to Uint8Array then to base64 (par chunks pour éviter la récursion)
               const buffer = new Uint8Array(imgResult.buffer);
-              // Conversion base64 par chunks pour éviter "Maximum call stack size exceeded"
               let base64 = '';
-              const chunkSize = 8192; // 8KB chunks
+              const chunkSize = 8192;
               for (let i = 0; i < buffer.length; i += chunkSize) {
                 const chunk = buffer.slice(i, i + chunkSize);
                 base64 += String.fromCharCode(...chunk);
               }
               base64 = btoa(base64);
               const ext = (img.path.split('.').pop() || 'png').toLowerCase();
-              // Support for all modern image formats
               const mimeTypes: Record<string, string> = {
                 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
                 'png': 'image/png', 'gif': 'image/gif',
@@ -573,7 +568,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               const mimeType = mimeTypes[ext] || 'image/' + ext;
               images.push({
                 dataUrl: `data:${mimeType};base64,${base64}`,
-                filename: img.path.split('_').slice(2).join('_'), // Remove timestamp prefix
+                filename: img.path.split('_').slice(2).join('_'),
                 isMain: img.isMain
               });
             }
@@ -582,7 +577,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
         }
         if (images.length > 0) {
-          // Ajouter les images au FormData comme dans la version legacy
           for (let i = 0; i < images.length; i++) {
             const img = images[i];
             if (!img.dataUrl) continue;
@@ -596,7 +590,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const blob = new Blob([buffer], { type: contentType });
             formData.append(`image_${i}`, blob, img.filename || `image_${i}.png`);
 
-            // Mark which image is main
             if (img.isMain) {
               formData.append('main_image_index', String(i));
             }
@@ -604,12 +597,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // Récupérer la clé API
       const apiKey = localStorage.getItem('apiKey') || '';
 
-      // Logging removed – API request
-
-      // Faire la requête avec fetch
+      // Faire la requête
       const response = await fetch(apiEndpoint, {
         method: 'POST',
         headers: {
@@ -620,22 +610,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const res = await response.json();
 
-      // Logging removed – API response received
-
       if (!response.ok) {
-        // Gestion spéciale du rate limit 429
         if (response.status === 429) {
-          const cooldownEnd = Date.now() + 60000; // 60 secondes
+          const cooldownEnd = Date.now() + 60000;
           setRateLimitCooldown(cooldownEnd);
           setLastPublishResult('❌ Rate limit Discord (429). Cooldown de 60 secondes activé.');
           showErrorModal({
             code: 'RATE_LIMIT_429',
             message: 'Rate limit Discord atteint',
-            context: 'Discord a limité les requêtes. Le bouton de publication sera désactivé pendant 60 secondes pour éviter un bannissement IP. Ne tentez PAS de republier immédiatement.',
+            context: 'Discord a limité les requêtes. Le bouton de publication sera désactivé pendant 60 secondes pour éviter un bannissement IP.',
             httpStatus: 429,
             discordError: res
           });
-          // Démarrer un timer pour désactiver le cooldown après 60 secondes
           setTimeout(() => {
             setRateLimitCooldown(null);
             setLastPublishResult(null);
@@ -644,9 +630,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
 
         setLastPublishResult('Erreur API: ' + (res.error || 'unknown'));
-
         const isNetworkError = !response.status || response.status === 0;
-
         showErrorModal({
           code: res.error || 'API_ERROR',
           message: isNetworkError
@@ -658,23 +642,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         return { ok: false, error: res.error };
       }
-      
-      // Réinitialiser le cooldown en cas de succès
+
       if (rateLimitCooldown !== null) {
         setRateLimitCooldown(null);
       }
 
-      // Build success message
       let successMsg = isEditMode ? 'Mise à jour réussie' : 'Publication réussie';
       setLastPublishResult(successMsg);
 
-      // Logging removed – publication finished
-
-      // Debug: Log la réponse de l'API pour diagnostiquer
-      console.log('📋 Réponse API après publication:', res);
-
-      // Save to history or update existing post
-      // Accepter différents formats de réponse (thread_id/threadId, message_id/messageId)
       const threadId = res.thread_id || res.threadId;
       const messageId = res.message_id || res.messageId;
       const threadUrl = res.thread_url || res.threadUrl || res.url || res.discordUrl || '';
@@ -682,6 +657,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (threadId && messageId) {
         if (isEditMode && editingPostId) {
+          // MISE À JOUR : Modifier le post existant dans l'historique
           const updatedPost: Partial<PublishedPost> = {
             timestamp: Date.now(),
             title,
@@ -700,6 +676,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setEditingPostData(null);
           console.log('✅ Post mis à jour dans l\'historique:', updatedPost);
         } else {
+          // CRÉATION : Nouveau post
           const newPost: PublishedPost = {
             id: `post_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             timestamp: Date.now(),
@@ -717,39 +694,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             discordUrl: threadUrl,
             forumId: typeof forumId === 'number' ? forumId : parseInt(String(forumId)) || 0
           };
-          // Sauvegarder IMMÉDIATEMENT dans localStorage (source principale)
           addPublishedPost(newPost);
-          console.log('✅ Nouveau post ajouté à l\'historique localStorage:', newPost);
-          // Note: Koyeb sauvegarde aussi en backup via publisher_api.py, mais localStorage est la source principale
+          console.log('✅ Nouveau post ajouté à l\'historique:', newPost);
         }
       } else {
-        console.warn('⚠️ Réponse API ne contient pas thread_id/message_id. Réponse complète:', res);
-        // Sauvegarder quand même avec les données disponibles dans localStorage (source principale)
-        const newPost: PublishedPost = {
-          id: `post_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          timestamp: Date.now(),
-          title,
-          content,
-          tags,
-          template: templateType,
-          imagePath: uploadedImages.find(i => i.isMain)?.path,
-          translationType,
-          isIntegrated,
-          savedInputs: { ...inputs },
-          templateId: templates[currentTemplateIdx]?.id,
-          threadId: threadId ? String(threadId) : 'unknown',
-          messageId: messageId ? String(messageId) : 'unknown',
-          discordUrl: threadUrl,
-          forumId: typeof forumId === 'number' ? forumId : parseInt(String(forumId)) || 0
-        };
-        // Sauvegarder IMMÉDIATEMENT dans localStorage (source principale)
-        addPublishedPost(newPost);
-        console.log('✅ Post ajouté à l\'historique localStorage (sans thread_id/message_id):', newPost);
+        console.warn('⚠️ Réponse API ne contient pas thread_id/message_id');
       }
 
       return { ok: true, data: res };
     } catch (e: any) {
-      // Logging removed – exception during publication
       setLastPublishResult('Erreur envoi: ' + String(e?.message || e));
       showErrorModal({
         code: 'NETWORK_ERROR',
@@ -1166,7 +1119,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updatePublishedPost,
     deletePublishedPost,
     fetchHistoryFromAPI,
-    
+
     // Rate limit protection
     rateLimitCooldown,
 

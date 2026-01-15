@@ -39,8 +39,6 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "../python-portable/**/*",
-      "../python/**/*.py",
       "../assets/**/*"
     ]
   }

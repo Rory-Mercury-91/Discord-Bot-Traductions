@@ -20,8 +20,8 @@ export default function ContentEditor() {
 
   // Vérifier si le template actuel permet la publication (my/partner uniquement)
   const currentTemplate = templates[currentTemplateIdx];
-  const canPublish = (currentTemplate?.type === 'my' || currentTemplate?.type === 'partner') && 
-                     rateLimitCooldown === null; // Désactiver si rate limit actif
+  const canPublish = (currentTemplate?.type === 'my' || currentTemplate?.type === 'partner') &&
+    rateLimitCooldown === null; // Désactiver si rate limit actif
   const isEditMode = editingPostId !== null;
   const rateLimitRemaining = rateLimitCooldown ? Math.ceil((rateLimitCooldown - Date.now()) / 1000) : 0;
 
@@ -555,15 +555,15 @@ export default function ContentEditor() {
                   </span>
                 )}
               </label>
-              <input 
-                value={inputs['Translate_link'] || ''} 
-                onChange={e => setInput('Translate_link', e.target.value)} 
-                style={{ 
-                  width: '100%', 
+              <input
+                value={inputs['Translate_link'] || ''}
+                onChange={e => setInput('Translate_link', e.target.value)}
+                style={{
+                  width: '100%',
                   opacity: isIntegrated ? 0.5 : 1,
                   cursor: isIntegrated ? 'not-allowed' : 'text'
-                }} 
-                placeholder="https://..." 
+                }}
+                placeholder="https://..."
                 readOnly={isIntegrated}
                 title={isIntegrated ? 'Le lien est fusionné avec le lien du jeu car la traduction est intégrée' : ''}
               />
@@ -585,12 +585,12 @@ export default function ContentEditor() {
               </select>
             </div>
             <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-              <label style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: 8, 
-                fontSize: 13, 
-                color: 'var(--muted)', 
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 13,
+                color: 'var(--muted)',
                 cursor: 'pointer',
                 userSelect: 'none'
               }}>
@@ -731,7 +731,7 @@ export default function ContentEditor() {
                   type: 'warning'
                 });
                 if (!ok) return;
-                
+
                 setEditingPostId(null);
                 setEditingPostData(null);
                 showToast('Édition annulée', 'info');
