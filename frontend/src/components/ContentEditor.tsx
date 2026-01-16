@@ -226,7 +226,7 @@ export default function ContentEditor() {
     }
   }
 
-  return (
+return (
     <div
       onDrop={onImageDrop}
       onDragOver={onDragOver}
@@ -234,7 +234,7 @@ export default function ContentEditor() {
       onDragLeave={onDragLeave}
       style={{ position: 'relative' }}
     >
-      {/* Overlay drag & drop - Rendu via portail pour être au-dessus de tout */}
+      {/* Overlay drag & drop */}
       {isDragging && createPortal(
         <div style={{
           position: 'fixed',
@@ -243,7 +243,7 @@ export default function ContentEditor() {
           right: 0,
           bottom: 0,
           background: 'rgba(79, 70, 229, 0.15)',
-          border: '3px dashed rgba(79, 70, 229, 0.6)',
+          border: '3px dashed #5865F2',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -253,18 +253,14 @@ export default function ContentEditor() {
         }}>
           <div style={{
             textAlign: 'center',
-            background: 'rgba(79, 70, 229, 0.9)',
+            background: '#5865F2',
             padding: '24px 48px',
             borderRadius: 12,
             color: 'white',
             boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
           }}>
-            <div style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>
-              Déposez vos images ici
-            </div>
-            <div style={{ fontSize: 13, opacity: 0.9 }}>
-              Les images seront ajoutées automatiquement
-            </div>
+            <div style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>Déposez vos images ici</div>
+            <div style={{ fontSize: 13, opacity: 0.9 }}>Les images seront ajoutées automatiquement</div>
           </div>
         </div>,
         document.body
@@ -273,22 +269,18 @@ export default function ContentEditor() {
       {/* Badge mode édition */}
       {isEditMode && (
         <div style={{
-          background: 'rgba(125, 211, 252, 0.15)',
+          background: 'rgba(125, 211, 252, 0.1)',
           border: '1px solid var(--accent)',
-          borderRadius: 6,
-          padding: 12,
-          marginBottom: 16,
+          borderRadius: 8,
+          padding: '12px 16px',
+          marginBottom: 20,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center'
         }}>
           <div>
-            <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>
-              ✏️ Mode édition
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Vous modifiez un post existant. Les modifications seront envoyées à Discord.
-            </div>
+            <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 2 }}>✏️ Mode édition</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Vous modifiez un post existant sur Discord.</div>
           </div>
           <button
             onClick={() => {
@@ -297,8 +289,8 @@ export default function ContentEditor() {
             }}
             style={{
               padding: '6px 12px',
-              fontSize: 13,
-              background: 'transparent',
+              fontSize: 12,
+              background: 'rgba(255,255,255,0.05)',
               border: '1px solid var(--border)',
               borderRadius: 4,
               cursor: 'pointer'
@@ -309,134 +301,105 @@ export default function ContentEditor() {
         </div>
       )}
 
-      <h4>📝 Contenu du post Discord</h4>
-      <div style={{ display: 'grid', gap: 12 }}>
-        {/* Titre, Tags et Image - Sur la même ligne */}
+      <h4 style={{ marginBottom: 16 }}>📝 Contenu du post Discord</h4>
+      
+      <div style={{ display: 'grid', gap: 16 }}>
+        
+        {/* LIGNE 1 : TITRE, TAGS, IMAGE */}
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr auto', gap: 12, alignItems: 'end' }}>
-          {/* Titre */}
           <div>
-            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Titre du post</label>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Titre du post</label>
             <input
-              placeholder="Titre (optionnel)"
+              placeholder="Titre (requis)"
               value={postTitle}
               onChange={e => setPostTitle(e.target.value)}
               style={{
                 width: '100%',
-                border: postTitle.trim() === '' ? '2px solid var(--error)' : undefined,
-                outline: postTitle.trim() === '' ? 'none' : undefined
+                border: postTitle.trim() === '' ? '1px solid var(--error)' : '1px solid var(--border)'
               }}
             />
           </div>
 
-          {/* Tags */}
           <div>
-            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Tags</label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Tags</label>
+            <div style={{ display: 'flex', gap: 8 }}>
               <select
                 value={selectedTagId}
                 onChange={e => setSelectedTagId(e.target.value)}
                 style={{ flex: 1, color: selectedTagId ? 'inherit' : 'var(--placeholder)' }}
               >
                 <option value="">— Sélectionner un tag —</option>
-                {visibleTags.map((t, idx) => (<option key={idx} value={t.id || t.name}>{t.name} ({t.id})</option>))}
+                {visibleTags.map((t, idx) => (<option key={idx} value={t.id || t.name}>{t.name}</option>))}
               </select>
-              <button onClick={() => {
-                if (!selectedTagId) return;
-                const currentTags = postTags ? postTags.split(',').map(s => s.trim()).filter(Boolean) : [];
-                if (!currentTags.includes(selectedTagId)) {
-                  setPostTags([...currentTags, selectedTagId].join(','));
-                }
-                setSelectedTagId('');
-              }}>➕</button>
+              <button 
+                onClick={() => {
+                  if (!selectedTagId) return;
+                  const currentTags = postTags ? postTags.split(',').map(s => s.trim()).filter(Boolean) : [];
+                  if (!currentTags.includes(selectedTagId)) {
+                    setPostTags([...currentTags, selectedTagId].join(','));
+                  }
+                  setSelectedTagId('');
+                }}
+                style={{ padding: '0 12px' }}
+              >➕</button>
             </div>
           </div>
 
-          {/* Image */}
           <div>
-            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Image</label>
-            <button onClick={() => imageInputRef.current?.click()}>🖼️ Parcourir</button>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Images</label>
+            <button onClick={() => imageInputRef.current?.click()} style={{ width: '100%' }}>🖼️ Parcourir</button>
             <input
               ref={imageInputRef}
               type="file"
-              accept="image/*,.jpg,.jpeg,.png,.gif,.webp,.avif,.bmp,.svg,.ico,.tiff,.tif"
+              accept="image/*"
               style={{ display: 'none' }}
               multiple
               onChange={async (e) => {
                 if (e.target.files) {
-                  // Essayer d'utiliser les chemins si disponibles (Tauri peut les exposer)
                   const files = Array.from(e.target.files);
                   for (const file of files) {
-                    // Vérifier si le fichier a un chemin (via Tauri)
                     const filePath = (file as any).path;
-                    if (filePath) {
-                      // Utiliser le chemin directement (comme dans la version legacy)
-                      await addImageFromPath(filePath);
-                    } else {
-                      // Sinon, utiliser addImages qui gère le base64
-                      await addImages([file]);
-                    }
+                    filePath ? await addImageFromPath(filePath) : await addImages([file]);
                   }
-                  // Réinitialiser l'input pour permettre de ré-ajouter le même fichier
-                  if (e.target) {
-                    e.target.value = '';
-                  }
+                  e.target.value = '';
                 }
               }}
             />
           </div>
         </div>
 
-        {/* Première ligne : Tags actifs */}
+        {/* AFFICHAGE TAGS ACTIFS */}
         {postTags && postTags.trim() && (
-          <div style={{ padding: 8, background: 'rgba(74, 158, 255, 0.05)', borderRadius: 4, border: '1px solid rgba(74, 158, 255, 0.2)' }}>
-            <div style={{ fontSize: 12, color: '#4a9eff', marginBottom: 6, fontWeight: 'bold' }}>Tags actifs :</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {postTags.split(',').map(s => s.trim()).filter(Boolean).map((tagId, idx) => {
-                const tag = savedTags.find(t => (t.id || t.name) === tagId);
-                return (
-                  <div key={idx} style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    background: 'rgba(74, 158, 255, 0.2)',
-                    border: '1px solid #4a9eff',
-                    borderRadius: 4,
-                    padding: '4px 8px',
-                    fontSize: 13
-                  }}>
-                    <span>{tag?.name || tagId}</span>
-                    <button
-                      onClick={() => {
-                        const currentTags = postTags.split(',').map(s => s.trim()).filter(Boolean);
-                        const newTags = currentTags.filter(t => t !== tagId);
-                        setPostTags(newTags.join(','));
-                      }}
-                      style={{
-                        background: 'transparent',
-                        border: 'none',
-                        color: '#ff6b6b',
-                        cursor: 'pointer',
-                        padding: '0 2px',
-                        fontSize: 14
-                      }}
-                      title="Retirer"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px', background: 'var(--panel)', borderRadius: 6, border: '1px solid var(--border)' }}>
+            {postTags.split(',').map(s => s.trim()).filter(Boolean).map((tagId, idx) => {
+              const tag = savedTags.find(t => (t.id || t.name) === tagId);
+              return (
+                <div key={idx} style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: 'rgba(88, 101, 242, 0.1)', border: '1px solid #5865F2',
+                  borderRadius: 4, padding: '2px 8px', fontSize: 12
+                }}>
+                  <span>{tag?.name || tagId}</span>
+                  <span onClick={() => {
+                    const newTags = postTags.split(',').map(s => s.trim()).filter(t => t !== tagId && t !== '');
+                    setPostTags(newTags.join(','));
+                  }} style={{ cursor: 'pointer', color: 'var(--error)', fontWeight: 'bold', marginLeft: 4 }}>✕</span>
+                </div>
+              );
+            })}
           </div>
         )}
 
-        {/* Deuxième ligne : Vignettes des images */}
-        {uploadedImages.length > 0 ? (
-          <div style={{ padding: 8, background: 'rgba(255,255,255,0.02)', borderRadius: 4, border: '1px solid var(--border)' }}>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6, fontWeight: 'bold' }}>
-              Images ({uploadedImages.length}) :
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {/* SECTION IMAGES */}
+        <div style={{ 
+          padding: 12, background: 'var(--panel)', borderRadius: 8, border: '1px solid var(--border)',
+          minHeight: '60px'
+        }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8, fontWeight: 600 }}>
+            {uploadedImages.length > 0 ? `Images uploadées (${uploadedImages.length})` : "Aucune image"}
+          </div>
+          {uploadedImages.length > 0 ? (
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {uploadedImages.map((img, idx) => (
                 <ImageThumbnail
                   key={img.id}
@@ -445,435 +408,270 @@ export default function ContentEditor() {
                   onSetMain={() => setMainImage(idx)}
                   onCopyName={async () => {
                     await navigator.clipboard.writeText(img.path);
-                    showToast('Nom copié dans le presse-papier', 'success');
+                    showToast('Chemin copié', 'success');
                   }}
                   onDelete={async () => {
-                    const ok = await confirm({
-                      title: 'Supprimer l\'image',
-                      message: 'Voulez-vous vraiment supprimer cette image ?',
-                      confirmText: 'Supprimer',
-                      type: 'danger'
-                    });
-                    if (ok) {
-                      removeImage(idx);
-                      showToast('Image supprimée', 'success');
-                    }
+                    const ok = await confirm({ title: 'Supprimer', message: 'Supprimer cette image ?', type: 'danger' });
+                    if (ok) removeImage(idx);
                   }}
                 />
               ))}
             </div>
-          </div>
-        ) : (
-          <div style={{ padding: 8, background: 'rgba(255,255,255,0.02)', borderRadius: 4, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>
-            Aucune image uploadée. Glissez-déposez des images ici ou utilisez le bouton "Parcourir".
-          </div>
-        )}
-
-        {/* Variables par défaut en grille 2 colonnes */}
-        <div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-            {/* Ligne 1 : Game_name | Traductor */}
-            <div>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Nom du jeu</label>
-              <input value={inputs['Game_name'] || ''} onChange={e => setInput('Game_name', e.target.value)} style={{ width: '100%' }} placeholder="Ex: Lost Solace" />
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>
+              Glissez-déposez des images ou utilisez le bouton "Parcourir".
             </div>
-            <div style={{ position: 'relative' }}>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Traducteur</label>
-              <input
-                type="text"
-                placeholder="Rechercher un traducteur..."
-                value={traductorSearchQuery || inputs['Traductor'] || ''}
-                onChange={e => {
-                  setTraductorSearchQuery(e.target.value);
-                  setInput('Traductor', e.target.value);
-                  setShowTraductorSuggestions(true);
-                }}
-                onFocus={() => setShowTraductorSuggestions(true)}
-                style={{ width: '100%' }}
-              />
-              {/* Suggestions traducteurs */}
-              {showTraductorSuggestions && filteredTraductors.length > 0 && (
-                <div style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  right: 0,
-                  maxHeight: '200px',
-                  overflowY: 'auto',
-                  background: 'var(--panel)',
-                  border: '1px solid var(--border)',
-                  borderTop: 'none',
-                  borderRadius: '0 0 4px 4px',
-                  zIndex: 1000,
-                  boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
-                }}>
+          )}
+        </div>
+
+        {/* GRILLE DES VARIABLES PRINCIPALES */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {/* Nom & Traducteur */}
+          <div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Nom du jeu</label>
+            <input 
+              value={inputs['Game_name'] || ''} 
+              onChange={e => setInput('Game_name', e.target.value)} 
+              style={{ width: '100%' }} 
+              placeholder="Nom du jeu"
+            />
+          </div>
+          <div style={{ position: 'relative' }}>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Traducteur</label>
+            <input
+              type="text"
+              value={traductorSearchQuery || inputs['Traductor'] || ''}
+              onChange={e => { setTraductorSearchQuery(e.target.value); setInput('Traductor', e.target.value); setShowTraductorSuggestions(true); }}
+              onFocus={() => setShowTraductorSuggestions(true)}
+              style={{ width: '100%' }}
+              placeholder="Nom du traducteur..."
+            />
+            {showTraductorSuggestions && filteredTraductors.length > 0 && (
+               <div className="suggestions-dropdown">
                   {filteredTraductors.map((t, idx) => (
-                    <div
-                      key={idx}
-                      onClick={() => {
-                        setInput('Traductor', t);
-                        setTraductorSearchQuery(t);
-                        setShowTraductorSuggestions(false);
-                      }}
-                      style={{
-                        padding: '8px 12px',
-                        cursor: 'pointer',
-                        borderBottom: idx < filteredTraductors.length - 1 ? '1px solid #333' : 'none',
-                        transition: 'background 0.2s'
-                      }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(74, 158, 255, 0.2)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                    >
-                      <div style={{ fontWeight: 500 }}>{t}</div>
-                    </div>
+                    <div key={idx} className="suggestion-item" onClick={() => { setInput('Traductor', t); setTraductorSearchQuery(t); setShowTraductorSuggestions(false); }}>{t}</div>
                   ))}
-                </div>
-              )}
-            </div>
+               </div>
+            )}
+          </div>
 
-            {/* Ligne 2 : Game_version | Game_link */}
-            <div>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Version du jeu</label>
-              <input value={inputs['Game_version'] || ''} onChange={e => setInput('Game_version', e.target.value)} style={{ width: '100%' }} placeholder="v0.1" />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Lien du jeu</label>
-              <input value={inputs['Game_link'] || ''} onChange={e => setInput('Game_link', e.target.value)} style={{ width: '100%' }} placeholder="https://..." />
-            </div>
+          {/* Versions */}
+          <div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Version du jeu</label>
+            <input 
+              value={inputs['Game_version'] || ''} 
+              onChange={e => setInput('Game_version', e.target.value)} 
+              style={{ width: '100%' }} 
+              placeholder="v1.0.4"
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Version Traduction</label>
+            <input 
+              value={inputs['Translate_version'] || ''} 
+              onChange={e => setInput('Translate_version', e.target.value)} 
+              style={{ width: '100%' }} 
+              placeholder="v1.0"
+            />
+          </div>
 
-            {/* Ligne 3 : Translate_version | Translate_link */}
-            <div>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Version de la traduction</label>
-              <input value={inputs['Translate_version'] || ''} onChange={e => setInput('Translate_version', e.target.value)} style={{ width: '100%' }} placeholder="v0.1" />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
-                Lien de la traduction
-                {isIntegrated && (
-                  <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--accent)', fontStyle: 'italic' }}>
-                    (Fusionné avec le lien du jeu)
-                  </span>
-                )}
-              </label>
+          {/* Liens */}
+          <div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Lien du jeu</label>
+            <input 
+              value={inputs['Game_link'] || ''} 
+              onChange={e => setInput('Game_link', e.target.value)} 
+              style={{ width: '100%' }} 
+              placeholder="https://f95zone.to/threads/..." 
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
+              Lien Traduction {isIntegrated && <span style={{ color: 'var(--accent)', fontSize: 11 }}>(Fusionné)</span>}
+            </label>
+            <input
+              value={inputs['Translate_link'] || ''}
+              onChange={e => setInput('Translate_link', e.target.value)}
+              style={{ width: '100%', opacity: isIntegrated ? 0.5 : 1 }}
+              disabled={isIntegrated}
+              placeholder={isIntegrated ? "Inutile (Traduction intégrée)" : "https://mega.nz/..."}
+            />
+          </div>
+        </div>
+
+        {/* SECTION TYPE & INTEGRATION (STYLE HARMONISÉ) */}
+        <div style={{ 
+          display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, 
+          padding: 12, background: 'var(--panel)', borderRadius: 8, border: '1px solid var(--border)' 
+        }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Type de traduction</label>
+            <select
+              value={translationType}
+              onChange={e => setTranslationType(e.target.value)}
+              style={{ width: '100%' }}
+            >
+              <option value="Automatique">Automatique</option>
+              <option value="Semi-automatique">Semi-automatique</option>
+              <option value="Manuelle">Manuelle</option>
+            </select>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none', fontSize: 13 }}>
               <input
-                value={inputs['Translate_link'] || ''}
-                onChange={e => setInput('Translate_link', e.target.value)}
-                style={{
-                  width: '100%',
-                  opacity: isIntegrated ? 0.5 : 1,
-                  cursor: isIntegrated ? 'not-allowed' : 'text'
-                }}
+                type="checkbox"
+                checked={isIntegrated}
+                onChange={e => setIsIntegrated(e.target.checked)}
+                style={{ width: 18, height: 18, cursor: 'pointer' }}
+              />
+              <span>Traduction intégrée (VF incluse)</span>
+            </label>
+          </div>
+        </div>
+
+        {/* SECTION JEU MODÉ (STYLE HARMONISÉ) */}
+        <div style={{ 
+          padding: 12, background: 'var(--panel)', borderRadius: 8, border: '1px solid var(--border)' 
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: inputs['is_modded_game'] === 'true' ? 12 : 0 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none', fontSize: 14, fontWeight: 600 }}>
+              <input
+                type="checkbox"
+                checked={inputs['is_modded_game'] === 'true'}
+                onChange={e => setInput('is_modded_game', e.target.checked ? 'true' : 'false')}
+                style={{ width: 18, height: 18, cursor: 'pointer' }}
+              />
+              <span>🎮 Jeu modé</span>
+            </label>
+          </div>
+
+          {inputs['is_modded_game'] === 'true' && (
+            <div style={{ paddingLeft: 28 }}>
+              <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>Lien du mod</label>
+              <input
+                value={inputs['mod_link'] || ''}
+                onChange={e => setInput('mod_link', e.target.value)}
+                style={{ width: '100%' }}
                 placeholder="https://..."
-                readOnly={isIntegrated}
-                title={isIntegrated ? 'Le lien est fusionné avec le lien du jeu car la traduction est intégrée' : ''}
               />
             </div>
-          </div>
+          )}
+        </div>
 
-          {/* Nouvelle section : Type de traduction et intégration */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-            <div>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Type de traduction</label>
-              <select
-                value={translationType}
-                onChange={e => setTranslationType(e.target.value)}
-                style={{ width: '100%' }}
-              >
-                <option value="Automatique">Automatique</option>
-                <option value="Semi-automatique">Semi-automatique</option>
-                <option value="Manuelle">Manuelle</option>
-              </select>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
-              <label style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                fontSize: 13,
-                color: 'var(--muted)',
-                cursor: 'pointer',
-                userSelect: 'none'
-              }}>
-                <input
-                  type="checkbox"
-                  checked={isIntegrated}
-                  onChange={e => setIsIntegrated(e.target.checked)}
-                  style={{ width: 18, height: 18, cursor: 'pointer' }}
-                />
-                <span>Traduction intégrée au jeu (VF incluse)</span>
-                {isIntegrated && (
-                  <span style={{ fontSize: 11, color: 'var(--accent)', marginLeft: 4 }} title="Le lien de traduction sera fusionné avec le lien du jeu">
-                    ℹ️
-                  </span>
-                )}
-              </label>
-            </div>
+        {/* INFO RACCOURCISSISEMENT */}
+        <div style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center', opacity: 0.8 }}>
+          💡 Les liens F95Zone et LewdCorner sont automatiquement raccourcis au format ID.
+        </div>
 
-            {/* Nouvelle section : Jeu modé */}
-            <div style={{ gridColumn: '1 / -1', marginTop: 12 }}>
-              <div style={{
-                padding: 12,
-                background: 'rgba(168, 85, 247, 0.1)',
-                border: '1px solid rgba(168, 85, 247, 0.3)',
-                borderRadius: 6
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                  <label style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    fontSize: 14,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    userSelect: 'none'
-                  }}>
-                    <input
-                      type="checkbox"
-                      checked={inputs['is_modded_game'] === 'true'}
-                      onChange={e => setInput('is_modded_game', e.target.checked ? 'true' : 'false')}
-                      style={{ width: 18, height: 18, cursor: 'pointer' }}
-                    />
-                    <span>🎮 Jeu modé</span>
-                  </label>
-                </div>
-
-                {inputs['is_modded_game'] === 'true' && (
-                  <div>
-                    <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
-                      Lien du mod
-                    </label>
-                    <input
-                      value={inputs['mod_link'] || ''}
-                      onChange={e => setInput('mod_link', e.target.value)}
-                      style={{ width: '100%' }}
-                      placeholder="https://..."
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Information sur le nettoyage automatique des liens */}
-            <div style={{
-              gridColumn: '1 / -1',
-              fontSize: 11,
-              color: 'var(--muted)',
-              fontStyle: 'italic',
-              padding: '8px 12px',
-              background: 'rgba(74, 158, 255, 0.05)',
-              borderRadius: 4,
-              border: '1px solid rgba(74, 158, 255, 0.2)'
-            }}>
-              💡 <strong>Info :</strong> Les liens F95Zone et LewdCorner sont automatiquement raccourcis (uniquement l'ID du thread est conservé).
-            </div>
-
-            {/* Variables personnalisées (on filtre les nouveaux noms par défaut) */}
-            {visibleVars.filter(v => !['Game_name', 'Game_version', 'Translate_version', 'Game_link', 'Translate_link', 'Traductor', 'Overview', 'instruction'].includes(v.name)).map((v, idx) => (
-              <div key={v.name} style={v.fullWidth ? { gridColumn: '1 / -1' } : {}}>
-                <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>{v.label}</label>
-                {v.type === 'textarea' ? (
-                  <textarea value={inputs[v.name] || ''} onChange={e => setInput(v.name, e.target.value)} rows={3} style={{ width: '100%' }} placeholder={v.placeholder} spellCheck={true} lang="fr-FR" />
-                ) : (
-                  <input value={inputs[v.name] || ''} onChange={e => setInput(v.name, e.target.value)} style={{ width: '100%' }} placeholder={v.placeholder} />
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Synopsis en pleine largeur */}
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
-              Synopsis
-              <span style={{ fontSize: 10, marginLeft: 8, opacity: 0.5 }}>Ctrl+Z / Ctrl+Y pour annuler/refaire</span>
-            </label>
+        {/* SYNOPSIS & INSTRUCTIONS */}
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Synopsis</label>
             <textarea
               ref={overviewRef}
               value={inputs['Overview'] || ''}
               onChange={e => setInput('Overview', e.target.value)}
               onKeyDown={handleOverviewKeyDown}
-              rows={6}
+              rows={5}
               style={{ width: '100%' }}
-              placeholder="Synopsis du jeu..."
-              spellCheck={true}
-              lang="fr-FR"
+              placeholder="Décrivez le jeu..."
             />
           </div>
 
-          {/* Instruction (optionnelle) */}
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
-              Instruction (optionnelle)
-              <span style={{ fontSize: 11, marginLeft: 8, opacity: 0.6 }}>
-                💡 Variable : [instruction]
-              </span>
-            </label>
-            <div style={{ position: 'relative' }}>
-              <input
-                type="text"
-                placeholder="Rechercher une instruction..."
-                value={instructionSearchQuery || inputs['instruction'] || ''}
-                onChange={e => {
-                  setInstructionSearchQuery(e.target.value);
-                  setInput('instruction', e.target.value);
-                  setShowInstructionSuggestions(true);
-                }}
-                onFocus={() => setShowInstructionSuggestions(true)}
-                style={{ width: '100%' }}
-              />
-
-              {showInstructionSuggestions && filteredInstructions.length > 0 && (
-                <div style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  right: 0,
-                  maxHeight: '200px',
-                  overflowY: 'auto',
-                  background: 'var(--panel)',
-                  border: '1px solid var(--border)',
-                  borderTop: 'none',
-                  borderRadius: '0 0 4px 4px',
-                  zIndex: 1000,
-                  boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
-                }}>
-                  {filteredInstructions.map((name, idx) => (
-                    <div
-                      key={idx}
-                      onClick={() => {
-                        setInput('instruction', savedInstructions[name]);
-                        setInstructionSearchQuery(name);
-                        setShowInstructionSuggestions(false);
-                      }}
-                      style={{
-                        padding: '8px 12px',
-                        cursor: 'pointer',
-                        borderBottom: idx < filteredInstructions.length - 1 ? '1px solid #333' : 'none',
-                        transition: 'background 0.2s'
-                      }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(74, 158, 255, 0.2)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                    >
-                      <div style={{ fontWeight: 500 }}>{name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                        {savedInstructions[name].substring(0, 60)}...
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+          <div style={{ position: 'relative' }}>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>Instructions d'installation (optionnelles)</label>
+            <input
+              type="text"
+              placeholder="Rechercher ou taper une instruction..."
+              value={instructionSearchQuery || inputs['instruction'] || ''}
+              onChange={e => { setInstructionSearchQuery(e.target.value); setInput('instruction', e.target.value); setShowInstructionSuggestions(true); }}
+              onFocus={() => setShowInstructionSuggestions(true)}
+              style={{ width: '100%' }}
+            />
+            {showInstructionSuggestions && filteredInstructions.length > 0 && (
+              <div className="suggestions-dropdown">
+                {filteredInstructions.map((name, idx) => (
+                  <div key={idx} className="suggestion-item" onClick={() => { setInput('instruction', savedInstructions[name]); setInstructionSearchQuery(name); setShowInstructionSuggestions(false); }}>
+                    <div style={{ fontWeight: 600 }}>{name}</div>
+                    <div style={{ fontSize: 11, opacity: 0.7 }}>{savedInstructions[name].substring(0, 50)}...</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Bouton Publier - aligné à droite */}
-        <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
-          {lastPublishResult && <div style={{ color: lastPublishResult.startsWith('❌') || lastPublishResult.startsWith('Erreur') ? 'var(--error)' : 'var(--success)', fontSize: 14 }}>{lastPublishResult}</div>}
+        {/* ACTIONS FINALES */}
+        <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 16 }}>
           {rateLimitCooldown !== null && (
-            <div style={{ color: 'var(--error)', fontSize: 14, fontWeight: 600 }}>
-              ⏳ Rate limit actif: {rateLimitRemaining}s restantes
-            </div>
+            <div style={{ color: 'var(--error)', fontSize: 13, fontWeight: 700 }}>⏳ Rate limit : {rateLimitRemaining}s</div>
           )}
-          {!canPublish && rateLimitCooldown === null && (
-            <div style={{ color: 'var(--muted)', fontSize: 14, fontStyle: 'italic' }}>
-              📋 Ce template est réservé à la copie. Seuls "Mes traductions" et "Traductions partenaire" peuvent être publiés.
-            </div>
-          )}
+          
           {isEditMode && (
-            <button
-              onClick={async () => {
-                const ok = await confirm({
-                  title: 'Annuler l\'édition',
-                  message: 'Voulez-vous annuler l\'édition et revenir au mode création ?',
-                  confirmText: 'Annuler l\'édition',
-                  cancelText: 'Continuer',
-                  type: 'warning'
-                });
-                if (!ok) return;
-
-                setEditingPostId(null);
-                setEditingPostData(null);
-                showToast('Édition annulée', 'info');
-              }}
-              style={{
-                padding: '12px 24px',
-                fontSize: 16,
-                fontWeight: 600,
-                background: 'transparent',
-                color: 'var(--muted)',
-                border: '1px solid var(--border)',
-                cursor: 'pointer'
-              }}
+            <button 
+              onClick={() => { setEditingPostId(null); setEditingPostData(null); }}
+              style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)' }}
             >
-              ❌ Annuler l'édition
+              Annuler l'édition
             </button>
           )}
+
           <button
+            disabled={publishInProgress || !canPublish}
             onClick={async () => {
-              if (publishInProgress || !canPublish) return;
-
-              const confirmMessage = isEditMode
-                ? 'Voulez-vous mettre à jour ce post sur Discord ?'
-                : 'Voulez-vous publier ce post sur l\'API Publisher ?';
-
-              const ok = await confirm({
-                title: isEditMode ? 'Mettre à jour le post' : 'Publier sur Discord',
-                message: confirmMessage,
-                confirmText: isEditMode ? 'Mettre à jour' : 'Publier',
-                type: 'info'
+              const ok = await confirm({ 
+                title: isEditMode ? 'Mettre à jour' : 'Publier', 
+                message: isEditMode ? 'Modifier ce post sur Discord ?' : 'Envoyer ce nouveau post sur Discord ?' 
               });
-              if (!ok) return;
-
-              const res = await publishPost();
-              if (res.ok) {
-                showToast(isEditMode ? 'Mise à jour réussie !' : 'Publication réussie !', 'success', 5000);
-                if (isEditMode) {
-                  setEditingPostId(null);
-                  setEditingPostData(null);
+              if (ok) {
+                const res = await publishPost();
+                if (res.ok) {
+                    showToast('Terminé !', 'success');
+                    if (isEditMode) { setEditingPostId(null); setEditingPostData(null); }
                 }
-              } else {
-                showToast('Erreur: ' + (res.error || 'inconnue'), 'error', 5000);
               }
             }}
             style={{
-              padding: '12px 24px',
-              fontSize: 16,
-              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '10px',
+              padding: '12px 30px',
+              fontSize: 15,
+              fontWeight: 700,
               background: (publishInProgress || !canPublish) ? 'var(--muted)' : '#5865F2',
-              color: '#ffffff',
+              color: 'white',
+              minWidth: '220px',
               cursor: (publishInProgress || !canPublish) ? 'not-allowed' : 'pointer',
-              opacity: !canPublish ? 0.5 : 1
+              border: 'none',
+              borderRadius: '4px'
             }}
-            disabled={publishInProgress || !canPublish}
-            title={!canPublish ? 'Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés' : ''}
           >
-            {publishInProgress
-              ? (isEditMode ? '⏳ Mise à jour en cours...' : '⏳ Publication en cours...')
-              : (isEditMode ? '✏️ Mettre à jour le post' : (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <img src={DiscordIcon} alt="Discord" style={{ width: 20, height: 20, filter: 'brightness(0) invert(1)' }} />
-                  Publier sur Discord
-                </span>
-              ))}
+            {publishInProgress ? (
+              <span>⏳ Patientez...</span>
+            ) : (
+              <>
+                <img 
+                  src={DiscordIcon} 
+                  alt="Discord" 
+                  style={{ 
+                    width: 20, 
+                    height: 20, 
+                    filter: 'brightness(0) invert(1)' // Force l'icône en blanc
+                  }} 
+                />
+                <span>{isEditMode ? 'Mettre à jour' : 'Publier sur Discord'}</span>
+              </>
+            )}
           </button>
         </div>
+
       </div>
 
-      {/* Overlay pour fermer les suggestions */}
+      {/* Overlay global pour fermer les suggestions */}
       {(showTagSuggestions || showTraductorSuggestions || showInstructionSuggestions) && (
-        <div
-          onClick={() => {
-            setShowTagSuggestions(false);
-            setShowTraductorSuggestions(false);
-            setShowInstructionSuggestions(false);
-          }}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 999
-          }}
+        <div onClick={() => { setShowTagSuggestions(false); setShowTraductorSuggestions(false); setShowInstructionSuggestions(false); }}
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}
         />
       )}
 
