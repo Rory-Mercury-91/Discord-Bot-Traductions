@@ -64,9 +64,9 @@ export default function ContentEditor() {
     setIsIntegrated(false);
 
     // Reset images (IMPORTANT: pas de while)
-    const count = uploadedImages.length; // snapshot
-    for (let i = 0; i < count; i++) {
-      removeImage(0);
+    const count = uploadedImages.length;
+    for (let i = count - 1; i >= 0; i--) {
+      await (removeImage(i) as any);
     }
 
     showToast('Tous les champs ont été réinitialisés', 'success');
