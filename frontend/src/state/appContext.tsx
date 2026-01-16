@@ -66,11 +66,11 @@ const defaultVarsConfig: VarConfig[] = [
 ];
 
 const defaultTemplates: Template[] = [
-  {
-    id: 'mes',
-    name: 'Mes traductions',
-    type: 'my',
-    content: `## :flag_fr: La traduction de française de [Game_name] est disponible ! :tada:
+    {
+      id: 'mes',
+      name: 'Mes traductions',
+      type: 'my',
+      content: `## :flag_fr: La traduction française de [Game_name] est disponible ! :tada:
 
 Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. Bon jeu à tous ! :point_down:
 
@@ -79,6 +79,7 @@ Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. 
 * **Version du jeu :** \`[Game_version]\`
 * **Version traduite :** \`[Translate_version]\`
 * **Type de traduction :** [Translation_Type]
+* **Jeu modé :** [is_modded_game]
 * **Lien du jeu :** [Accès au jeu original]([Game_link])
 * **Lien de la Traduction :** [Téléchargez la traduction FR ici !]([Translate_link])
 
@@ -88,12 +89,12 @@ Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. 
 ### :sparkling_heart: Soutenez le Traducteur !
 Pour m'encourager et soutenir mes efforts :
 * **Soutien au Traducteur (Moi !) :** [Offrez-moi un café pour le temps passé !](https://discord.com/channels/1417811606674477139/1433930090349330493)`
-  },
-  {
-    id: 'partenaire',
-    name: 'Traductions partenaire',
-    type: 'partner',
-    content: `## :flag_fr: La traduction de française de [Game_name] est disponible ! :tada:
+    },
+    {
+      id: 'partenaire',
+      name: 'Traductions partenaire',
+      type: 'partner',
+      content: `## :flag_fr: La traduction française de [Game_name] est disponible ! :tada:
 
 Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. Bon jeu à tous ! :point_down:
 
@@ -103,14 +104,15 @@ Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. 
 * **Version du jeu :** \`[Game_version]\`
 * **Version traduite :** \`[Translate_version]\`
 * **Type de traduction :** [Translation_Type]
+* **Jeu modé :** [is_modded_game]
 * **Lien du jeu :** [Accès au jeu original]([Game_link])
 * **Lien de la Traduction :** [Téléchargez la traduction FR ici !]([Translate_link])
 
 > **Synopsis du jeu :**
 > [Overview]
 [instruction]`
-  }
-];
+    }
+  ];
 
 type AppContextValue = {
   templates: Template[];
