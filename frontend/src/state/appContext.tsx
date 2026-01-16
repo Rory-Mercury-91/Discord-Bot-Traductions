@@ -1027,77 +1027,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ============================================
   // Dépend directement de inputs (RAW state) et currentTemplateIdx
   // Logique simplifiée et robuste de la version legacy
-  const preview = useMemo(() => {
+const preview = useMemo(() => {
     const tpl = templates[currentTemplateIdx];
     if (!tpl) return '';
 
     let content = tpl.content;
 
-    // Remplacement des variables depuis allVarsConfig
+    // 1. GESTION DU JEU MODÉ
+    // On force le type en 'any' pour éviter l'erreur TS entre string et boolean
+    const isModded = (inputs as any)['is_modded_game'] === true || (inputs as any)['is_modded_game'] === 'true';
+    const modLink = (inputs['mod_link'] || '').trim();
+    
+    let moddedText = 'Non';
+    if (isModded) {
+      moddedText = modLink ? `Oui [Lien du mod](${modLink})` : 'Oui';
+    }
+    
+    // Remplace le tag [is_modded_game] dans le texte
+    content = content.split('[is_modded_game]').join(moddedText);
+
+    // 2. Remplacement des variables classiques
     allVarsConfig.forEach(varConfig => {
       const name = varConfig.name;
+      // On ne traite pas ces deux là ici car gérés au dessus
+      if (name === 'is_modded_game' || name === 'mod_link') return;
+
       const val = (inputs[name] || '').trim();
       let finalVal = val;
 
-      // Formatage spécial pour 'overview' ou 'Overview'
       if ((name === 'overview' || name === 'Overview') && val) {
         const lines = val.split('\n').map(l => l.trim()).filter(Boolean);
         finalVal = lines.join('\n> ');
 
-        // Injecter les instructions après overview
         const instructionContent = (inputs['instruction'] || '').trim();
         if (instructionContent) {
-          const instructionLines = instructionContent.split('\n')
-            .map(l => l.trim())
-            .filter(Boolean);
-
-          const numberedInstructions = instructionLines
-            .map((l, index) => `${index + 1}. ${l}`)
-            .join('\n');
-
-          finalVal += '\n\n```Instructions d\'installation :\n' +
-            numberedInstructions +
-            '\n```';
+          const instructionLines = instructionContent.split('\n').map(l => l.trim()).filter(Boolean);
+          const numberedInstructions = instructionLines.map((l, index) => `${index + 1}. ${l}`).join('\n');
+          finalVal += '\n\n```Instructions d\'installation :\n' + numberedInstructions + '\n```';
         }
       }
 
-      // Remplacement dans le template
       content = content.split('[' + name + ']').join(finalVal || '[' + name + ']');
     });
 
-    // Remplacement de [Translation_Type]
+    // 3. Remplacement de [Translation_Type]
     const displayTranslationType = isIntegrated
       ? `${translationType} (Intégrée)`
       : translationType;
     content = content.split('[Translation_Type]').join(displayTranslationType);
 
-    // NOUVELLE LOGIQUE : Insertion de la ligne "Jeu modé" après "Type de traduction"
-    const isModded = inputs['is_modded_game'] === 'true';
-    const modLink = (inputs['mod_link'] || '').trim();
-
-    // Chercher la ligne "Type de traduction" et insérer après
-    const translationTypePattern = /(\*\*Type de traduction\*\*\s*:[^\n]+)/;
-    if (translationTypePattern.test(content)) {
-      let moddedLine = '';
-      if (isModded && modLink) {
-        moddedLine = `\n* **Jeu modé :** Oui [Lien du mod](${modLink})`;
-      } else if (isModded) {
-        moddedLine = `\n* **Jeu modé :** Oui`;
-      } else {
-        moddedLine = `\n* **Jeu modé :** Non`;
-      }
-
-      content = content.replace(translationTypePattern, `$1${moddedLine}`);
-    }
-
-    // Logique Smart Integrated (existante)
+    // 4. Logique Smart Integrated
     if (isIntegrated) {
       content = content.replace(/^.*\[Translate_link\].*$/gm, '');
       content = content.replace(/^.*\*\s*\*\*Lien de la [Tt]raduction\s*:\s*\*\*.*$/gm, '');
       content = content.replace(/\n\n\n+/g, '\n\n');
     }
 
-    // Supprimer [instruction] placeholder
+    // Nettoyage final du tag instruction
     content = content.split('[instruction]').join('');
 
     return content;
