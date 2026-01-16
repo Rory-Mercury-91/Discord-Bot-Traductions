@@ -1,5 +1,6 @@
 """
 API Publisher - Version Complète et Corrigée
+Gère la publication et mise à jour des posts Discord via API
 """
 
 import os
@@ -8,7 +9,6 @@ import json
 import time
 import asyncio
 import logging
-import base64
 from datetime import datetime
 from typing import Optional, Tuple, List, Dict
 from pathlib import Path
@@ -26,9 +26,7 @@ load_dotenv()
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
 
@@ -160,6 +158,11 @@ async def _discord_patch_json(session, path, payload):
     )
     return status, data
 
+async def _discord_patch_form(session, path, form):
+    """Envoie une requête PATCH avec FormData et retourne les 3 valeurs attendues"""
+    status, data, headers = await _discord_request(session, "PATCH", path, headers=_auth_headers(), data=form)
+    return status, data, headers
+
 async def _discord_post_form(session, path, form):
     return await _discord_request(session, "POST", path, headers=_auth_headers(), data=form)
 
@@ -222,7 +225,8 @@ async def configure(request):
 
 async def forum_post(request):
     api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
-    if api_key != config.PUBLISHER_API_KEY: return _with_cors(request, web.json_response({"ok": False}, status=401))
+    if api_key != config.PUBLISHER_API_KEY: 
+        return _with_cors(request, web.json_response({"ok": False, "error": "Invalid API key"}, status=401))
     
     title, content, tags, template, images = "", "", "", "my", []
     reader = await request.multipart()
@@ -244,8 +248,10 @@ async def forum_post(request):
     return _with_cors(request, web.json_response({"ok": True, **result}))
 
 async def forum_post_update(request):
+    """Handler pour mettre à jour un post existant"""
     api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
-    if api_key != config.PUBLISHER_API_KEY: return _with_cors(request, web.json_response({"ok": False}, status=401))
+    if api_key != config.PUBLISHER_API_KEY: 
+        return _with_cors(request, web.json_response({"ok": False, "error": "Invalid API key"}, status=401))
 
     title, content, tags, template, images, thread_id, message_id = "", "", "", "my", [], None, None
     reader = await request.multipart()
@@ -259,38 +265,56 @@ async def forum_post_update(request):
         elif part.name and part.name.startswith("image_") and part.filename:
             images.append({"bytes": await part.read(decode=False), "filename": part.filename, "content_type": part.headers.get("Content-Type", "image/png")})
 
+    if not thread_id or not message_id:
+        return _with_cors(request, web.json_response({"ok": False, "error": "threadId and messageId required"}, status=400))
+
     logger.info(f"🔄 Mise à jour post: {title} (thread: {thread_id})")
+    
     async with aiohttp.ClientSession() as session:
         message_path = f"/channels/{thread_id}/messages/{message_id}"
+        
+        # Mettre à jour le contenu du message
         if images:
             form = aiohttp.FormData()
             form.add_field("payload_json", json.dumps({"content": content or " "}))
             for i, img in enumerate(images):
                 form.add_field(f"files[{i}]", img["bytes"], filename=img["filename"])
-            # CORRECTION UNPACKING ICI
             status, data, _ = await _discord_patch_form(session, message_path, form)
         else:
             status, data = await _discord_patch_json(session, message_path, {"content": content or " "})
 
-        if status >= 300: return _with_cors(request, web.json_response({"ok": False, "details": data}, status=500))
+        if status >= 300: 
+            return _with_cors(request, web.json_response({"ok": False, "details": data}, status=500))
 
+        # Mettre à jour le titre et les tags du thread
         applied_tag_ids = await _resolve_applied_tag_ids(session, _pick_forum_id(template), tags)
         status, data = await _discord_patch_json(session, f"/channels/{thread_id}", {"name": title, "applied_tags": applied_tag_ids})
+        
+        if status >= 300:
+            return _with_cors(request, web.json_response({"ok": False, "details": data}, status=500))
 
-    history_manager.add_post({"id": f"post_{int(time.time())}", "timestamp": int(time.time() * 1000), "title": title, "content": content, "tags": tags, "thread_id": thread_id, "updated": True, "message_id": message_id, "template": template})
+    history_manager.add_post({
+        "id": f"post_{int(time.time())}", 
+        "timestamp": int(time.time() * 1000), 
+        "title": title, 
+        "content": content, 
+        "tags": tags, 
+        "thread_id": thread_id, 
+        "updated": True, 
+        "message_id": message_id, 
+        "template": template
+    })
+    
     return _with_cors(request, web.json_response({"ok": True, "updated": True, "thread_id": thread_id}))
-
-async def _discord_patch_form(session, path, form):
-    """Envoie une requête PATCH avec FormData et retourne les 3 valeurs attendues"""
-    status, data, headers = await _discord_request(session, "PATCH", path, headers=_auth_headers(), data=form)
-    return status, data, headers
 
 async def get_history(request):
     api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
-    if api_key != config.PUBLISHER_API_KEY: return _with_cors(request, web.json_response({"ok": False}, status=401))
+    if api_key != config.PUBLISHER_API_KEY: 
+        return _with_cors(request, web.json_response({"ok": False, "error": "Invalid API key"}, status=401))
     posts = history_manager.get_posts()
     return _with_cors(request, web.json_response({"ok": True, "posts": posts, "count": len(posts)}))
 
+# Application web (utilisée si lancée directement)
 app = web.Application()
 app.add_routes([
     web.get('/api/publisher/health', health),
