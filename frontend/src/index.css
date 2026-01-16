@@ -111,3 +111,45 @@ button{background:transparent; border:1px solid var(--border); color:inherit; pa
 .discord-markdown-content p:last-child {
   margin-bottom: 0 !important;
 }
+
+/* Dropdown suggestions (Traducteur / Instructions / Tags) */
+.suggestions-dropdown{
+  /* garde le placement géré par ton inline style, mais on force le look */
+  margin-top: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+
+  /* IMPORTANT: opaque => on ne lit plus derrière */
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+
+  /* effet sombre / profondeur */
+  box-shadow: 0 12px 30px rgba(0,0,0,0.45);
+
+  /* un peu d'air */
+  padding: 4px 0;
+}
+
+.suggestion-item{
+  padding: 10px 12px;
+  cursor: pointer;
+  color: var(--text);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+[data-theme="light"] .suggestion-item{
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+.suggestion-item:hover{
+  background: rgba(255,255,255,0.06);
+}
+
+[data-theme="light"] .suggestion-item:hover{
+  background: rgba(0,0,0,0.05);
+}
+
+.suggestion-item:last-child{
+  border-bottom: none;
+}
