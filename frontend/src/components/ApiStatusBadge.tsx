@@ -40,19 +40,31 @@ export default function ApiStatusBadge() {
     if (!apiUrl) {
       return;
     }
+
     const base = getBaseUrl(apiUrl);
     const url = `${base}/api/publisher/health`;
     setStatus('checking');
+
     try {
-      const response = await fetch(url, { method: 'GET' });
+      const response = await fetch(url, { 
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          // On définit ici l'User-Agent personnalisé pour identifier ton App
+          'User-Agent': 'Tauri-Desktop-App-User'
+        }
+      });
+
       if (response.ok) {
         const data = await response.json();
+        // Vérification flexible du statut selon la réponse de l'API
         const ok = data && (data.configured || data.ok || data.status === 'ok');
         setStatus(ok ? 'connected' : 'disconnected');
       } else {
         setStatus('disconnected');
       }
-    } catch {
+    } catch (error) {
+      console.error("Erreur lors de la vérification du statut:", error);
       setStatus('disconnected');
     }
   };
