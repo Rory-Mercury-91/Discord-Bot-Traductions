@@ -152,8 +152,8 @@ export default function ContentEditor() {
     };
   }, [addImages]);
 
-  return (
-    <div style={{ position: 'relative' }}>
+    return (
+      <div style={{ position: 'relative', height: '100%', minHeight: 0, overflow: 'auto', boxSizing: 'border-box' }}>
       {/* Overlay drag & drop global */}
       {isDragging && createPortal(
         <div style={{

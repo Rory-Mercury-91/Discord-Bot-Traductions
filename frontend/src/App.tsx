@@ -139,7 +139,7 @@ function AppContentInner() {
 
 
   return (
-    <div className="app">
+    <div className="app" style={{ height: '100vh', minHeight: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <header className="app-header">
         <h1 style={{ textAlign: 'center', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <span style={{ fontSize: 24, fontFamily: 'Noto Color Emoji, Segoe UI Emoji, Apple Color Emoji' }}>🇫🇷</span>
@@ -192,44 +192,58 @@ function AppContentInner() {
           </div>
         </div>
       </header>
+      {/* Layout principal en CSS Grid */}
       <main style={{
-        display: 'flex',
-        gap: 0,
+        display: 'grid',
+        gridTemplateRows: 'auto 1fr',
         flex: 1,
+        minHeight: 0,
+        height: '100%',
         overflow: 'hidden',
-        minHeight: 0
+        boxSizing: 'border-box'
       }}>
-        {/* Colonne Éditeur - 60% */}
-        <section className="editor" style={{
-          flex: '0 0 60%',
-          overflowY: 'auto',
-          padding: '16px',
-          borderRight: '1px solid var(--border)'
-        }}>
-          <PublicationType />
-          <ContentEditor />
-        </section>
-
-        {/* Colonne Preview - 40% */}
-        <section className="preview-column" style={{
-          flex: '0 0 40%',
-          display: 'flex',
-          flexDirection: 'column',
+        {/* Ligne 2 : 2 colonnes */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '65% 35%',
           height: '100%',
+          minHeight: 0,
           overflow: 'hidden',
-          background: 'var(--bg)',
-          padding: '16px',
-          borderLeft: '1px solid var(--border)'
+          boxSizing: 'border-box'
         }}>
-          <Preview
-            preview={preview || ''}
-            previewMode={previewMode}
-            setPreviewMode={setPreviewMode}
-            onCopy={handleCopyPreview}
-            onReset={handleResetFields}
-            mainImagePath={mainImagePath}
-          />
-        </section>
+          {/* Colonne gauche : ContentEditor */}
+          <div style={{
+            height: '100%',
+            overflowY: 'auto',
+            borderRight: '1px solid var(--border)',
+            padding: 16
+          }}>
+            <ContentEditor />
+          </div>
+          {/* Colonne droite : PublicationType en haut, Preview en bas */}
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            overflow: 'hidden',
+            background: 'var(--bg)',
+            padding: 0
+          }}>
+            <div style={{ flex: '0 0 auto', borderBottom: '1px solid var(--border)', padding: 16 }}>
+              <PublicationType />
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 16 }}>
+              <Preview
+                preview={preview || ''}
+                previewMode={previewMode}
+                setPreviewMode={setPreviewMode}
+                onCopy={handleCopyPreview}
+                onReset={handleResetFields}
+                mainImagePath={mainImagePath}
+              />
+            </div>
+          </div>
+        </div>
       </main>
 
       {openTemplates && <TemplatesModal onClose={() => setOpenTemplates(false)} />}

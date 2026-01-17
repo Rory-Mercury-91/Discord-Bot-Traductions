@@ -60,6 +60,7 @@ const defaultVarsConfig: VarConfig[] = [
   { name: 'Game_link', label: 'Lien du jeu', placeholder: 'https://...' },
   { name: 'Translate_link', label: 'Lien de la traduction', placeholder: 'https://...' },
   { name: 'Traductor', label: 'Traducteur', placeholder: 'Rory Mercury 91', hasSaveLoad: true },
+  { name: 'Developpeur', label: 'Développeur', placeholder: 'Nom du développeur' },
   { name: 'Overview', label: 'Synopsis', placeholder: 'Synopsis du jeu...', type: 'textarea' },
   { name: 'is_modded_game', label: 'Jeu modé', type: 'text' }, // Stocké comme "true"/"false"
   { name: 'Mod_link', label: 'Lien du mod', placeholder: 'https://...' }
@@ -302,7 +303,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Initialiser is_modded_game à "false" par défaut
     obj['is_modded_game'] = 'false';
     obj['Mod_link'] = '';
-
+    obj['Developpeur'] = '';
     try {
       const raw = localStorage.getItem('savedInputs');
       if (raw) {
@@ -419,7 +420,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [editingPostData, setEditingPostData] = useState<PublishedPost | null>(null);
 
   useEffect(() => { localStorage.setItem('postTitle', postTitle); }, [postTitle]);
-  useEffect(() => { localStorage.setItem('postTags', postTags); }, [postTags]);
+
+  // Génération automatique du titre dynamique (Format strict)
+  useEffect(() => {
+    const gameName = inputs['Game_name']?.trim();
+    const gameVersion = inputs['Game_version']?.trim();
+    const translateVersion = inputs['Translate_version']?.trim();
+    const developpeur = inputs['Developpeur']?.trim();
+
+    let titleParts: string[] = [];
+
+    // Format : [Game_name]
+    if (gameName) titleParts.push(`[${gameName}]`);
+    
+    // Format : [[Game_version]]
+    if (gameVersion) titleParts.push(`[[${gameVersion}]]`);
+    
+    // Format : [FR=[Translate_version]]
+    if (translateVersion) titleParts.push(`[FR=[${translateVersion}]]`);
+    
+    // Format : [[Developpeur]]
+    if (developpeur) titleParts.push(`[[${developpeur}]]`);
+
+    // On assemble le tout avec un espace
+    const finalTitle = titleParts.join(' ');
+    setPostTitle(finalTitle);
+    
+  }, [inputs['Game_name'], inputs['Game_version'], inputs['Translate_version'], inputs['Developpeur']]);
 
   // Envoyer la configuration Discord à l'API au démarrage
   useEffect(() => {
