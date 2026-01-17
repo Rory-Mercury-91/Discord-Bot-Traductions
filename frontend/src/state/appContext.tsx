@@ -81,8 +81,8 @@ Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. 
 * **Version traduite :** \`[Translate_version]\`
 * **Type de traduction :** [Translation_Type]
 * **Jeu modé :** [is_modded_game]
-* **Lien du jeu :** [Accès au jeu original]([Game_link])
-* **Lien de la Traduction :** [Téléchargez la traduction FR ici !]([Translate_link])
+* **Lien du jeu :** [Accès au jeu original](<[Game_link]>)
+* **Lien de la Traduction :** [Téléchargez la traduction FR ici !](<[Translate_link]>)
 
 > **Synopsis du jeu :**
 > [Overview]
@@ -106,8 +106,8 @@ Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. 
 * **Version traduite :** \`[Translate_version]\`
 * **Type de traduction :** [Translation_Type]
 * **Jeu modé :** [is_modded_game]
-* **Lien du jeu :** [Accès au jeu original]([Game_link])
-* **Lien de la Traduction :** [Téléchargez la traduction FR ici !]([Translate_link])
+* **Lien du jeu :** [Accès au jeu original](<[Game_link]>)
+* **Lien de la Traduction :** [Téléchargez la traduction FR ici !](<[Translate_link]>)
 
 > **Synopsis du jeu :**
 > [Overview]
@@ -910,26 +910,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const trimmed = url.trim();
 
+    // Retirer les chevrons si présents (au cas où l'utilisateur les met manuellement)
+    const cleaned = trimmed.replace(/^<|>$/g, '');
+
     // F95Zone - Garder uniquement https://f95zone.to/threads/ID/
-    const f95Match = trimmed.match(/f95zone\.to\/threads\/([^\/]+)/);
+    const f95Match = cleaned.match(/f95zone\.to\/threads\/([^\/]+)/);
     if (f95Match) {
       return `https://f95zone.to/threads/${f95Match[1]}/`;
     }
 
     // LewdCorner - Garder uniquement https://lewdcorner.com/threads/ID/
-    const lewdMatch = trimmed.match(/lewdcorner\.com\/threads\/([^\/]+)/);
+    const lewdMatch = cleaned.match(/lewdcorner\.com\/threads\/([^\/]+)/);
     if (lewdMatch) {
       return `https://lewdcorner.com/threads/${lewdMatch[1]}/`;
     }
 
-    return trimmed;
+    // Si aucun pattern reconnu, retourner l'URL nettoyée
+    return cleaned;
   }
 
   function setInput(name: string, value: string) {
     let finalValue = value;
 
-    // Auto-nettoyage des liens
-    if (name === 'Game_link' || name === 'Mod_link') {
+    // Auto-nettoyage des liens (Game_link, Translate_link, Mod_link)
+    if (name === 'Game_link' || name === 'Translate_link' || name === 'Mod_link') {
       finalValue = cleanGameLink(value);
     }
 
@@ -1159,13 +1163,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let content = tpl.content;
 
     // 1. GESTION DU JEU MODÉ
-    // On force le type en 'any' pour éviter l'erreur TS entre string et boolean
     const isModded = (inputs as any)['is_modded_game'] === true || (inputs as any)['is_modded_game'] === 'true';
-    const modLink = (inputs['Mod_link'] || '').trim();
+    const modLink = cleanGameLink((inputs['Mod_link'] || '').trim()); // ✅ Nettoyer le lien
 
     let moddedText = 'Non';
     if (isModded) {
-      moddedText = modLink ? `Oui [Lien du mod](${modLink})` : 'Oui';
+      moddedText = modLink ? `Oui [Lien du mod](<${modLink}>)` : 'Oui';
     }
 
     // Remplace le tag [is_modded_game] dans le texte
@@ -1179,6 +1182,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const val = (inputs[name] || '').trim();
       let finalVal = val;
+
+      // Nettoyer les liens (Game_link, Translate_link) à la volée
+      if (name === 'Game_link' || name === 'Translate_link') {
+        finalVal = cleanGameLink(val);
+      }
 
       if (name === 'Overview' && val) {
         const lines = val.split('\n').map(l => l.trim()).filter(Boolean);

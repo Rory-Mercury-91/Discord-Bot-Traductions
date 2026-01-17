@@ -9,21 +9,50 @@ import ImageThumbnail from './ImageThumbnail';
 import { useToast } from './ToastProvider';
 
 export default function ContentEditor() {
-  const { allVarsConfig, inputs, setInput, preview,
-    postTitle, setPostTitle, postTags, setPostTags, publishPost, publishInProgress, lastPublishResult,
-    savedTags, savedTraductors, savedInstructions, templates, currentTemplateIdx,
-    uploadedImages, addImages, addImageFromPath, removeImage, setMainImage, editingPostId, setEditingPostId,
-    translationType, setTranslationType, isIntegrated, setIsIntegrated, setEditingPostData, rateLimitCooldown } = useApp();
+  // 1️⃣ D'ABORD : Extraire toutes les valeurs du context
+  const {
+    allVarsConfig,
+    inputs,
+    setInput,
+    preview,
+    postTitle,
+    setPostTitle,
+    postTags,
+    setPostTags,
+    publishPost,
+    publishInProgress,
+    lastPublishResult,
+    savedTags,
+    savedTraductors,
+    savedInstructions,
+    templates,
+    currentTemplateIdx,
+    uploadedImages,
+    addImages,
+    addImageFromPath,
+    removeImage,
+    setMainImage,
+    editingPostId,
+    setEditingPostId,
+    translationType,
+    setTranslationType,
+    isIntegrated,
+    setIsIntegrated,
+    setEditingPostData,
+    rateLimitCooldown
+  } = useApp();
 
   const { showToast } = useToast();
   const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm();
 
-  const currentTemplate = templates[currentTemplateIdx];
+  // 2️⃣ ENSUITE : Calculer les valeurs dérivées
+  const currentTemplate = templates[currentTemplateIdx]; // ✅ UNE SEULE FOIS
   const canPublish = (currentTemplate?.type === 'my' || currentTemplate?.type === 'partner') &&
     rateLimitCooldown === null;
   const isEditMode = editingPostId !== null;
   const rateLimitRemaining = rateLimitCooldown ? Math.ceil((rateLimitCooldown - Date.now()) / 1000) : 0;
 
+  // 3️⃣ États locaux
   const [selectedTagId, setSelectedTagId] = useState<string>('');
   const [tagSearchQuery, setTagSearchQuery] = useState<string>('');
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
@@ -33,6 +62,14 @@ export default function ContentEditor() {
   const [showInstructionSuggestions, setShowInstructionSuggestions] = useState(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const overviewRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // 4️⃣ ENFIN : useEffect (maintenant setInput et currentTemplateIdx sont disponibles)
+  useEffect(() => {
+    setTraductorSearchQuery('');
+    setInstructionSearchQuery('');
+    setInput('Traductor', '');
+    setInput('instruction', '');
+  }, [currentTemplateIdx, editingPostId]);
 
   // Undo/Redo pour le textarea Synopsis
   const { recordState, undo, redo, reset: resetUndoRedo } = useUndoRedo();

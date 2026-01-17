@@ -15,6 +15,7 @@ export default function ApiStatusBadge() {
   const { apiUrl } = useApp();
   const [status, setStatus] = useState<Status>('checking');
   const [showDetails, setShowDetails] = useState(false);
+  const [lastCheck, setLastCheck] = useState<number | null>(null);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
 
   /**
@@ -44,6 +45,7 @@ export default function ApiStatusBadge() {
     const base = getBaseUrl(apiUrl);
     const url = `${base}/api/publisher/health`;
     setStatus('checking');
+    setLastCheck(Date.now());
 
     try {
       const response = await fetch(url, { 
@@ -69,15 +71,11 @@ export default function ApiStatusBadge() {
     }
   };
 
-  // Perform the initial status check after a short delay and then poll
-  // every 30 seconds when the apiUrl changes.
+  // Effectuer un test au démarrage puis toutes les 15 minutes
   useEffect(() => {
-    const timer = setTimeout(() => {
-      checkStatus();
-    }, 3000);
-    const interval = setInterval(checkStatus, 30000);
+    checkStatus(); // test immédiat au démarrage
+    const interval = setInterval(checkStatus, 900000); // 15 minutes
     return () => {
-      clearTimeout(timer);
       clearInterval(interval);
     };
   }, [apiUrl]);
@@ -202,6 +200,9 @@ export default function ApiStatusBadge() {
             <span style={{ fontWeight: 500, color: mainColor }}>
               {getText(status)}
             </span>
+          </div>
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)' }}>
+            Dernier test : {lastCheck ? new Date(lastCheck).toLocaleString('fr-FR') : 'Jamais'}
           </div>
           <button
             onClick={checkStatus}

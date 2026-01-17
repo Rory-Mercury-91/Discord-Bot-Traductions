@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "PublicationGenerator",
+  "productName": "Discord Publisher",
   "version": "1.0.0",
   "identifier": "com.publication.generator",
   "build": {
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Générateur de publication",
+        "title": "Publication Discord",
         "width": 1400,
         "height": 900,
         "minWidth": 1200,

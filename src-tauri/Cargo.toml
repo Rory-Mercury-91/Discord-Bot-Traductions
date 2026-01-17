@@ -1,8 +1,8 @@
 [package]
 name = "app"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "0.1.1"
+description = "Une application de génération de poste Discord"
+authors = ["Rory Mercury 91"]
 license = ""
 repository = ""
 edition = "2021"
@@ -19,7 +19,6 @@ tauri-build = { version = "2.5.3", features = [] }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-# Pour la v2, on ne garde que tray-icon et devtools ici
 tauri = { version = "2.9.5", features = ["tray-icon", "devtools"] }
 tauri-plugin-log = "2"
 reqwest = { version = "0.11", features = ["json"] }
