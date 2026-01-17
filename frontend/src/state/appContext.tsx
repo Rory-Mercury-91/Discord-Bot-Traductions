@@ -392,10 +392,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // API Configuration - URL is now hardcoded for local API
   // Définir l’URL de base en consultant d’abord localStorage, puis .env, et enfin un fallback Koyeb
-  const defaultApiBase =
+  const defaultApiBaseRaw =
     localStorage.getItem('apiBase') ||
     import.meta.env.VITE_PUBLISHER_API_URL ||
     'https://dependent-klarika-rorymercury91-e1486cf2.koyeb.app';
+
+  // Normaliser l'URL : enlever les slashes de fin
+  const defaultApiBase = defaultApiBaseRaw.replace(/\/+$/, '');
 
   // L’URL complète pour publier un post (sans la partie forum-post par défaut)
   const apiUrl = `${defaultApiBase}/api/forum-post`;
@@ -577,7 +580,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const isEditMode = editingPostId !== null && editingPostData !== null;
 
     const storedApiUrl = localStorage.getItem('apiUrl');
-    const baseUrl = localStorage.getItem('apiBase') || defaultApiBase;
+    const baseUrlRaw = localStorage.getItem('apiBase') || defaultApiBase;
+    // Normaliser l'URL : enlever les slashes de fin pour éviter les doubles slashes
+    const baseUrl = baseUrlRaw.replace(/\/+$/, '');
 
     // CHANGEMENT : endpoint différent selon le mode
     const apiEndpoint = isEditMode
