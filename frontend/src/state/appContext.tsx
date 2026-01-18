@@ -37,25 +37,28 @@ export type LinkConfig = {
 export type Tag = { name: string; id?: string; template?: string };
 
 export type PublishedPost = {
-  id: string;              // UUID local
-  timestamp: number;       // Date publication
-  title: string;           // Titre du post
-  content: string;         // Contenu complet
-  tags: string;            // Tags CSV
-  template: string;        // "my" ou "partner"
-  imagePath?: string;      // Chemin image locale (si utilisée)
-  translationType?: string; // Type de traduction (Automatique, Semi-automatique, Manuelle)
-  isIntegrated?: boolean;  // Traduction intégrée au jeu
+  id: string;
+  timestamp: number;
+  title: string;
+  content: string;
+  tags: string;
+  template: string;
+  imagePath?: string;
+  translationType?: string;
+  isIntegrated?: boolean;
+  threadId: string;
+  messageId: string;
+  discordUrl: string;
+  forumId: number;
 
-  // Données Discord (reçues après publication)
-  threadId: string;        // ID du thread forum
-  messageId: string;       // ID du premier message
-  discordUrl: string;      // https://discord.com/channels/...
-  forumId: number;         // FORUM_MY_ID ou FORUM_PARTNER_ID
-
-  // Données des inputs sauvegardées pour la réédition
-  savedInputs?: Record<string, string>; // Tous les inputs sauvegardés
-  templateId?: string;     // ID du template utilisé
+  // ✅ Ajout des données complètes de restauration
+  savedInputs?: Record<string, string>;
+  savedLinkConfigs?: {
+    Game_link: LinkConfig;
+    Translate_link: LinkConfig;
+    Mod_link: LinkConfig;
+  };
+  templateId?: string;
 };
 
 const defaultVarsConfig: VarConfig[] = [
@@ -839,8 +842,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             imagePath: uploadedImages.find(i => i.isMain)?.path,
             translationType,
             isIntegrated,
+
+            // ✅ Sauvegarde complète de tous les états
             savedInputs: { ...inputs },
+            savedLinkConfigs: JSON.parse(JSON.stringify(linkConfigs)),
             templateId: templates[currentTemplateIdx]?.id,
+
             discordUrl: threadUrl || editingPostData.discordUrl
           };
           updatePublishedPost(editingPostId, updatedPost);
@@ -859,8 +866,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             imagePath: uploadedImages.find(i => i.isMain)?.path,
             translationType,
             isIntegrated,
+
+            // ✅ Sauvegarde complète de tous les états
             savedInputs: { ...inputs },
+            savedLinkConfigs: JSON.parse(JSON.stringify(linkConfigs)), // Deep copy
             templateId: templates[currentTemplateIdx]?.id,
+
             threadId: String(threadId),
             messageId: String(messageId),
             discordUrl: threadUrl,
@@ -1430,11 +1441,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setIsIntegrated(post.isIntegrated);
       }
 
-      // Restaurer les inputs sauvegardés
+      // ✅ Restaurer les inputs sauvegardés
       if (post.savedInputs) {
         Object.keys(post.savedInputs).forEach(key => {
           setInput(key, post.savedInputs![key] || '');
         });
+      }
+
+      // ✅ Restaurer linkConfigs sauvegardés
+      if (post.savedLinkConfigs) {
+        setLinkConfigs(JSON.parse(JSON.stringify(post.savedLinkConfigs)));
+      } else {
+        // Fallback : reconstruire depuis savedInputs si ancienne version
+        if (post.savedInputs) {
+          setLinkConfigs({
+            Game_link: { source: 'F95', value: post.savedInputs.Game_link || '' },
+            Translate_link: { source: 'F95', value: post.savedInputs.Translate_link || '' },
+            Mod_link: { source: 'F95', value: post.savedInputs.Mod_link || '' }
+          });
+        }
+      }
+
+      // ✅ Restaurer l'image si elle existe encore
+      if (post.imagePath) {
+        // Vérifier si l'image existe dans le dossier images/
+        tauriAPI.readImage(post.imagePath)
+          .then(result => {
+            if (result.ok) {
+              // L'image existe, on peut la restaurer
+              const fileName = post.imagePath!.split(/[/\\]/).pop() || 'image';
+              setUploadedImages([{
+                id: Date.now().toString(),
+                path: post.imagePath!,
+                name: fileName,
+                isMain: true
+              }]);
+            }
+          })
+          .catch(err => {
+            console.warn('Image du post non trouvée:', err);
+            // L'image n'existe plus dans le dossier local, on continue sans
+          });
       }
 
       // Restaurer le template utilisé
@@ -1443,12 +1490,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (templateIdx !== -1) {
           setCurrentTemplateIdx(templateIdx);
         } else {
-          // Fallback sur le type de template
           const templateIdxByType = templates.findIndex(t => t.type === post.template);
           if (templateIdxByType !== -1) setCurrentTemplateIdx(templateIdxByType);
         }
       } else {
-        // Fallback sur le type de template
         const templateIdx = templates.findIndex(t => t.type === post.template);
         if (templateIdx !== -1) setCurrentTemplateIdx(templateIdx);
       }
