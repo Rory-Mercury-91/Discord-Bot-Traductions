@@ -5,11 +5,13 @@ import os
 import asyncio
 import random
 import time
+import json
+import base64
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- CONFIGURATION ORIGINALE CONSERVÉE ---
+# Configuration (inchangée)
 TOKEN = os.getenv('DISCORD_TOKEN')
 FORUM_CHANNEL_ID = int(os.getenv('FORUM_CHANNEL_ID'))
 ANNOUNCE_CHANNEL_ID = int(os.getenv('ANNOUNCE_CHANNEL_ID'))
@@ -26,16 +28,131 @@ pending_announcements = {}
 recent_threads = {}
 announcement_locks = {}
 
-# --- LOGIQUE DE TRI ET PLANIFICATION ---
+
+# ✅ NOUVELLE FONCTION : Extraire les métadonnées de l'embed invisible
+def extraire_metadata_embed(message):
+    """
+    Extrait les métadonnées structurées depuis l'embed invisible
+    Retourne un dict avec les données ou None si aucune métadonnée trouvée
+    """
+    if not message.embeds:
+        return None
+    
+    for embed in message.embeds:
+        # Vérifier si c'est notre embed de métadonnées (footer commence par "metadata:")
+        if embed.footer and embed.footer.text and embed.footer.text.startswith("metadata:"):
+            try:
+                # Extraire le JSON base64 du premier field
+                if embed.fields and len(embed.fields) > 0:
+                    field_value = embed.fields[0].value
+                    # Retirer les backticks du code block
+                    json_b64 = field_value.replace("```json\n", "").replace("\n```", "").strip()
+                    
+                    # Décoder le base64
+                    metadata_json = base64.b64decode(json_b64).decode('utf-8')
+                    # Parser le JSON (qui est URL-encodé)
+                    import urllib.parse
+                    metadata_str = urllib.parse.unquote(metadata_json)
+                    metadata = json.loads(metadata_str)
+                    
+                    print(f"✅ Métadonnées structurées trouvées: {metadata.get('game_name', 'N/A')}")
+                    return metadata
+            except Exception as e:
+                print(f"⚠️ Erreur extraction métadonnées embed: {e}")
+                return None
+    
+    return None
+
+
+# ✅ FONCTION MODIFIÉE : Extraction avec priorité sur les métadonnées structurées
+def extraire_infos_post(message, metadata=None):
+    """
+    Extrait les informations du post.
+    Si metadata (dict) est fourni, utilise ces données en priorité.
+    Sinon, fallback sur le parsing Regex du contenu.
+    
+    Retourne: dict avec {
+        'titre_jeu': str,
+        'traducteur': str ou None,
+        'version_jeu': str,
+        'version_trad': str,
+        'is_integrated': bool
+    }
+    """
+    # Valeurs par défaut
+    infos = {
+        'titre_jeu': message.channel.name if hasattr(message, 'channel') else 'Jeu inconnu',
+        'traducteur': None,
+        'version_jeu': 'Non spécifiée',
+        'version_trad': 'Non spécifiée',
+        'is_integrated': False
+    }
+    
+    # ✅ PRIORITÉ 1 : Métadonnées structurées
+    if metadata:
+        infos['titre_jeu'] = metadata.get('game_name', infos['titre_jeu'])
+        infos['traducteur'] = metadata.get('traductor') or None
+        infos['version_jeu'] = metadata.get('game_version', infos['version_jeu'])
+        infos['version_trad'] = metadata.get('translate_version', infos['version_trad'])
+        infos['is_integrated'] = metadata.get('is_integrated', False)
+        
+        print(f"📊 Données extraites depuis métadonnées: {infos['titre_jeu']}")
+        return infos
+    
+    # ✅ PRIORITÉ 2 : Parsing Regex (fallback pour les anciens posts)
+    contenu = message.content
+    
+    # Traducteur
+    trad_match = re.search(r"(?:\*\*\s*)?Traducteur\s*:\s*(?:\*\*\s*)?(.+?)(?:\n|$)", contenu, re.IGNORECASE)
+    if trad_match:
+        traducteur = trad_match.group(1).strip()
+        if traducteur.lower() not in ["(traducteur)", "(nom)", "", "n/a", "na", "aucun"]:
+            infos['traducteur'] = traducteur
+    
+    # Titre du jeu
+    titre_match_message = re.search(r"TRADUCTION FR DISPONIBLE POUR\s*:\s*\*\*(.+?)\*\*", contenu, re.IGNORECASE)
+    if titre_match_message:
+        infos['titre_jeu'] = titre_match_message.group(1).strip()
+    else:
+        titre_match = re.search(r"\*\*Titre du jeu\s*:\*\*\s*(.+?)(?:\n|$)", contenu)
+        if titre_match:
+            titre_extrait = titre_match.group(1).strip()
+            if titre_extrait.lower() not in ["(titre du jeu)", "(titre)", ""]:
+                infos['titre_jeu'] = titre_extrait
+    
+    # Version du jeu
+    version_jeu_match = re.search(r"\*\*Version du jeu\s*:\*\*\s*(.+?)(?:\n|$)", contenu)
+    if version_jeu_match:
+        infos['version_jeu'] = version_jeu_match.group(1).strip()
+    else:
+        version_titre_match = re.search(r"\[([^\]]+)\]", message.channel.name)
+        if version_titre_match:
+            infos['version_jeu'] = version_titre_match.group(1).strip()
+    
+    # Version de la traduction
+    version_trad_match = re.search(r"\*\*Version traduite\s*:\*\*\s*(.+?)(?:\n|$)", contenu)
+    if version_trad_match:
+        infos['version_trad'] = version_trad_match.group(1).strip()
+    
+    # Détecter si traduction intégrée (mot-clé dans le contenu)
+    if re.search(r"int[ée]gr[ée]e", contenu, re.IGNORECASE):
+        infos['is_integrated'] = True
+    
+    print(f"📊 Données extraites depuis Regex: {infos['titre_jeu']}")
+    return infos
+
 
 def trier_tags(tags):
+    """Trie les tags par ordre alphabétique avec émoji"""
     tags_formatted = []
     for tag in tags:
         emoji_visuel = (str(tag.emoji) + " ") if tag.emoji else ""
         tags_formatted.append(f"{emoji_visuel}{tag.name}")
     return sorted(tags_formatted)
 
+
 async def planifier_annonce(thread, tags_actuels, source=""):
+    """Planifie l'envoi d'une annonce après un délai"""
     thread_id = thread.id
     if thread_id not in announcement_locks:
         announcement_locks[thread_id] = asyncio.Lock()
@@ -47,7 +164,6 @@ async def planifier_annonce(thread, tags_actuels, source=""):
         
         async def envoyer_apres_delai():
             try:
-                # Ajout de Jitter pour éviter les conflits d'API entre tes bots
                 await asyncio.sleep(ANNOUNCE_DELAY + (random.random() * 2))
                 thread_actuel = bot.get_channel(thread_id)
                 if thread_actuel:
@@ -62,17 +178,17 @@ async def planifier_annonce(thread, tags_actuels, source=""):
         task = asyncio.create_task(envoyer_apres_delai())
         pending_announcements[thread_id] = task
 
-# --- GESTION DE L'HISTORIQUE (OPTIMISÉE) ---
 
 async def nettoyer_doublons_et_verifier_historique(channel, thread_id):
+    """Vérifie l'historique et détecte les doublons"""
     deja_publie = False
     version_jeu_precedente = None
     version_trad_precedente = None
     dernier_msg_supprime = False
     
-    # On réduit la limite à 25 pour économiser les requêtes API
     messages = [msg async for msg in channel.history(limit=25)]
-    if not messages: return (False, None, None, False)
+    if not messages:
+        return (False, None, None, False)
 
     for msg in messages:
         if msg.author == bot.user and str(thread_id) in msg.content:
@@ -81,66 +197,55 @@ async def nettoyer_doublons_et_verifier_historique(channel, thread_id):
                     await msg.delete()
                     deja_publie = True
                     dernier_msg_supprime = True
-                except: pass
+                except:
+                    pass
             
             contenu = msg.content
             vj_match = re.search(r"\*\*Version du jeu\s*:\*\*\s*(.+?)(?:\n|$)", contenu)
             vt_match = re.search(r"\*\*Version de la traduction\s*:\*\*\s*(.+?)(?:\n|$)", contenu)
-            if vj_match: version_jeu_precedente = vj_match.group(1).strip()
-            if vt_match: version_trad_precedente = vt_match.group(1).strip()
+            if vj_match:
+                version_jeu_precedente = vj_match.group(1).strip()
+            if vt_match:
+                version_trad_precedente = vt_match.group(1).strip()
             break
     
     return (deja_publie, version_jeu_precedente, version_trad_precedente, dernier_msg_supprime)
 
-# --- FONCTION D'ENVOI (LA CORRECTION EST ICI) ---
 
+# ✅ FONCTION MODIFIÉE : Utilisation des métadonnées structurées
 async def envoyer_annonce(thread, liste_tags_trads):
+    """Envoie l'annonce dans le canal ANNOUNCE_CHANNEL_ID"""
     channel_annonce = bot.get_channel(ANNOUNCE_CHANNEL_ID)
-    if not channel_annonce: return
+    if not channel_annonce:
+        return
 
     try:
-        # CORRECTION : Utilisation du cache (starter_message) pour éviter l'erreur 429
+        # Récupération du message de départ
         message = thread.starter_message
         if not message:
-            # Si le thread est tout neuf, on attend 1.5s que Discord synchronise
             await asyncio.sleep(1.5)
             message = thread.starter_message or await thread.fetch_message(thread.id)
         
-        contenu = message.content
+        # ✅ NOUVEAU : Extraire les métadonnées de l'embed
+        metadata = extraire_metadata_embed(message)
+        
+        # ✅ Extraction des informations (priorité aux métadonnées)
+        infos = extraire_infos_post(message, metadata)
+        
+        titre_jeu = infos['titre_jeu']
+        traducteur = infos['traducteur']
+        version_jeu = infos['version_jeu']
+        version_traduction = infos['version_trad']
+        is_integrated = infos['is_integrated']
+        
     except Exception as e:
         print(f"❌ Erreur lecture message starter: {e}")
         return
 
-    # --- TOUTE TA LOGIQUE D'EXTRACTION ORIGINALE ---
-    traducteur = None
-    trad_match = re.search(r"(?:\*\*\s*)?Traducteur\s*:\s*(?:\*\*\s*)?(.+?)(?:\n|$)", contenu, re.IGNORECASE)
-    if trad_match:
-        traducteur = trad_match.group(1).strip()
-        if traducteur.lower() in ["(traducteur)", "(nom)", "", "n/a", "na", "aucun"]:
-            traducteur = None
-
-    titre_jeu = thread.name
-    titre_match_message = re.search(r"TRADUCTION FR DISPONIBLE POUR\s*:\s*\*\*(.+?)\*\*", contenu, re.IGNORECASE)
-    if titre_match_message:
-        titre_jeu = titre_match_message.group(1).strip()
-    else:
-        titre_match = re.search(r"\*\*Titre du jeu\s*:\*\*\s*(.+?)(?:\n|$)", contenu)
-        if titre_match:
-            titre_extrait = titre_match.group(1).strip()
-            if titre_extrait.lower() not in ["(titre du jeu)", "(titre)", ""]:
-                titre_jeu = titre_extrait
-    
-    version_jeu_match = re.search(r"\*\*Version du jeu\s*:\*\*\s*(.+?)(?:\n|$)", contenu)
-    if version_jeu_match:
-        version_jeu = version_jeu_match.group(1).strip()
-    else:
-        version_titre_match = re.search(r"\[([^\]]+)\]", thread.name)
-        version_jeu = version_titre_match.group(1).strip() if version_titre_match else "Non spécifiée"
-    
-    version_trad_match = re.search(r"\*\*Version traduite\s*:\*\*\s*(.+?)(?:\n|$)", contenu)
-    version_traduction = version_trad_match.group(1).strip() if version_trad_match else "Non spécifiée"
-    
-    deja_publie, v_jeu_p, v_trad_p, dernier_msg_supprime = await nettoyer_doublons_et_verifier_historique(channel_annonce, thread.id)
+    # Vérification historique
+    deja_publie, v_jeu_p, v_trad_p, dernier_msg_supprime = await nettoyer_doublons_et_verifier_historique(
+        channel_annonce, thread.id
+    )
     
     v_jeu_changee = v_jeu_p and v_jeu_p != version_jeu
     v_trad_changee = v_trad_p and v_trad_p != version_traduction
@@ -149,25 +254,37 @@ async def envoyer_annonce(thread, liste_tags_trads):
         print(f"⭐️ Thread déjà annoncé et à jour : {titre_jeu}")
         return
     
-    # Extraction image
+    # Extraction de l'image
     image_url = None
     if message.attachments:
         image_url = message.attachments[0].url
     elif message.embeds:
         for emb in message.embeds:
-            if emb.image: image_url = emb.image.url; break
+            # Ignorer l'embed de métadonnées (couleur #2b2d31)
+            if emb.color and emb.color.value == 2829617:
+                continue
+            if emb.image:
+                image_url = emb.image.url
+                break
 
-    # Construction du message final
+    # Construction du message d'annonce
     is_update = deja_publie
     prefixe = f"🔄 **Mise à jour d'une traduction de {traducteur or 'moi'}**" if is_update else f"🎮 **Nouvelle traduction de {traducteur or 'moi'}**"
     
     msg_content = f"{prefixe}\n\n"
     msg_content += f"**Nom du jeu :** [{titre_jeu}]({thread.jump_url})\n"
-    if traducteur: msg_content += f"**Traducteur :** {traducteur}\n"
+    if traducteur:
+        msg_content += f"**Traducteur :** {traducteur}\n"
     msg_content += f"**Version du jeu :** {version_jeu}\n"
-    msg_content += f"**Version de la traduction :** {version_traduction}\n"
-    msg_content += f"**État :** {', '.join(liste_tags_trads)}"
+    msg_content += f"**Version de la traduction :** {version_traduction}"
+    
+    # Indication si traduction intégrée
+    if is_integrated:
+        msg_content += " (Intégrée)"
+    
+    msg_content += f"\n**État :** {', '.join(liste_tags_trads)}"
 
+    # Envoi du message
     if image_url:
         embed = discord.Embed(color=discord.Color.green()).set_image(url=image_url)
         await channel_annonce.send(content=msg_content, embed=embed)
@@ -176,7 +293,8 @@ async def envoyer_annonce(thread, liste_tags_trads):
         
     print(f"✅ Annonce envoyée pour : {titre_jeu}")
 
-# --- ÉVÉNEMENTS (ON_READY, ON_THREAD...) ---
+
+# --- ÉVÉNEMENTS (inchangés) ---
 
 @bot.event
 async def on_ready():
@@ -186,12 +304,12 @@ async def on_ready():
 async def on_thread_create(thread):
     if thread.parent_id == FORUM_CHANNEL_ID or (FORUM_PARTNER_ID and thread.parent_id == FORUM_PARTNER_ID):
         recent_threads[thread.id] = time.time()
-        # On attend un peu plus pour laisser le temps au message de se créer
         await asyncio.sleep(3 + random.random() * 2)
         thread_actuel = bot.get_channel(thread.id)
         if thread_actuel:
             trads = trier_tags(thread_actuel.applied_tags)
-            if trads: await envoyer_annonce(thread_actuel, trads)
+            if trads:
+                await envoyer_annonce(thread_actuel, trads)
 
 @bot.event
 async def on_thread_update(before, after):
@@ -207,10 +325,10 @@ async def on_message_edit(before, after):
     if isinstance(after.channel, discord.Thread) and after.id == after.channel.id:
         if before.content != after.content:
             trads = trier_tags(after.channel.applied_tags)
-            if trads: await planifier_annonce(after.channel, trads, source="edit")
+            if trads:
+                await planifier_annonce(after.channel, trads, source="edit")
 
 if __name__ == "__main__":
-    # On force l'URL officielle ici pour ignorer le proxy
     from discord.http import Route
     Route.BASE = "https://discord.com/api" 
     bot.run(TOKEN)

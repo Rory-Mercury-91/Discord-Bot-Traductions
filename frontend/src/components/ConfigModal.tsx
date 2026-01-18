@@ -1,11 +1,20 @@
+// Déclaration globale pour éviter l'erreur TS sur window.__TAURI__
+declare global {
+  interface Window {
+    __TAURI__?: any;
+  }
+}
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import ConfirmModal from './ConfirmModal';
 import { useConfirm } from '../hooks/useConfirm';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useModalScrollLock } from '../hooks/useModalScrollLock';
 import { useApp } from '../state/appContext';
+import ConfirmModal from './ConfirmModal';
 import { useToast } from './ToastProvider';
+
+// ✅ NOUVEAU : Type pour l'état de la fenêtre
+type WindowState = 'normal' | 'maximized' | 'fullscreen' | 'minimized';
 
 export default function ConfigModal({ onClose }: { onClose?: () => void }) {
   const { showToast } = useToast();
@@ -22,42 +31,120 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
   const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('apiUrl') || localStorage.getItem('apiBase') || '');
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('apiKey') || '');
 
+  // ✅ NOUVEAU : État de la fenêtre
+  const [windowState, setWindowState] = useState<WindowState>(() => {
+    const saved = localStorage.getItem('windowState') as WindowState;
+    return saved || 'maximized';
+  });
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Hooks pour fermer avec Echap et bloquer le scroll du fond
   useEscapeKey(() => onClose?.(), true);
   useModalScrollLock();
 
-  const handleSave = () => {
-    // compat: ton app lit apiBase, ton UI lit apiUrl -> on garde les deux
+  const applyWindowStateLive = async (next: WindowState) => {
+    try {
+      // Uniquement en contexte Tauri
+      if (!window.__TAURI__) return;
+
+      let win: any = null;
+
+      // Tauri v2 (WebviewWindow)
+      try {
+        const wv: any = await import('@tauri-apps/api/webviewWindow');
+        if (typeof wv.getCurrentWebviewWindow === 'function') win = wv.getCurrentWebviewWindow();
+        else if (wv.appWindow) win = wv.appWindow;
+      } catch {}
+
+      // Tauri v1 (Window/appWindow)
+      if (!win) {
+        try {
+          const w: any = await import('@tauri-apps/api/window');
+          if (typeof w.getCurrentWindow === 'function') win = w.getCurrentWindow();
+          else if (w.appWindow) win = w.appWindow;
+        } catch {}
+      }
+
+      if (!win) return;
+
+      // Sortir du fullscreen si la cible n'est pas fullscreen
+      if (next !== 'fullscreen' && typeof win.setFullscreen === 'function') {
+        const isFs = typeof win.isFullscreen === 'function' ? await win.isFullscreen() : false;
+        if (isFs) await win.setFullscreen(false);
+      }
+
+      // Sortir du minimized si besoin
+      if (next !== 'minimized') {
+        if (typeof win.isMinimized === 'function') {
+          const isMin = await win.isMinimized();
+          if (isMin && typeof win.unminimize === 'function') await win.unminimize();
+        } else if (typeof win.unminimize === 'function') {
+          await win.unminimize();
+        }
+      }
+
+      switch (next) {
+        case 'fullscreen':
+          // éviter les conflits fullscreen/maximize
+          if (typeof win.isMaximized === 'function' && typeof win.unmaximize === 'function') {
+            const isMax = await win.isMaximized();
+            if (isMax) await win.unmaximize();
+          } else if (typeof win.unmaximize === 'function') {
+            await win.unmaximize();
+          }
+          if (typeof win.setFullscreen === 'function') await win.setFullscreen(true);
+          break;
+        case 'maximized':
+          if (typeof win.maximize === 'function') await win.maximize();
+          break;
+        case 'normal':
+          if (typeof win.unmaximize === 'function') await win.unmaximize();
+          break;
+        case 'minimized':
+          if (typeof win.minimize === 'function') await win.minimize();
+          break;
+      }
+    } catch (e) {
+      console.error('Erreur application état fenêtre:', e);
+    }
+  };
+
+  const handleSave = async () => {
     localStorage.setItem('apiUrl', apiUrl);
     localStorage.setItem('apiBase', apiUrl);
     localStorage.setItem('apiKey', apiKey);
 
-    showToast("Configuration enregistrée !", "success");
+    // ✅ NOUVEAU : Sauvegarder l'état de fenêtre via Tauri
+    try {
+      // @ts-ignore - Tauri API
+      if (window.__TAURI__) {
+        const { invoke } = window.__TAURI__.core;
+        await invoke('save_window_state', { state: windowState });
+        showToast("Configuration enregistrée !", "success");
+      } else {
+        // Fallback pour développement web
+        localStorage.setItem('windowState', windowState);
+        showToast("Configuration enregistrée !", "success");
+      }
+    } catch (e) {
+      console.error('Erreur sauvegarde état fenêtre:', e);
+      showToast("Configuration enregistrée (erreur état fenêtre)", "warning");
+    }
   };
 
   const handleExportConfig = () => {
     try {
       const fullConfig = {
-        // Configuration API
         apiUrl,
-        apiBase: apiUrl, // compat
+        apiBase: apiUrl,
         apiKey,
-
-        // Templates et variables
         templates,
         allVarsConfig,
-
-        // Données sauvegardées
         savedTags,
         savedInstructions,
         savedTraductors,
-
-        // Historique et statistiques
         publishedPosts,
-
-        // Métadonnées d'export
+        windowState, // ✅ Inclure l'état de fenêtre dans l'export
         exportDate: new Date().toISOString(),
         version: '1.0'
       };
@@ -106,6 +193,13 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
       setApiUrl(localStorage.getItem('apiUrl') || localStorage.getItem('apiBase') || '');
       setApiKey(localStorage.getItem('apiKey') || '');
 
+      // ✅ Restaurer l'état de fenêtre si présent
+      if (data.windowState) {
+        setWindowState(data.windowState);
+        localStorage.setItem('windowState', data.windowState);
+        void applyWindowStateLive(data.windowState);
+      }
+
       showToast('Sauvegarde importée avec succès !', 'success');
     } catch (err: any) {
       console.error(err?.message || err);
@@ -138,7 +232,10 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
           background: 'var(--panel)',
           borderRadius: '12px',
           width: '90%',
-          maxWidth: '500px',
+          // ✅ Même gabarit que InstructionsManagerModal
+          maxWidth: '650px',
+          maxHeight: '90vh',
+          overflowY: 'auto',
           border: '1px solid var(--border)',
           boxShadow: '0 20px 50px rgba(0,0,0,0.6)',
           display: 'flex',
@@ -168,23 +265,22 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
           </button>
         </div>
 
-        <div className="modal-body" style={{ padding: '20px' }}>
+        <div className="modal-body" style={{ padding: '20px', display: 'grid', gap: 16 }}>
           {/* Section API */}
-          <div style={{ marginBottom: '25px' }}>
-            <h3 style={{
-              fontSize: '1rem',
-              color: 'var(--accent)',
-              marginBottom: '15px'
-            }}>
-              🌐 Configuration API
-            </h3>
+          <div
+            style={{
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              padding: 12,
+              background: 'rgba(255,255,255,0.02)',
+              display: 'grid',
+              gap: 12
+            }}
+          >
+            <h4 style={{ margin: 0 }}>🌐 Configuration API</h4>
 
-            <div style={{ marginBottom: '12px' }}>
-              <label style={{
-                display: 'block',
-                marginBottom: '5px',
-                fontSize: '0.9rem'
-              }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
                 URL de l'API Koyeb
               </label>
               <input
@@ -192,30 +288,15 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
                 value={apiUrl}
                 onChange={(e) => setApiUrl(e.target.value)}
                 placeholder="https://votre-app.koyeb.app"
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  background: 'var(--bg)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text)',
-                  borderRadius: '6px'
-                }}
+                style={{ width: '100%' }}
               />
-              <div style={{
-                fontSize: '11px',
-                color: 'var(--muted)',
-                marginTop: '4px'
-              }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
                 💡 URL de base de votre service Koyeb (sans /api)
               </div>
             </div>
 
-            <div style={{ marginBottom: '15px' }}>
-              <label style={{
-                display: 'block',
-                marginBottom: '5px',
-                fontSize: '0.9rem'
-              }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
                 Clé API
               </label>
               <input
@@ -223,41 +304,78 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="Votre clé secrète"
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  background: 'var(--bg)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text)',
-                  borderRadius: '6px'
-                }}
+                style={{ width: '100%' }}
               />
-              <div style={{
-                fontSize: '11px',
-                color: 'var(--muted)',
-                marginTop: '4px'
-              }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
                 🔒 Clé de sécurité pour l'accès à l'API
               </div>
             </div>
+          </div>
 
-            <button
-              className="btn-primary"
-              onClick={handleSave}
+          {/* ✅ NOUVELLE SECTION : État de la fenêtre */}
+          <div
+            style={{
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              padding: 12,
+              background: 'rgba(255,255,255,0.02)',
+              display: 'grid',
+              gap: 12
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
+              <h4 style={{ margin: 0 }}>🪟 État de la fenêtre au démarrage</h4>
+              <div style={{ color: 'var(--muted)', fontSize: 12 }}>{windowState}</div>
+            </div>
+
+            <div
               style={{
-                width: '100%',
-                padding: '10px',
-                background: 'var(--accent)',
-                border: 'none',
-                color: 'white',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: 600
+                display: 'flex',
+                gap: 8,
+                padding: 4,
+                borderRadius: 10,
+                border: '1px solid var(--border)',
+                background: 'rgba(255,255,255,0.03)'
               }}
             >
-              💾 Enregistrer la configuration
-            </button>
+              {(['normal', 'maximized', 'fullscreen', 'minimized'] as WindowState[]).map((state) => {
+                const labels = {
+                  normal: '📐 Normal',
+                  maximized: '⬜ Maximisé',
+                  fullscreen: '🖥️ Plein écran',
+                  minimized: '➖ Minimisé'
+                };
+
+                const active = windowState === state;
+
+                return (
+                  <button
+                    key={state}
+                    type="button"
+                    onClick={() => { setWindowState(state); void applyWindowStateLive(state); }}
+                    style={{
+                      flex: 1,
+                      padding: '10px',
+                      borderRadius: 8,
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: active ? 'var(--accent)' : 'transparent',
+                      color: active ? 'white' : 'var(--muted)',
+                      fontSize: 12,
+                      fontWeight: active ? 700 : 600,
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    {labels[state]}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button onClick={onClose}>🚪 Fermer</button>
+              <button onClick={handleSave}>💾 Enregistrer</button>
+            </div>
           </div>
 
           {/* Section Sauvegarde */}
@@ -265,7 +383,7 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
             padding: '16px',
             background: 'rgba(74, 158, 255, 0.1)',
             border: '1px solid rgba(74, 158, 255, 0.3)',
-            borderRadius: '8px'
+            borderRadius: 12
           }}>
             <h4 style={{
               margin: '0 0 12px 0',
@@ -296,9 +414,9 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
               <li>Traducteurs sauvegardés</li>
               <li>Instructions sauvegardées</li>
               <li>Historique complet des publications</li>
+              <li>État de fenêtre préféré</li>
             </ul>
 
-            {/* Info bulle pour le dossier de destination */}
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -320,7 +438,6 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
               </p>
             </div>
 
-            {/* IMPORT */}
             <input
               ref={fileInputRef}
               type="file"
@@ -354,7 +471,6 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
               📥 Importer une sauvegarde
             </button>
 
-            {/* EXPORT */}
             <button
               onClick={handleExportConfig}
               style={{
@@ -379,28 +495,6 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
               📤 Télécharger la sauvegarde complète
             </button>
           </div>
-        </div>
-
-        <div className="modal-footer" style={{
-          padding: '16px',
-          borderTop: '1px solid var(--border)',
-          display: 'flex',
-          justifyContent: 'flex-end'
-        }}>
-          <button
-            onClick={onClose}
-            className="btn-secondary"
-            style={{
-              padding: '8px 16px',
-              background: 'transparent',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
-              borderRadius: '6px',
-              cursor: 'pointer'
-            }}
-          >
-            Fermer
-          </button>
         </div>
         <ConfirmModal
           isOpen={confirmState.isOpen}

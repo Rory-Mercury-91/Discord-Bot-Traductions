@@ -1,12 +1,13 @@
 """
-API Publisher - Version Complète et Corrigée
-Gère la publication et mise à jour des posts Discord via API
+API Publisher - Version avec métadonnées structurées
+Modifie la création de posts pour inclure un embed invisible contenant les métadonnées
 """
 
 import os
 import sys
 import json
 import time
+import base64
 import asyncio
 import logging
 from datetime import datetime
@@ -189,18 +190,73 @@ async def _resolve_applied_tag_ids(session, forum_id, tags_raw):
                     break
     return list(dict.fromkeys(applied))
 
-async def _create_forum_post(session, forum_id, title, content, tags_raw, images):
+async def _create_forum_post(session, forum_id, title, content, tags_raw, images, metadata_b64=None):
+    """
+    Crée un post de forum Discord avec un embed invisible contenant les métadonnées
+    
+    Args:
+        metadata_b64: Chaîne base64 encodée contenant les métadonnées JSON
+    """
     applied_tag_ids = await _resolve_applied_tag_ids(session, forum_id, tags_raw)
-    payload = {"name": title, "message": {"content": content or " "}}
-    if applied_tag_ids: payload["applied_tags"] = applied_tag_ids
+    
+    # Construction du payload de base
+    payload = {
+        "name": title,
+        "message": {
+            "content": content or " "
+        }
+    }
+    
+    # ✅ NOUVEAU : Ajouter un embed invisible avec les métadonnées
+    if metadata_b64:
+        try:
+            # Décoder les métadonnées
+            metadata_json = base64.b64decode(metadata_b64).decode('utf-8')
+            metadata = json.loads(metadata_json)
+            
+            # Créer un embed invisible (couleur #2b2d31 = fond Discord)
+            # Le footer contient les métadonnées encodées
+            metadata_embed = {
+                "color": 2829617,  # #2b2d31 (invisible sur Discord dark mode)
+                "footer": {
+                    "text": f"metadata:{metadata_b64[:100]}..."  # Tronqué pour l'affichage
+                },
+                "fields": [
+                    {
+                        "name": "\u200b",  # Caractère invisible
+                        "value": f"```json\n{metadata_b64}\n```",  # Données complètes dans un bloc code caché
+                        "inline": False
+                    }
+                ]
+            }
+            
+            payload["message"]["embeds"] = [metadata_embed]
+            
+            logger.info(f"✅ Métadonnées structurées ajoutées: {metadata.get('game_name', 'N/A')}")
+        except Exception as e:
+            logger.error(f"❌ Erreur décodage métadonnées: {e}")
+    
+    if applied_tag_ids:
+        payload["applied_tags"] = applied_tag_ids
+    
     form = aiohttp.FormData()
     form.add_field("payload_json", json.dumps(payload), content_type="application/json")
+    
     if images:
         for i, img in enumerate(images):
             form.add_field(f"files[{i}]", img["bytes"], filename=img["filename"], content_type=img["content_type"])
+    
     status, data, _ = await _discord_post_form(session, f"/channels/{forum_id}/threads", form)
-    if status >= 300: return False, {"status": status, "discord": data}
-    return True, {"thread_id": data.get("id"), "message_id": data.get("id"), "guild_id": data.get("guild_id"), "thread_url": f"https://discord.com/channels/{data.get('guild_id')}/{data.get('id')}"}
+    
+    if status >= 300:
+        return False, {"status": status, "discord": data}
+    
+    return True, {
+        "thread_id": data.get("id"),
+        "message_id": data.get("id"),
+        "guild_id": data.get("guild_id"),
+        "thread_url": f"https://discord.com/channels/{data.get('guild_id')}/{data.get('id')}"
+    }
 
 def _with_cors(request, resp):
     origin = request.headers.get("Origin", "*")
@@ -227,46 +283,86 @@ async def configure(request):
         return _with_cors(request, web.json_response({"ok": False, "error": str(e)}, status=400))
 
 async def forum_post(request):
+    """Handler modifié pour accepter les métadonnées"""
     api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
     if api_key != config.PUBLISHER_API_KEY: 
         return _with_cors(request, web.json_response({"ok": False, "error": "Invalid API key"}, status=401))
     
-    title, content, tags, template, images = "", "", "", "my", []
+    title, content, tags, template, images, metadata_b64 = "", "", "", "my", [], None
     reader = await request.multipart()
+    
     async for part in reader:
-        if part.name == "title": title = (await part.text()).strip()
-        elif part.name == "content": content = (await part.text()).strip()
-        elif part.name == "tags": tags = (await part.text()).strip()
-        elif part.name == "template": template = (await part.text()).strip()
+        if part.name == "title":
+            title = (await part.text()).strip()
+        elif part.name == "content":
+            content = (await part.text()).strip()
+        elif part.name == "tags":
+            tags = (await part.text()).strip()
+        elif part.name == "template":
+            template = (await part.text()).strip()
+        elif part.name == "metadata":  # ✅ NOUVEAU
+            metadata_b64 = (await part.text()).strip()
         elif part.name and part.name.startswith("image_") and part.filename:
-            images.append({"bytes": await part.read(decode=False), "filename": part.filename, "content_type": part.headers.get("Content-Type", "image/png")})
+            images.append({
+                "bytes": await part.read(decode=False),
+                "filename": part.filename,
+                "content_type": part.headers.get("Content-Type", "image/png")
+            })
 
     forum_id = _pick_forum_id(template)
+    
     async with aiohttp.ClientSession() as session:
-        ok, result = await _create_forum_post(session, forum_id, title, content, tags, images)
+        ok, result = await _create_forum_post(session, forum_id, title, content, tags, images, metadata_b64)
     
-    if not ok: return _with_cors(request, web.json_response({"ok": False, "details": result}, status=500))
+    if not ok:
+        return _with_cors(request, web.json_response({"ok": False, "details": result}, status=500))
     
-    history_manager.add_post({"id": f"post_{int(time.time())}", "timestamp": int(time.time() * 1000), "title": title, "content": content, "tags": tags, "template": template, "thread_id": result["thread_id"], "message_id": result["message_id"], "discord_url": result["thread_url"], "forum_id": forum_id})
+    # Ajouter à l'historique
+    history_manager.add_post({
+        "id": f"post_{int(time.time())}",
+        "timestamp": int(time.time() * 1000),
+        "title": title,
+        "content": content,
+        "tags": tags,
+        "template": template,
+        "thread_id": result["thread_id"],
+        "message_id": result["message_id"],
+        "discord_url": result["thread_url"],
+        "forum_id": forum_id
+    })
+    
     return _with_cors(request, web.json_response({"ok": True, **result}))
 
 async def forum_post_update(request):
-    """Handler pour mettre à jour un post existant"""
+    """Handler modifié pour la mise à jour avec métadonnées"""
     api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
     if api_key != config.PUBLISHER_API_KEY: 
         return _with_cors(request, web.json_response({"ok": False, "error": "Invalid API key"}, status=401))
 
-    title, content, tags, template, images, thread_id, message_id = "", "", "", "my", [], None, None
+    title, content, tags, template, images, thread_id, message_id, metadata_b64 = "", "", "", "my", [], None, None, None
     reader = await request.multipart()
+    
     async for part in reader:
-        if part.name == "title": title = (await part.text()).strip()
-        elif part.name == "content": content = (await part.text()).strip()
-        elif part.name == "tags": tags = (await part.text()).strip()
-        elif part.name == "template": template = (await part.text()).strip()
-        elif part.name == "threadId": thread_id = (await part.text()).strip()
-        elif part.name == "messageId": message_id = (await part.text()).strip()
+        if part.name == "title":
+            title = (await part.text()).strip()
+        elif part.name == "content":
+            content = (await part.text()).strip()
+        elif part.name == "tags":
+            tags = (await part.text()).strip()
+        elif part.name == "template":
+            template = (await part.text()).strip()
+        elif part.name == "threadId":
+            thread_id = (await part.text()).strip()
+        elif part.name == "messageId":
+            message_id = (await part.text()).strip()
+        elif part.name == "metadata":  # ✅ NOUVEAU
+            metadata_b64 = (await part.text()).strip()
         elif part.name and part.name.startswith("image_") and part.filename:
-            images.append({"bytes": await part.read(decode=False), "filename": part.filename, "content_type": part.headers.get("Content-Type", "image/png")})
+            images.append({
+                "bytes": await part.read(decode=False),
+                "filename": part.filename,
+                "content_type": part.headers.get("Content-Type", "image/png")
+            })
 
     if not thread_id or not message_id:
         return _with_cors(request, web.json_response({"ok": False, "error": "threadId and messageId required"}, status=400))
@@ -276,22 +372,50 @@ async def forum_post_update(request):
     async with aiohttp.ClientSession() as session:
         message_path = f"/channels/{thread_id}/messages/{message_id}"
         
-        # Mettre à jour le contenu du message
+        # Construction du payload avec embed de métadonnées
+        message_payload = {"content": content or " "}
+        
+        if metadata_b64:
+            try:
+                metadata_json = base64.b64decode(metadata_b64).decode('utf-8')
+                metadata = json.loads(metadata_json)
+                
+                metadata_embed = {
+                    "color": 2829617,
+                    "footer": {
+                        "text": f"metadata:{metadata_b64[:100]}..."
+                    },
+                    "fields": [
+                        {
+                            "name": "\u200b",
+                            "value": f"```json\n{metadata_b64}\n```",
+                            "inline": False
+                        }
+                    ]
+                }
+                message_payload["embeds"] = [metadata_embed]
+            except Exception as e:
+                logger.error(f"❌ Erreur décodage métadonnées: {e}")
+        
+        # Mettre à jour le message
         if images:
             form = aiohttp.FormData()
-            form.add_field("payload_json", json.dumps({"content": content or " "}))
+            form.add_field("payload_json", json.dumps(message_payload))
             for i, img in enumerate(images):
                 form.add_field(f"files[{i}]", img["bytes"], filename=img["filename"])
             status, data, _ = await _discord_patch_form(session, message_path, form)
         else:
-            status, data = await _discord_patch_json(session, message_path, {"content": content or " "})
+            status, data = await _discord_patch_json(session, message_path, message_payload)
 
         if status >= 300: 
             return _with_cors(request, web.json_response({"ok": False, "details": data}, status=500))
 
         # Mettre à jour le titre et les tags du thread
         applied_tag_ids = await _resolve_applied_tag_ids(session, _pick_forum_id(template), tags)
-        status, data = await _discord_patch_json(session, f"/channels/{thread_id}", {"name": title, "applied_tags": applied_tag_ids})
+        status, data = await _discord_patch_json(session, f"/channels/{thread_id}", {
+            "name": title,
+            "applied_tags": applied_tag_ids
+        })
         
         if status >= 300:
             return _with_cors(request, web.json_response({"ok": False, "details": data}, status=500))

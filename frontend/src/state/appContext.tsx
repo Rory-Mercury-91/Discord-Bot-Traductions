@@ -90,7 +90,7 @@ Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. 
 * **Type de traduction :** [Translation_Type]
 * **Jeu modé :** [is_modded_game]
 * **Lien du jeu :** [Accès au jeu original](<[Game_link]>)
-* **Lien de la Traduction :** [Téléchargez la traduction FR ici !](<[Translate_link]>)
+* **Lien de la Traduction :** [Téléchargez la traduction ici !](<[Translate_link]>)
 
 > **Synopsis du jeu :**
 > [Overview]
@@ -115,7 +115,7 @@ Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. 
 * **Type de traduction :** [Translation_Type]
 * **Jeu modé :** [is_modded_game]
 * **Lien du jeu :** [Accès au jeu original](<[Game_link]>)
-* **Lien de la Traduction :** [Téléchargez la traduction FR ici !](<[Translate_link]>)
+* **Lien de la Traduction :** [Téléchargez la traduction ici !](<[Translate_link]>)
 
 > **Synopsis du jeu :**
 > [Overview]
@@ -637,15 +637,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const storedApiUrl = localStorage.getItem('apiUrl');
     const baseUrlRaw = localStorage.getItem('apiBase') || defaultApiBase;
-    // Normaliser l'URL : enlever les slashes de fin pour éviter les doubles slashes
     const baseUrl = baseUrlRaw.replace(/\/+$/, '');
 
-    // CHANGEMENT : endpoint différent selon le mode
     const apiEndpoint = isEditMode
-      ? `${baseUrl}/api/forum-post/update`  // Nouvel endpoint pour update
+      ? `${baseUrl}/api/forum-post/update`
       : `${baseUrl}/api/forum-post`;
 
-    // Validation: titre obligatoire
+    // Validations (inchangées)
     if (!title || title.length === 0) {
       setLastPublishResult('❌ Titre obligatoire');
       showErrorModal({
@@ -657,7 +655,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { ok: false, error: 'missing_title' };
     }
 
-    // Validation: API endpoint requis
     if (!baseUrl || baseUrl.trim().length === 0) {
       setLastPublishResult('❌ URL API manquante dans Configuration');
       showErrorModal({
@@ -669,7 +666,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { ok: false, error: 'missing_api_url' };
     }
 
-    // Validation: template type obligatoire
     if (templateType !== 'my' && templateType !== 'partner') {
       setLastPublishResult('❌ Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés');
       showErrorModal({
@@ -681,7 +677,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { ok: false, error: 'invalid_template_type' };
     }
 
-    // Vérifier le cooldown rate limit
     if (rateLimitCooldown !== null && Date.now() < rateLimitCooldown) {
       const remainingSeconds = Math.ceil((rateLimitCooldown - Date.now()) / 1000);
       setLastPublishResult(`⏳ Rate limit actif. Attendez ${remainingSeconds} secondes.`);
@@ -698,14 +693,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLastPublishResult(null);
 
     try {
-      // Créer FormData pour multipart/form-data
+      // ✅ NOUVEAU : Créer l'objet de métadonnées structurées
+      const metadata = {
+        game_name: inputs['Game_name'] || '',
+        game_version: inputs['Game_version'] || '',
+        translate_version: inputs['Translate_version'] || '',
+        traductor: inputs['Traductor'] || '',
+        developpeur: inputs['Developpeur'] || '',
+        translation_type: translationType || 'Automatique',
+        is_integrated: isIntegrated || false,
+        is_modded: inputs['is_modded_game'] === 'true',
+        game_link: buildFinalLink(linkConfigs.Game_link),
+        translate_link: buildFinalLink(linkConfigs.Translate_link),
+        mod_link: buildFinalLink(linkConfigs.Mod_link),
+        overview: inputs['Overview'] || '',
+        timestamp: Date.now()
+      };
+
       const formData = new FormData();
       formData.append('title', title);
       formData.append('content', content);
       formData.append('tags', tags);
       formData.append('template', templateType);
 
-      // NOUVEAU : Ajouter les données de mise à jour si en mode édition
+      // ✅ NOUVEAU : Ajouter les métadonnées encodées en base64
+      formData.append('metadata', btoa(encodeURIComponent(JSON.stringify(metadata))));
+
       if (isEditMode && editingPostData) {
         formData.append('threadId', editingPostData.threadId);
         formData.append('messageId', editingPostData.messageId);
@@ -716,7 +729,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      // Process all images (comme avant)
+      // Traitement des images (code existant inchangé)
       if (uploadedImages.length > 0) {
         const images = [];
         for (const img of uploadedImages) {
@@ -774,7 +787,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const apiKey = localStorage.getItem('apiKey') || '';
 
-      // Faire la requête
       const response = await fetch(apiEndpoint, {
         method: 'POST',
         headers: {
@@ -785,6 +797,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const res = await response.json();
 
+      // Gestion des erreurs (code existant inchangé)
       if (!response.ok) {
         if (response.status === 429) {
           const cooldownEnd = Date.now() + 60000;
@@ -832,7 +845,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (threadId && messageId) {
         if (isEditMode && editingPostId) {
-          // MISE À JOUR : Modifier le post existant dans l'historique
           const updatedPost: Partial<PublishedPost> = {
             timestamp: Date.now(),
             title,
@@ -842,12 +854,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             imagePath: uploadedImages.find(i => i.isMain)?.path,
             translationType,
             isIntegrated,
-
-            // ✅ Sauvegarde complète de tous les états
             savedInputs: { ...inputs },
             savedLinkConfigs: JSON.parse(JSON.stringify(linkConfigs)),
             templateId: templates[currentTemplateIdx]?.id,
-
             discordUrl: threadUrl || editingPostData.discordUrl
           };
           updatePublishedPost(editingPostId, updatedPost);
@@ -855,7 +864,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setEditingPostData(null);
           console.log('✅ Post mis à jour dans l\'historique:', updatedPost);
         } else {
-          // CRÉATION : Nouveau post
           const newPost: PublishedPost = {
             id: `post_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             timestamp: Date.now(),
@@ -866,12 +874,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             imagePath: uploadedImages.find(i => i.isMain)?.path,
             translationType,
             isIntegrated,
-
-            // ✅ Sauvegarde complète de tous les états
             savedInputs: { ...inputs },
-            savedLinkConfigs: JSON.parse(JSON.stringify(linkConfigs)), // Deep copy
+            savedLinkConfigs: JSON.parse(JSON.stringify(linkConfigs)),
             templateId: templates[currentTemplateIdx]?.id,
-
             threadId: String(threadId),
             messageId: String(messageId),
             discordUrl: threadUrl,
@@ -898,7 +903,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setPublishInProgress(false);
     }
   }
-
 
   useEffect(() => {
     localStorage.setItem('customVariables', JSON.stringify(allVarsConfig));
