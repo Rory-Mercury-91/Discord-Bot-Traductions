@@ -7,7 +7,7 @@ import { useApp } from '../state/appContext';
 import ConfirmModal from './ConfirmModal';
 import ImageThumbnail from './ImageThumbnail';
 import { useToast } from './ToastProvider';
-
+// Si tu n'as pas de composant "Button" personnalisé, on utilisera des balises <button> normales
 export default function ContentEditor() {
   // 1️⃣ D'ABORD : Extraire toutes les valeurs du context
   const {
@@ -330,6 +330,70 @@ export default function ContentEditor() {
       window.removeEventListener('drop', handleDrop);
     };
   }, [addImages, addImageFromPath, removeImage, uploadedImages]);
+
+  // Fonction pour importer les données du scraper (F95/LC)
+  // Fonction pour importer les données du scraper (F95/LC)
+  const handlePasteImport = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const data = JSON.parse(text);
+
+      // ✅ Champs simples (inputs)
+      if (data.name) setInput('Game_name', data.name);
+      if (data.version) setInput('Game_version', data.version);
+
+      // ✅ IMPORTANT : ton UI utilise "Developpeur"
+      if (data.developer) setInput('Developpeur', data.developer);
+
+      // ✅ IMPORTANT : ton UI "Lien du jeu" utilise linkConfigs + setLinkConfig
+      const rawLink = typeof data.link === 'string' ? data.link.trim() : '';
+      const rawId =
+        typeof data.id === 'string' || typeof data.id === 'number'
+          ? String(data.id).trim()
+          : '';
+
+      const detectSource = (link: string): 'F95' | 'Lewd' | 'Autre' => {
+        const l = link.toLowerCase();
+        if (l.includes('f95zone.to')) return 'F95';
+        if (l.includes('lewdcorner.com')) return 'Lewd';
+        return 'Autre';
+      };
+
+      const extractThreadId = (link: string): string => {
+        // Ex: https://f95zone.to/threads/xxxxx.232384/
+        const m = link.match(/threads\/.*\.(\d+)\/?/i);
+        return m?.[1] ?? '';
+      };
+
+      // Priorité: data.id -> id depuis l'url -> si link = "232384" -> fallback url en "Autre"
+      let idToUse = rawId || (rawLink ? extractThreadId(rawLink) : '');
+      let sourceToUse: 'F95' | 'Lewd' | 'Autre' = rawLink ? detectSource(rawLink) : 'F95';
+
+      if (!idToUse && rawLink && /^\d+$/.test(rawLink)) {
+        idToUse = rawLink;
+      }
+
+      if (idToUse) {
+        // On met l'ID dans l'input du lien
+        if (sourceToUse === 'Autre') sourceToUse = 'F95'; // le scraper vient en général de F95
+        setLinkConfig('Game_link', sourceToUse, idToUse);
+      } else if (rawLink) {
+        // Secours : garder l'URL complète si on n'a pas l'ID
+        setLinkConfig('Game_link', 'Autre', rawLink);
+      }
+
+      showToast('Données importées !', 'success');
+    } catch (err) {
+      showToast('Erreur : Presse-papier invalide', 'error');
+    }
+  };
+
+
+  // Fonction pour synchroniser les versions
+  const syncVersion = () => {
+    const gameVer = inputs['Game_version'] || '';
+    setInput('Translate_version', gameVer);
+  };
 
   return (
     <div style={{ position: 'relative', height: '100%', minHeight: 0, overflow: 'auto', boxSizing: 'border-box', width: '100%', maxWidth: '100%' }}>
@@ -708,7 +772,7 @@ export default function ContentEditor() {
         </div>
 
         {/* LIGNE 5 : Version du jeu et Version de la trad */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 12, alignItems: 'end' }}>
           <div>
             <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>
               Version du jeu
@@ -716,9 +780,32 @@ export default function ContentEditor() {
             <input
               value={inputs['Game_version'] || ''}
               onChange={e => setInput('Game_version', e.target.value)}
-              style={{ width: '100%', height: '40px', borderRadius: 6, padding: '0 12px' }}
+              style={{ width: '100%', height: '40px', borderRadius: 6, padding: '0 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', color: 'white' }}
               placeholder="v1.0.4"
             />
+          </div>
+
+          <div style={{ paddingBottom: '4px' }}>
+            <button
+              type="button"
+              onClick={syncVersion}
+              title="Copier vers version traduction"
+              style={{
+                background: 'rgba(255,255,255,0.1)',
+                border: 'none',
+                color: 'white',
+                cursor: 'pointer',
+                width: '32px',
+                height: '32px',
+                borderRadius: '4px',
+                fontSize: '18px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              ⇆
+            </button>
           </div>
 
           <div>
@@ -728,11 +815,11 @@ export default function ContentEditor() {
             <input
               value={inputs['Translate_version'] || ''}
               onChange={e => setInput('Translate_version', e.target.value)}
-              style={{ width: '100%', height: '40px', borderRadius: 6, padding: '0 12px' }}
+              style={{ width: '100%', height: '40px', borderRadius: 6, padding: '0 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', color: 'white' }}
               placeholder="v1.0"
             />
           </div>
-        </div>
+        </div> {/* FIN LIGNE 5 */}
 
         {/* LIGNE 6 : Lien du jeu et Lien de la trad */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -1020,136 +1107,137 @@ export default function ContentEditor() {
         <div style={{
           marginTop: 8,
           display: 'flex',
-          justifyContent: 'flex-end',
+          justifyContent: 'space-between',
           alignItems: 'center',
           gap: 16,
           paddingTop: 12,
           borderTop: '1px solid var(--border)'
         }}>
-          {rateLimitCooldown !== null && (
-            <div style={{ color: 'var(--error)', fontSize: 13, fontWeight: 700 }}>
-              ⏳ Rate limit : {rateLimitRemaining}s
-            </div>
-          )}
-
-          {isEditMode && (
-            <button
-              onClick={() => { setEditingPostId(null); setEditingPostData(null); }}
-              style={{
-                background: 'transparent',
-                border: '1px solid var(--border)',
-                color: 'var(--muted)',
-                padding: '10px 20px',
-                borderRadius: 6,
-                cursor: 'pointer',
-                fontWeight: 600
-              }}
-            >
-              Annuler l'édition
-            </button>
-          )}
 
           <button
-            disabled={publishInProgress || !canPublish}
-            onClick={async () => {
-              const ok = await confirm({
-                title: isEditMode ? 'Mettre à jour' : 'Publier',
-                message: isEditMode
-                  ? 'Modifier ce post sur Discord ?'
-                  : 'Envoyer ce nouveau post sur Discord ?'
-              });
-              if (ok) {
-                const res = await publishPost();
-                if (res.ok) {
-                  showToast('Terminé !', 'success');
-                  if (isEditMode) {
-                    setEditingPostId(null);
-                    setEditingPostData(null);
-                  }
-                }
-              }
-            }}
+            type="button"
+            onClick={handlePasteImport}
             style={{
+              background: 'rgba(99, 102, 241, 0.1)',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              color: '#818cf8',
+              padding: '10px 16px',
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: 13,
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              gap: '10px',
-              padding: '12px 32px',
-              fontSize: 15,
-              fontWeight: 700,
-              background: (publishInProgress || !canPublish)
-                ? 'var(--muted)'
-                : isEditMode
-                  ? '#f59e0b'  // Orange pour "Mettre à jour"
-                  : '#5865F2', // Bleu Discord pour "Publier"
-              color: 'white',
-              minWidth: '220px',
-              cursor: (publishInProgress || !canPublish) ? 'not-allowed' : 'pointer',
-              border: 'none',
-              borderRadius: 6,
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={(e) => {
-              if (!publishInProgress && canPublish) {
-                e.currentTarget.style.transform = 'translateY(-1px)';
-                e.currentTarget.style.boxShadow = isEditMode
-                  ? '0 4px 12px rgba(245, 158, 11, 0.4)'
-                  : '0 4px 12px rgba(88, 101, 242, 0.4)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = 'none';
+              gap: 8
             }}
           >
-            {publishInProgress ? (
-              <span>⏳ Patientez...</span>
-            ) : isEditMode ? (
-              <>
-                <span style={{ fontSize: 18 }}>✏️</span>
-                <span>Mettre à jour le post</span>
-              </>
-            ) : (
-              <>
-                <img
-                  src={DiscordIcon}
-                  alt="Discord"
-                  style={{
-                    width: 20,
-                    height: 20,
-                    filter: 'brightness(0) invert(1)'
-                  }}
-                />
-                <span>Publier sur Discord</span>
-              </>
-            )}
+            <span>📥</span>
+            Importer Data
           </button>
-        </div>
 
-      </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            {rateLimitCooldown !== null && (
+              <div style={{ color: 'var(--error)', fontSize: 13, fontWeight: 700 }}>
+                ⏳ Rate limit : {rateLimitCooldown}s
+              </div>
+            )}
 
-      {/* Overlay global pour fermer les suggestions */}
-      {(showTagSuggestions || showTraductorSuggestions || showInstructionSuggestions) && (
-        <div
-          onClick={() => {
-            setShowTagSuggestions(false);
-            setShowTraductorSuggestions(false);
-            setShowInstructionSuggestions(false);
-          }}
-          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}
+            {editingPostId && (
+              <button
+                type="button"
+                onClick={() => { setEditingPostId(null); setEditingPostData(null); }}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  color: 'var(--muted)',
+                  padding: '10px 20px',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontWeight: 600
+                }}
+              >
+                Annuler l'édition
+              </button>
+            )}
+
+            <button
+              disabled={publishInProgress}
+              onClick={async () => {
+                const ok = await confirm({
+                  title: editingPostId ? 'Mettre à jour' : 'Publier',
+                  message: editingPostId ? 'Modifier ce post sur Discord ?' : 'Envoyer ce nouveau post sur Discord ?'
+                });
+                if (ok) {
+                  const res = await publishPost();
+                  if (res && res.ok) {
+                    showToast('Terminé !', 'success');
+                    if (editingPostId) {
+                      setEditingPostId(null);
+                      setEditingPostData(null);
+                    }
+                  }
+                }
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '10px',
+                padding: '12px 32px',
+                fontSize: 15,
+                fontWeight: 700,
+                background: publishInProgress ? 'var(--muted)' : (editingPostId ? '#f59e0b' : '#5865F2'),
+                color: 'white',
+                minWidth: '220px',
+                cursor: publishInProgress ? 'not-allowed' : 'pointer',
+                border: 'none',
+                borderRadius: 6
+              }}
+            >
+              {publishInProgress ? (
+                <span>⏳ Patientez...</span>
+              ) : editingPostId ? (
+                <>
+                  <span style={{ fontSize: 18 }}>✏️</span>
+                  <span>Mettre à jour le post</span>
+                </>
+              ) : (
+                <>
+                  <img
+                    src={DiscordIcon}
+                    alt="Discord"
+                    style={{ width: 20, height: 20, filter: 'brightness(0) invert(1)' }}
+                  />
+                  <span>Publier sur Discord</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div> {/* FIN LIGNE 10 */}
+
+        {/* Overlay global pour fermer les suggestions */}
+        {(showTagSuggestions || showTraductorSuggestions || showInstructionSuggestions) && (
+          <div
+            onClick={() => {
+              setShowTagSuggestions(false);
+              setShowTraductorSuggestions(false);
+              setShowInstructionSuggestions(false);
+            }}
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}
+          />
+        )}
+
+        <ConfirmModal
+          isOpen={confirmState.isOpen}
+          title={confirmState.title}
+          message={confirmState.message}
+          confirmText={confirmState.confirmText}
+          cancelText={confirmState.cancelText}
+          type={confirmState.type}
+          onConfirm={handleConfirm}
+          onCancel={handleCancel}
         />
-      )}
-
-      <ConfirmModal
-        isOpen={confirmState.isOpen}
-        title={confirmState.title}
-        message={confirmState.message}
-        confirmText={confirmState.confirmText}
-        cancelText={confirmState.cancelText}
-        type={confirmState.type}
-        onConfirm={handleConfirm}
-        onCancel={handleCancel}
-      />
+      </div>
     </div>
   );
 }
