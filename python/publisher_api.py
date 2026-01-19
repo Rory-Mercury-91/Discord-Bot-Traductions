@@ -199,6 +199,30 @@ async def _discord_patch_form(session, path, form):
 async def _discord_post_form(session, path, form):
     return await _discord_request(session, "POST", path, headers=_auth_headers(), data=form)
 
+async def _discord_suppress_embeds(session, channel_id: str, message_id: str) -> bool:
+    try:
+        # ✅ utilise le helper existant
+        status, msg = await _discord_get(session, f"/channels/{channel_id}/messages/{message_id}")
+        if status >= 300:
+            logger.warning(f"⚠️ Impossible de lire le message avant SUPPRESS_EMBEDS (status={status}): {msg}")
+            return False
+
+        new_flags = (msg.get("flags", 0) | 4)
+
+        status, data = await _discord_patch_json(
+            session,
+            f"/channels/{channel_id}/messages/{message_id}",
+            {"flags": new_flags}
+        )
+        if status >= 300:
+            logger.warning(f"⚠️ Impossible de SUPPRESS_EMBEDS (status={status}): {data}")
+            return False
+
+        return True
+    except Exception as e:
+        logger.warning(f"⚠️ Exception SUPPRESS_EMBEDS: {e}")
+        return False
+
 def _pick_forum_id(template):
     return config.FORUM_PARTNER_ID if template == "partner" else config.FORUM_MY_ID
 
@@ -279,11 +303,27 @@ async def _create_forum_post(session, forum_id, title, content, tags_raw, images
     if status >= 300:
         return False, {"status": status, "discord": data}
     
+    # return True, {
+    #     "thread_id": data.get("id"),
+    #     "message_id": data.get("id"),
+    #     "guild_id": data.get("guild_id"),
+    #     "thread_url": f"https://discord.com/channels/{data.get('guild_id')}/{data.get('id')}"
+    # }
+
+    thread_id = data.get("id")
+    message_id = (data.get("message") or {}).get("id") or data.get("message_id")
+
+    if metadata_b64 and thread_id and message_id:
+        await _discord_suppress_embeds(session, str(thread_id), str(message_id))
+    else:
+        logger.warning("⚠️ SUPPRESS_EMBEDS ignoré: message_id introuvable dans la réponse Discord")
+
+
     return True, {
-        "thread_id": data.get("id"),
-        "message_id": data.get("id"),
+        "thread_id": thread_id,
+        "message_id": message_id,
         "guild_id": data.get("guild_id"),
-        "thread_url": f"https://discord.com/channels/{data.get('guild_id')}/{data.get('id')}"
+        "thread_url": f"https://discord.com/channels/{data.get('guild_id')}/{thread_id}"
     }
 
 def _with_cors(request, resp):
@@ -428,7 +468,7 @@ async def forum_post_update(request):
         # Mettre à jour le message
         if images:
             form = aiohttp.FormData()
-            form.add_field("payload_json", json.dumps(message_payload))
+            form.add_field("payload_json", json.dumps(message_payload), content_type="application/json")
             for i, img in enumerate(images):
                 form.add_field(f"files[{i}]", img["bytes"], filename=img["filename"])
             status, data, _ = await _discord_patch_form(session, message_path, form)
@@ -437,6 +477,10 @@ async def forum_post_update(request):
 
         if status >= 300: 
             return _with_cors(request, web.json_response({"ok": False, "details": data}, status=500))
+
+        # ✅ Option B: masquer l'embed de métadonnées dans l'UI
+        if metadata_b64:
+            await _discord_suppress_embeds(session, str(thread_id), str(message_id))
 
         # Mettre à jour le titre et les tags du thread
         applied_tag_ids = await _resolve_applied_tag_ids(session, _pick_forum_id(template), tags)
