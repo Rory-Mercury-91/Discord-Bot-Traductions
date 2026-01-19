@@ -466,23 +466,34 @@ async def check_semiauto(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="force_sync", description="Force la synchronisation des commandes (admin uniquement)")
+@bot.tree.command(name="force_sync", description="Force la synchronisation des commandes")
 async def force_sync(interaction: discord.Interaction):
-    """Commande temporaire pour forcer le sync"""
-    # ✅ on garde "admin uniquement" (comme ton intention), sans override user id
-    perms = getattr(interaction.user, "guild_permissions", None)
-    if not perms or not perms.administrator:
-        await interaction.response.send_message("⛔ Admin uniquement", ephemeral=True)
+    """Force le sync des commandes. Autorisé pour admin OU ALLOWED_USER_ID."""
+    # ✅ Acknowledge tout de suite (évite 404 Unknown interaction)
+    try:
+        await interaction.response.defer(ephemeral=True)
+    except Exception:
+        # si déjà ack, on continue et on utilisera followup
+        pass
+
+    # ✅ Autorisation: admin OU ton user ID
+    if not _user_can_run_checks(interaction):
+        await interaction.followup.send("⛔ Permission insuffisante.", ephemeral=True)
         return
 
-    await interaction.response.defer(ephemeral=True)
     try:
         guild = interaction.guild
+        if guild is None:
+            await interaction.followup.send("❌ Impossible: commande utilisable uniquement dans un serveur.", ephemeral=True)
+            return
+
         bot.tree.copy_global_to(guild=guild)
         await bot.tree.sync(guild=guild)
+
         await interaction.followup.send("✅ Commandes synchronisées pour ce serveur !", ephemeral=True)
     except Exception as e:
         await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
+
 
 
 @bot.tree.command(name="check_count", description="Compte les threads (actifs + archivés) dans les forums")
