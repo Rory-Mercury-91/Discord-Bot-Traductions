@@ -191,13 +191,6 @@ async def _group_and_send_alerts(channel: discord.TextChannel, alerts: List[Vers
             await channel.send("\n".join(msg_parts))
             await asyncio.sleep(1.5)  # Anti-rate limit
 
-def _user_can_run_checks(interaction: discord.Interaction) -> bool:
-    """Autorise admin/manage_guild OU un user ID spécifique."""
-    if getattr(interaction.user, "id", None) == ALLOWED_USER_ID:
-        return True
-    perms = getattr(interaction.user, "guild_permissions", None)
-    return bool(perms and (perms.administrator or perms.manage_guild))
-
 
 async def _collect_all_forum_threads(forum: discord.ForumChannel) -> List[discord.Thread]:
     """
@@ -397,6 +390,26 @@ async def envoyer_notification_f95(thread, is_update: bool = False):
 
 # ==================== COMMANDES SLASH ====================
 
+@bot.tree.command(name="check_help", description="Affiche la liste des commandes et leur utilité")
+async def check_help(interaction: discord.Interaction):
+    # Si tu veux restreindre l'accès à la même logique que tes checks :
+    if not _user_can_run_checks(interaction):
+        await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+        return
+
+    help_text = (
+        "**🧰 Commandes disponibles (Bot Publication Traduction)**\n\n"
+        "**/check_version** — Lance le contrôle complet des versions F95 (Auto + Semi-Auto).\n"
+        "**/check_auto** — Lance le contrôle des versions F95 uniquement sur le forum Auto.\n"
+        "**/check_semiauto** — Lance le contrôle des versions F95 uniquement sur le forum Semi-Auto.\n"
+        "**/check_count** — Compte les threads du forum (actifs + archivés) pour vérifier que le bot “voit tout”.\n"
+        "**/force_sync** — Force la synchronisation des commandes slash sur le serveur (admin uniquement).\n\n"
+        "ℹ️ *Astuce :* si les nombres sont trop bas, c’est souvent parce que beaucoup de posts sont **archivés**."
+    )
+
+    await interaction.response.send_message(help_text, ephemeral=True)
+
+
 # ✅ Accès direct autorisé (override permissions)
 ALLOWED_USER_ID = 394893413843206155
 
@@ -472,8 +485,8 @@ async def force_sync(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
 
 
-@bot.tree.command(name="count_threads", description="Compte les threads (actifs + archivés) dans les forums")
-async def count_threads(interaction: discord.Interaction):
+@bot.tree.command(name="check_count", description="Compte les threads (actifs + archivés) dans les forums")
+async def check_count(interaction: discord.Interaction):
     if not _user_can_run_checks(interaction):
         await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
         return
