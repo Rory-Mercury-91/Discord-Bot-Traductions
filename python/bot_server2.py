@@ -191,6 +191,61 @@ async def _group_and_send_alerts(channel: discord.TextChannel, alerts: List[Vers
             await channel.send("\n".join(msg_parts))
             await asyncio.sleep(1.5)  # Anti-rate limit
 
+def _user_can_run_checks(interaction: discord.Interaction) -> bool:
+    """Autorise admin/manage_guild OU un user ID spécifique."""
+    if getattr(interaction.user, "id", None) == ALLOWED_USER_ID:
+        return True
+    perms = getattr(interaction.user, "guild_permissions", None)
+    return bool(perms and (perms.administrator or perms.manage_guild))
+
+
+async def _collect_all_forum_threads(forum: discord.ForumChannel) -> List[discord.Thread]:
+    """
+    Retourne TOUS les threads d'un forum :
+    - Actifs (forum.threads)
+    - Archivés publics (forum.archived_threads)
+    
+    Note: les 'private archived threads' ne concernent généralement pas les forums.
+    """
+    all_threads: Dict[int, discord.Thread] = {}
+
+    # 1) Threads actifs (cache)
+    for t in list(getattr(forum, "threads", []) or []):
+        all_threads[t.id] = t
+
+    # 2) Threads archivés publics (pagination)
+    # discord.py expose généralement forum.archived_threads(...)
+    if hasattr(forum, "archived_threads"):
+        before = None
+        while True:
+            batch = []
+            try:
+                async for t in forum.archived_threads(limit=100, before=before):  # public archived
+                    batch.append(t)
+            except TypeError:
+                # Compat si la signature diffère (certaines versions)
+                async for t in forum.archived_threads(limit=100):
+                    batch.append(t)
+                    # pas de pagination possible -> 1 passe
+
+            if not batch:
+                break
+
+            for t in batch:
+                all_threads[t.id] = t
+
+            # Pagination : on continue "avant" le plus vieux de la page
+            before = batch[-1].archive_timestamp or batch[-1].created_at
+            # Sécurité anti-rate limit
+            await asyncio.sleep(0.8)
+
+            # Si on ne peut pas paginer correctement, on sort
+            if before is None:
+                break
+
+    return list(all_threads.values())
+
+
 async def run_version_check_once(forum_filter: Optional[str] = None):
     """
     Effectue le contrôle des versions F95
@@ -232,9 +287,11 @@ async def run_version_check_once(forum_filter: Optional[str] = None):
                 print(f"⚠️ Forum {forum_id} introuvable")
                 continue
             
-            threads = list(getattr(forum, "threads", []) or [])
-            print(f"🔎 Check version F95 [{forum_type}]: {len(threads)} threads actifs")
-            
+            # threads = list(getattr(forum, "threads", []) or [])
+            # print(f"🔎 Check version F95 [{forum_type}]: {len(threads)} threads actifs")
+            threads = await _collect_all_forum_threads(forum)
+            print(f"🔎 Check version F95 [{forum_type}]: {len(threads)} threads (actifs + archivés)")
+
             for thread in threads:
                 # Jitter anti-rate limit
                 await asyncio.sleep(0.6 + random.random() * 0.6)
@@ -339,14 +396,25 @@ async def envoyer_notification_f95(thread, is_update: bool = False):
         print(f"❌ Erreur notification F95 : {e}")
 
 # ==================== COMMANDES SLASH ====================
+
+# ✅ Accès direct autorisé (override permissions)
+ALLOWED_USER_ID = 394893413843206155
+
+def _user_can_run_checks(interaction: discord.Interaction) -> bool:
+    """Autorise admin/manage_guild OU un user ID spécifique."""
+    if getattr(interaction.user, "id", None) == ALLOWED_USER_ID:
+        return True
+    perms = getattr(interaction.user, "guild_permissions", None)
+    return bool(perms and (perms.administrator or perms.manage_guild))
+
+
 @bot.tree.command(name="check_version", description="Contrôle les versions F95 (Auto + Semi-Auto)")
 async def check_version(interaction: discord.Interaction):
     """Lance le contrôle complet immédiatement"""
-    perms = getattr(interaction.user, "guild_permissions", None)
-    if not perms or not (perms.administrator or perms.manage_guild):
+    if not _user_can_run_checks(interaction):
         await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
         return
-    
+
     await interaction.response.send_message("⏳ Contrôle des versions F95 en cours…", ephemeral=True)
     try:
         await run_version_check_once()
@@ -354,14 +422,14 @@ async def check_version(interaction: discord.Interaction):
     except Exception as e:
         await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
 
+
 @bot.tree.command(name="check_auto", description="Contrôle uniquement les traductions Auto")
 async def check_auto(interaction: discord.Interaction):
     """Lance le contrôle Auto uniquement"""
-    perms = getattr(interaction.user, "guild_permissions", None)
-    if not perms or not (perms.administrator or perms.manage_guild):
+    if not _user_can_run_checks(interaction):
         await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
         return
-    
+
     await interaction.response.send_message("⏳ Contrôle Auto en cours…", ephemeral=True)
     try:
         await run_version_check_once(forum_filter="auto")
@@ -369,14 +437,14 @@ async def check_auto(interaction: discord.Interaction):
     except Exception as e:
         await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
 
+
 @bot.tree.command(name="check_semiauto", description="Contrôle uniquement les traductions Semi-Auto")
 async def check_semiauto(interaction: discord.Interaction):
     """Lance le contrôle Semi-Auto uniquement"""
-    perms = getattr(interaction.user, "guild_permissions", None)
-    if not perms or not (perms.administrator or perms.manage_guild):
+    if not _user_can_run_checks(interaction):
         await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
         return
-    
+
     await interaction.response.send_message("⏳ Contrôle Semi-Auto en cours…", ephemeral=True)
     try:
         await run_version_check_once(forum_filter="semiauto")
@@ -384,22 +452,52 @@ async def check_semiauto(interaction: discord.Interaction):
     except Exception as e:
         await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
 
+
 @bot.tree.command(name="force_sync", description="Force la synchronisation des commandes (admin uniquement)")
 async def force_sync(interaction: discord.Interaction):
     """Commande temporaire pour forcer le sync"""
-    if not interaction.user.guild_permissions.administrator:
+    # ✅ on garde "admin uniquement" (comme ton intention), sans override user id
+    perms = getattr(interaction.user, "guild_permissions", None)
+    if not perms or not perms.administrator:
         await interaction.response.send_message("⛔ Admin uniquement", ephemeral=True)
         return
-    
+
     await interaction.response.defer(ephemeral=True)
     try:
-        # Sync pour ce serveur spécifiquement (instantané)
         guild = interaction.guild
         bot.tree.copy_global_to(guild=guild)
         await bot.tree.sync(guild=guild)
         await interaction.followup.send("✅ Commandes synchronisées pour ce serveur !", ephemeral=True)
     except Exception as e:
         await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
+
+
+@bot.tree.command(name="count_threads", description="Compte les threads (actifs + archivés) dans les forums")
+async def count_threads(interaction: discord.Interaction):
+    if not _user_can_run_checks(interaction):
+        await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+        return
+
+    await interaction.response.send_message("⏳ Comptage en cours…", ephemeral=True)
+
+    results = []
+    for forum_id, forum_type in [
+        (FORUM_SEMI_AUTO_ID, "Semi-Auto"),
+        (FORUM_AUTO_ID, "Auto"),
+    ]:
+        if not forum_id:
+            continue
+
+        forum = bot.get_channel(forum_id)
+        if not forum:
+            results.append(f"⚠️ Forum {forum_type} introuvable")
+            continue
+
+        threads = await _collect_all_forum_threads(forum)
+        results.append(f"📌 {forum_type}: {len(threads)} threads (actifs + archivés)")
+
+    await interaction.followup.send("\n".join(results), ephemeral=True)
+
 
 # ==================== ÉVÉNEMENTS ====================
 @bot.event
