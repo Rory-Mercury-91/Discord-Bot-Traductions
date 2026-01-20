@@ -79,7 +79,7 @@ const defaultTemplates: Template[] = [
     id: 'mes',
     name: 'Mes traductions',
     type: 'my',
-    content: `## :flag_fr: La traduction française de [Game_name] est disponible ! :tada:
+    content: `## :flag_fr: La traduction française de **[Game_name]** est disponible ! :tada:
 
 Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. Bon jeu à tous ! :point_down:
 
@@ -103,7 +103,7 @@ Pour m'encourager et soutenir mes efforts :
     id: 'partenaire',
     name: 'Traductions partenaire',
     type: 'partner',
-    content: `## :flag_fr: La traduction française de [Game_name] est disponible ! :tada:
+    content: `## :flag_fr: La traduction française de **[Game_name]** est disponible ! :tada:
 
 Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. Bon jeu à tous ! :point_down:
 
