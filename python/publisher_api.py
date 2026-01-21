@@ -694,7 +694,12 @@ async def daily_version_check():
 
 # ==================== COMMANDES SLASH ====================
 ALLOWED_USER_ID = 394893413843206155
+OWNER_IDS = {394893413843206155}
 
+def owner_only():
+    async def predicate(interaction: discord.Interaction) -> bool:
+        return interaction.user and interaction.user.id in OWNER_IDS
+    return app_commands.check(predicate)
 def _user_can_run_checks(interaction: discord.Interaction) -> bool:
     """Autorise admin/manage_guild OU un user ID spécifique."""
     if getattr(interaction.user, "id", None) == ALLOWED_USER_ID:
@@ -797,8 +802,8 @@ async def force_sync(interaction: discord.Interaction):
         logger.error(f"❌ Erreur force_sync: {e}")
         await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
 
+@owner_only()
 @bot.tree.command(name="purge_guild_commands", description="Supprime toutes les commandes slash du bot pour ce serveur")
-@app_commands.checks.is_owner()
 async def purge_guild_commands(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
@@ -806,24 +811,22 @@ async def purge_guild_commands(interaction: discord.Interaction):
         return await interaction.followup.send("❌ À utiliser dans un serveur (pas en DM).", ephemeral=True)
 
     guild = discord.Object(id=interaction.guild_id)
-
-    # Supprime toutes les commandes côté bot pour CE serveur
     bot.tree.clear_commands(guild=guild)
     await bot.tree.sync(guild=guild)
 
-    await interaction.followup.send("🧹 Purge serveur OK (commandes supprimées pour ce serveur).", ephemeral=True)
+    await interaction.followup.send("🧹 Purge serveur OK.", ephemeral=True)
 
 
+@owner_only()
 @bot.tree.command(name="purge_global_commands", description="Supprime toutes les commandes slash globales du bot")
-@app_commands.checks.is_owner()
 async def purge_global_commands(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
-    # Supprime toutes les commandes globales
     bot.tree.clear_commands(guild=None)
     await bot.tree.sync()
 
-    await interaction.followup.send("🧹 Purge globale OK (commandes globales supprimées).", ephemeral=True)
+    await interaction.followup.send("🧹 Purge globale OK.", ephemeral=True)
+
 
 # ==================== ÉVÉNEMENTS BOT ====================
 @bot.event
