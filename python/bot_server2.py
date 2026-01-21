@@ -423,7 +423,7 @@ async def daily_version_check():
 
 # ==================== ENVOI NOTIFICATION F95 ====================
 async def envoyer_notification_f95(thread, is_update: bool = False):
-    """Envoie un rappel pour la publication F95fr (FONCTION CONSERVÉE)"""
+    """Envoie un rappel pour la publication F95fr (FONCTION CORRIGÉE)"""
     channel_notif = bot.get_channel(NOTIFICATION_CHANNEL_F95_ID)
     if not channel_notif:
         print("❌ Canal de notification F95 non trouvé")
@@ -444,9 +444,9 @@ async def envoyer_notification_f95(thread, is_update: bool = False):
         if message and getattr(message, "author", None):
             auteur = message.author.display_name
         
-        # Calcul date de publication
-        date_creation = thread.created_at
-        date_publication = date_creation + datetime.timedelta(days=DAYS_BEFORE_PUBLICATION)
+        # Calcul date de publication (Gestion de la modification incluse)
+        date_ref = message.edited_at if (message and message.edited_at) else thread.created_at
+        date_publication = date_ref + datetime.timedelta(days=DAYS_BEFORE_PUBLICATION)
         timestamp_discord = int(date_publication.timestamp())
         
         action_txt = "a été mis à jour" if is_update else "a été créé"
