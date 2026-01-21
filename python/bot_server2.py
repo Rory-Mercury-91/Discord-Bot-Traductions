@@ -35,6 +35,76 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# ==================== ANTI-RATE LIMIT / CONCURRENCY ====================
+# Empêche plusieurs contrôles/syncs simultanés + réduit les risques de 429 global Discord.
+CHECK_LOCK = asyncio.Lock()
+_LAST_MANUAL_CHECK_AT: Optional[datetime.datetime] = None
+MANUAL_CHECK_COOLDOWN_SECONDS = int(os.getenv("MANUAL_CHECK_COOLDOWN_SECONDS", "90"))
+
+_LAST_SYNC_AT: Dict[int, datetime.datetime] = {}
+SYNC_COOLDOWN_SECONDS = int(os.getenv("SYNC_COOLDOWN_SECONDS", "300"))
+
+async def _sleep_for_rate_limit(e: Exception, default_seconds: float = 10.0):
+    """Attend en cas de 429. Tente de lire retry_after si dispo."""
+    retry_after = None
+    try:
+        data = getattr(e, "text", None)
+        if isinstance(data, dict) and "retry_after" in data:
+            retry_after = float(data["retry_after"])
+    except Exception:
+        retry_after = None
+    await asyncio.sleep(retry_after if retry_after and retry_after > 0 else default_seconds)
+
+async def _safe_channel_send(channel: discord.abc.Messageable, content: str, **kwargs):
+    """Send Discord avec retry léger sur 429."""
+    for attempt in range(3):
+        try:
+            return await channel.send(content=content, **kwargs)
+        except discord.errors.HTTPException as e:
+            if getattr(e, "status", None) == 429:
+                await _sleep_for_rate_limit(e, default_seconds=5.0 * (attempt + 1))
+                continue
+            raise
+    return None
+
+async def _safe_followup_send(interaction: discord.Interaction, content: str, **kwargs):
+    """Followup send avec retry léger sur 429."""
+    for attempt in range(3):
+        try:
+            return await interaction.followup.send(content, **kwargs)
+        except discord.errors.HTTPException as e:
+            if getattr(e, "status", None) == 429:
+                await _sleep_for_rate_limit(e, default_seconds=5.0 * (attempt + 1))
+                continue
+            raise
+    return None
+
+def _manual_check_allowed() -> bool:
+    global _LAST_MANUAL_CHECK_AT
+    now = datetime.datetime.now()
+    if _LAST_MANUAL_CHECK_AT is None:
+        _LAST_MANUAL_CHECK_AT = now
+        return True
+    delta = (now - _LAST_MANUAL_CHECK_AT).total_seconds()
+    if delta < MANUAL_CHECK_COOLDOWN_SECONDS:
+        return False
+    _LAST_MANUAL_CHECK_AT = now
+    return True
+
+async def _safe_tree_sync(*, guild: Optional[discord.abc.Snowflake] = None):
+    """Sync des commandes avec retry sur 429."""
+    for attempt in range(3):
+        try:
+            if guild is None:
+                return await bot.tree.sync()
+            return await bot.tree.sync(guild=guild)
+        except discord.errors.HTTPException as e:
+            if getattr(e, "status", None) == 429:
+                await _sleep_for_rate_limit(e, default_seconds=8.0 * (attempt + 1))
+                continue
+            raise
+    return None
+
 # ==================== REGEX PATTERNS ====================
 _RE_GAME_LINK = re.compile(
     r"^\s*Lien\s+du\s+jeu\s*:\s*\[(?P<label>[^\]]+)\]\((?P<url>https?://[^)]+)\)\s*$",
@@ -44,13 +114,6 @@ _RE_GAME_VERSION = re.compile(
     r"^\s*Version\s+du\s+jeu\s*:\s*(?P<ver>.+?)\s*$",
     re.IGNORECASE | re.MULTILINE
 )
-
-_RE_TRAD_VERSION = re.compile(
-    r"^\s*Version\s+de\s+la\s+traduction\s*:\s*(?P<ver>.+?)\s*$",
-    re.IGNORECASE | re.MULTILINE
-)
-
-
 _RE_BRACKETS = re.compile(r"\[(?P<val>[^\]]+)\]")
 
 # ==================== STOCKAGE ANTI-DOUBLON ====================
@@ -89,24 +152,18 @@ def a_tag_maj(thread) -> bool:
     return False
 
 # ==================== EXTRACTION VERSION ====================
-def _extract_link_and_versions(text: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """
-    Extrait (url_f95, version_jeu, version_trad) depuis le contenu du message.
-    - Compare ensuite F95 avec version_jeu (et PAS version_trad)
-    """
+def _extract_link_and_declared_version(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Extrait (url_f95, version_thread) depuis le contenu du message."""
     if not text:
-        return None, None, None
-
+        return None, None
+    
     m_link = _RE_GAME_LINK.search(text)
-    m_game = _RE_GAME_VERSION.search(text)
-    m_trad = _RE_TRAD_VERSION.search(text)
-
+    m_ver = _RE_GAME_VERSION.search(text)
+    
     url = m_link.group("url").strip() if m_link else None
-    game_ver = m_game.group("ver").strip() if m_game else None
-    trad_ver = m_trad.group("ver").strip() if m_trad else None
-
-    return url, game_ver, trad_ver
-
+    ver = m_ver.group("ver").strip() if m_ver else None
+    
+    return url, ver
 
 def _extract_version_from_f95_title(title_text: str) -> Optional[str]:
     """Récupère la version depuis le titre F95, ex: 'Game [Ch.7] [Author]' -> 'Ch.7'"""
@@ -142,110 +199,67 @@ async def _fetch_f95_title(session: aiohttp.ClientSession, url: str) -> Optional
 # ==================== CONTRÔLE VERSIONS ====================
 class VersionAlert:
     """Représente une alerte de version"""
-    def __init__(
-        self,
-        thread_name: str,
-        thread_url: str,
-        f95_version: Optional[str],
-        game_version: Optional[str],
-        trad_version: Optional[str],
-        forum_type: str
-    ):
+    def __init__(self, thread_name: str, thread_url: str, f95_version: Optional[str], 
+                 declared_version: Optional[str], forum_type: str):
         self.thread_name = thread_name
         self.thread_url = thread_url
         self.f95_version = f95_version
-        self.game_version = game_version
-        self.trad_version = trad_version
+        self.declared_version = declared_version
         self.forum_type = forum_type  # "Auto" ou "Semi-Auto"
 
-
 async def _group_and_send_alerts(channel: discord.TextChannel, alerts: List[VersionAlert]):
-    """Regroupe et envoie les alertes par catégorie en respectant la limite Discord (2000 chars)."""
+    """Regroupe et envoie les alertes par catégorie (max 10 par message)"""
     if not alerts:
         return
-
-    MAX_ITEMS_PER_MESSAGE = 5
-    MAX_CHARS = 1900  # marge de sécurité (<2000)
-
+    
+    # Groupement par type (Auto/Semi-Auto) et par catégorie (différente/non détectée)
     groups = {
         "Auto_diff": [],
         "Auto_missing": [],
         "SemiAuto_diff": [],
         "SemiAuto_missing": []
     }
-
+    
     for alert in alerts:
         prefix = "Auto" if alert.forum_type == "Auto" else "SemiAuto"
         suffix = "diff" if alert.f95_version else "missing"
-        groups[f"{prefix}_{suffix}"].append(alert)
-
-    async def send_chunked(title: str, items: List[str]):
-        """Envoie une liste de blocs (strings) en messages chunkés."""
-        base_header = title + "\n\n"
-        current = base_header
-
-        sent_any = False
-        for block in items:
-            # Si le bloc seul est énorme, on le tronque (rare mais possible)
-            if len(block) > MAX_CHARS:
-                block = block[:MAX_CHARS - 20] + "\n…(tronqué)\n"
-
-            # Si ça dépasse, on envoie le message courant et on recommence
-            if len(current) + len(block) > MAX_CHARS:
-                if current.strip() != title.strip():
-                    await channel.send(current)
-                    await asyncio.sleep(1.2)
-                    sent_any = True
-                current = base_header + block
-            else:
-                current += block
-
-        # envoie le reste
-        if current.strip() != title.strip():
-            await channel.send(current)
-            await asyncio.sleep(1.2)
-            sent_any = True
-
-        return sent_any
-
+        key = f"{prefix}_{suffix}"
+        groups[key].append(alert)
+    
+    # Envoi par catégorie
     for key, alert_list in groups.items():
         if not alert_list:
             continue
-
+        
+        # Déterminer le titre du message
         forum_type = "Traduction Auto" if "Auto" in key else "Traduction Semi-Auto"
         if "diff" in key:
             title = f"🚨 **{forum_type} : Mises à jour détectées sur F95** ({len(alert_list)} jeux)"
         else:
             title = f"⚠️ **{forum_type} : Version indisponible sur F95** ({len(alert_list)} jeux)"
-
-        # Construire les blocs par jeu
-        blocks = []
-        for alert in alert_list:
-            trad_line = f"├ Version trad : `{alert.trad_version}`\n" if getattr(alert, "trad_version", None) else ""
-
-            if alert.f95_version:
-                blocks.append(
-                    f"**{alert.thread_name}**\n"
-                    f"├ Version F95 : `{alert.f95_version}`\n"
-                    f"├ Version jeu (post) : `{alert.game_version or 'Non renseignée'}`\n"
-                    f"{trad_line}"
-                    f"└ Lien : {alert.thread_url}\n\n"
-                )
-            else:
-                blocks.append(
-                    f"**{alert.thread_name}**\n"
-                    f"├ Version jeu (post) : `{alert.game_version or 'Non renseignée'}`\n"
-                    f"{trad_line}"
-                    f"└ Lien : {alert.thread_url}\n\n"
-                )
-
-        # 1) découpage par paquets de 5 jeux
-        for i in range(0, len(blocks), MAX_ITEMS_PER_MESSAGE):
-            batch = blocks[i:i + MAX_ITEMS_PER_MESSAGE]
-            # 2) envoi chunké avec limite de caractères
-            await send_chunked(title, batch)
-
-
+        
+        # Découpage par paquets de 10
+        for i in range(0, len(alert_list), 10):
+            batch = alert_list[i:i+10]
+            
+            msg_parts = [title, ""]
+            for alert in batch:
+                if alert.f95_version:
+                    msg_parts.append(
+                        f"**{alert.thread_name}**\n"
+                        f"├ Version F95 : `{alert.f95_version}`\n"
+                        f"├ Version annoncée : `{alert.declared_version or 'Non renseignée'}`\n"
+                        f"└ Lien : {alert.thread_url}\n"
+                    )
+                else:
+                    msg_parts.append(
+                        f"**{alert.thread_name}**\n"
+                        f"├ Version annoncée : `{alert.declared_version or 'Non renseignée'}`\n"
+                        f"└ Lien : {alert.thread_url}\n"
+                    )
+            
+            await channel.send("\n".join(msg_parts))
+            await asyncio.sleep(1.5)  # Anti-rate limit
 
 
 async def _collect_all_forum_threads(forum: discord.ForumChannel) -> List[discord.Thread]:
@@ -299,16 +313,13 @@ async def run_version_check_once(forum_filter: Optional[str] = None):
     """
     Effectue le contrôle des versions F95
     forum_filter: None (tous), "auto", ou "semiauto"
-
-    LOGIQUE CORRIGÉE :
-    - On compare la version F95 (titre) avec la "Version du jeu" du post
-    - "Version de la traduction" n'entre pas dans la comparaison (info seulement)
     """
     channel_warn = bot.get_channel(WARNING_MAJ_CHANNEL_ID)
     if not channel_warn:
         print("❌ Salon avertissements MAJ/version introuvable")
         return
-
+    
+    # Déterminer quels forums vérifier
     forum_configs = []
     if forum_filter is None or forum_filter == "auto":
         if FORUM_AUTO_ID:
@@ -316,34 +327,39 @@ async def run_version_check_once(forum_filter: Optional[str] = None):
     if forum_filter is None or forum_filter == "semiauto":
         if FORUM_SEMI_AUTO_ID:
             forum_configs.append((FORUM_SEMI_AUTO_ID, "Semi-Auto"))
-
+    
     if not forum_configs:
         print("⚠️ Aucun forum configuré pour le check version")
         return
-
+    
+    # Nettoyer les anciennes notifications
     _clean_old_notifications()
-
+    
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
     }
-
-    all_alerts: List[VersionAlert] = []
-
+    
+    all_alerts = []
+    
     async with aiohttp.ClientSession(headers=headers) as session:
         for forum_id, forum_type in forum_configs:
             forum = bot.get_channel(forum_id)
             if not forum:
                 print(f"⚠️ Forum {forum_id} introuvable")
                 continue
-
+            
+            # threads = list(getattr(forum, "threads", []) or [])
+            # print(f"🔎 Check version F95 [{forum_type}]: {len(threads)} threads actifs")
             threads = await _collect_all_forum_threads(forum)
             print(f"🔎 Check version F95 [{forum_type}]: {len(threads)} threads (actifs + archivés)")
 
             for thread in threads:
+                # Jitter anti-rate limit
                 await asyncio.sleep(0.6 + random.random() * 0.6)
-
+                
+                # Récupérer starter message
                 msg = thread.starter_message
                 if not msg:
                     try:
@@ -351,66 +367,59 @@ async def run_version_check_once(forum_filter: Optional[str] = None):
                         msg = thread.starter_message or await thread.fetch_message(thread.id)
                     except Exception:
                         msg = None
-
+                
                 content = (msg.content if msg else "") or ""
-
-                # ✅ NOUVEAU : on extrait url + version jeu + version trad
-                f95_url, game_version, trad_version = _extract_link_and_versions(content)
-
-                # On ne check que si on a l'URL et la version du jeu
-                if not f95_url or not game_version:
+                f95_url, declared_version = _extract_link_and_declared_version(content)
+                
+                if not f95_url or not declared_version:
                     continue
-
-                # Fetch titre F95 + extraction version
+                
+                # Fetch titre F95
                 title_text = await _fetch_f95_title(session, f95_url)
                 f95_version = _extract_version_from_f95_title(title_text or "")
-
+                
                 # Cas 1: Version non détectée sur F95
                 if not f95_version:
                     if not _is_already_notified(thread.id, "NO_VERSION"):
-                        all_alerts.append(
-                            VersionAlert(
-                                thread_name=thread.name,
-                                thread_url=thread.jump_url,
-                                f95_version=None,
-                                game_version=game_version,
-                                trad_version=trad_version,
-                                forum_type=forum_type,
-                            )
-                        )
+                        all_alerts.append(VersionAlert(
+                            thread.name, thread.jump_url, None, 
+                            declared_version, forum_type
+                        ))
                         _mark_as_notified(thread.id, "NO_VERSION")
                     continue
-
-                # ✅ Cas 2: comparaison CORRIGÉE -> F95 vs VERSION DU JEU
-                if f95_version.strip() != game_version.strip():
+                
+                # Cas 2: Versions différentes
+                if f95_version.strip() != declared_version.strip():
                     if not _is_already_notified(thread.id, f95_version):
-                        all_alerts.append(
-                            VersionAlert(
-                                thread_name=thread.name,
-                                thread_url=thread.jump_url,
-                                f95_version=f95_version,
-                                game_version=game_version,
-                                trad_version=trad_version,
-                                forum_type=forum_type,
-                            )
-                        )
+                        all_alerts.append(VersionAlert(
+                            thread.name, thread.jump_url, f95_version,
+                            declared_version, forum_type
+                        ))
                         _mark_as_notified(thread.id, f95_version)
                 else:
-                    print(f"✅ Version OK [{forum_type}]: {thread.name} (jeu={game_version})")
-
+                    # Version identique - log uniquement
+                    print(f"✅ Version OK [{forum_type}]: {thread.name} ({declared_version})")
+    
+    # Envoi groupé des alertes
     await _group_and_send_alerts(channel_warn, all_alerts)
     print(f"📊 Contrôle terminé : {len(all_alerts)} alertes envoyées")
-
 
 # ==================== TÂCHE QUOTIDIENNE ====================
 @tasks.loop(time=datetime.time(hour=CHECK_TIME_HOUR, minute=CHECK_TIME_MINUTE, tzinfo=ZoneInfo("Europe/Paris")))
 async def daily_version_check():
     """Contrôle quotidien à 06:00 Europe/Paris"""
     print(f"🕕 Démarrage contrôle quotidien des versions F95")
-    try:
-        await run_version_check_once()
-    except Exception as e:
-        print(f"❌ Erreur contrôle quotidien: {e}")
+
+    # Évite de lancer un contrôle si un autre est déjà en cours (manuel/auto)
+    if CHECK_LOCK.locked():
+        print("⏭️ Contrôle quotidien ignoré: un contrôle est déjà en cours.")
+        return
+
+    async with CHECK_LOCK:
+        try:
+            await run_version_check_once()
+        except Exception as e:
+            print(f"❌ Erreur contrôle quotidien: {e}")
 
 # ==================== ENVOI NOTIFICATION F95 ====================
 async def envoyer_notification_f95(thread, is_update: bool = False):
@@ -450,7 +459,7 @@ async def envoyer_notification_f95(thread, is_update: bool = False):
             f"🔗 Lien : {thread.jump_url}"
         )
         
-        await channel_notif.send(content=msg_content)
+        await _safe_channel_send(channel_notif, msg_content)
         print(f"✅ Notification F95 envoyée pour : {thread.name}")
         
     except Exception as e:
@@ -470,14 +479,14 @@ def _user_can_run_checks(interaction: discord.Interaction) -> bool:
 
 @bot.tree.command(name="check_help", description="Affiche la liste des commandes et leur utilité")
 async def check_help(interaction: discord.Interaction):
-    # ✅ Ack immédiat (évite 404 Unknown interaction)
+    # ✅ Ack immédiat (réduit risques 404/timeout)
     try:
         await interaction.response.defer(ephemeral=True)
     except Exception:
         pass
 
     if not _user_can_run_checks(interaction):
-        await interaction.followup.send("⛔ Permission insuffisante.", ephemeral=True)
+        await _safe_followup_send(interaction, "⛔ Permission insuffisante.", ephemeral=True)
         return
 
     help_text = (
@@ -486,95 +495,244 @@ async def check_help(interaction: discord.Interaction):
         "**/check_auto** — Lance le contrôle des versions F95 uniquement sur le forum Auto.\n"
         "**/check_semiauto** — Lance le contrôle des versions F95 uniquement sur le forum Semi-Auto.\n"
         "**/check_count** — Compte les threads du forum (actifs + archivés) pour vérifier que le bot “voit tout”.\n"
-        "**/force_sync** — Force la synchronisation des commandes slash.\n"
+        "**/force_sync** — Force la synchronisation des commandes slash (serveur).\n"
+        "**/clean_ghost_commands** — Nettoie les commandes fantômes (serveur) et resynchronise.\n"
     )
 
-    await interaction.followup.send(help_text, ephemeral=True)
-
+    await _safe_followup_send(interaction, help_text, ephemeral=True)
 
 
 @bot.tree.command(name="check_version", description="Contrôle les versions F95 (Auto + Semi-Auto)")
 async def check_version(interaction: discord.Interaction):
-    """Lance le contrôle complet immédiatement"""
+    """Lance le contrôle complet immédiatement (protégé anti-spam / anti-concurrence)."""
     if not _user_can_run_checks(interaction):
-        await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+        try:
+            await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+        except Exception:
+            pass
         return
 
-    await interaction.response.send_message("⏳ Contrôle des versions F95 en cours…", ephemeral=True)
+    # Cooldown anti-spam (évite de déclencher plusieurs fois et taper les limites globales)
+    if not _manual_check_allowed():
+        try:
+            await interaction.response.send_message(
+                f"⏳ Merci d'attendre ~{MANUAL_CHECK_COOLDOWN_SECONDS}s entre deux contrôles manuels.",
+                ephemeral=True
+            )
+        except Exception:
+            pass
+        return
+
+    # Ack immédiat (moins risqué qu'un send direct en période de rate-limit)
     try:
-        await run_version_check_once()
-        await interaction.followup.send("✅ Contrôle terminé.", ephemeral=True)
-    except Exception as e:
-        await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
+    except discord.errors.HTTPException as e:
+        if getattr(e, "status", None) == 429:
+            return
+        raise
+    except Exception:
+        pass
+
+    # Une seule exécution à la fois
+    if CHECK_LOCK.locked():
+        await _safe_followup_send(interaction, "⏳ Un contrôle est déjà en cours. Réessaie plus tard.", ephemeral=True)
+        return
+
+    async with CHECK_LOCK:
+        await _safe_followup_send(interaction, "⏳ Contrôle des versions F95 en cours…", ephemeral=True)
+        try:
+            await run_version_check_once()
+            await _safe_followup_send(interaction, "✅ Contrôle terminé.", ephemeral=True)
+        except Exception as e:
+            await _safe_followup_send(interaction, f"❌ Erreur: {e}", ephemeral=True)
 
 
 @bot.tree.command(name="check_auto", description="Contrôle uniquement les traductions Auto")
 async def check_auto(interaction: discord.Interaction):
-    """Lance le contrôle Auto uniquement"""
+    """Lance le contrôle Auto uniquement."""
     if not _user_can_run_checks(interaction):
-        await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+        try:
+            await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+        except Exception:
+            pass
         return
 
-    await interaction.response.send_message("⏳ Contrôle Auto en cours…", ephemeral=True)
+    if not _manual_check_allowed():
+        try:
+            await interaction.response.send_message(
+                f"⏳ Merci d'attendre ~{MANUAL_CHECK_COOLDOWN_SECONDS}s entre deux contrôles manuels.",
+                ephemeral=True
+            )
+        except Exception:
+            pass
+        return
+
     try:
-        await run_version_check_once(forum_filter="auto")
-        await interaction.followup.send("✅ Contrôle Auto terminé.", ephemeral=True)
-    except Exception as e:
-        await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
+    except discord.errors.HTTPException as e:
+        if getattr(e, "status", None) == 429:
+            return
+        raise
+    except Exception:
+        pass
+
+    if CHECK_LOCK.locked():
+        await _safe_followup_send(interaction, "⏳ Un contrôle est déjà en cours. Réessaie plus tard.", ephemeral=True)
+        return
+
+    async with CHECK_LOCK:
+        await _safe_followup_send(interaction, "⏳ Contrôle Auto en cours…", ephemeral=True)
+        try:
+            await run_version_check_once(forum_filter="auto")
+            await _safe_followup_send(interaction, "✅ Contrôle Auto terminé.", ephemeral=True)
+        except Exception as e:
+            await _safe_followup_send(interaction, f"❌ Erreur: {e}", ephemeral=True)
 
 
 @bot.tree.command(name="check_semiauto", description="Contrôle uniquement les traductions Semi-Auto")
 async def check_semiauto(interaction: discord.Interaction):
-    """Lance le contrôle Semi-Auto uniquement"""
+    """Lance le contrôle Semi-Auto uniquement."""
     if not _user_can_run_checks(interaction):
-        await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+        try:
+            await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+        except Exception:
+            pass
         return
 
-    await interaction.response.send_message("⏳ Contrôle Semi-Auto en cours…", ephemeral=True)
+    if not _manual_check_allowed():
+        try:
+            await interaction.response.send_message(
+                f"⏳ Merci d'attendre ~{MANUAL_CHECK_COOLDOWN_SECONDS}s entre deux contrôles manuels.",
+                ephemeral=True
+            )
+        except Exception:
+            pass
+        return
+
     try:
-        await run_version_check_once(forum_filter="semiauto")
-        await interaction.followup.send("✅ Contrôle Semi-Auto terminé.", ephemeral=True)
-    except Exception as e:
-        await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
+        await interaction.response.defer(ephemeral=True, thinking=True)
+    except discord.errors.HTTPException as e:
+        if getattr(e, "status", None) == 429:
+            return
+        raise
+    except Exception:
+        pass
+
+    if CHECK_LOCK.locked():
+        await _safe_followup_send(interaction, "⏳ Un contrôle est déjà en cours. Réessaie plus tard.", ephemeral=True)
+        return
+
+    async with CHECK_LOCK:
+        await _safe_followup_send(interaction, "⏳ Contrôle Semi-Auto en cours…", ephemeral=True)
+        try:
+            await run_version_check_once(forum_filter="semiauto")
+            await _safe_followup_send(interaction, "✅ Contrôle Semi-Auto terminé.", ephemeral=True)
+        except Exception as e:
+            await _safe_followup_send(interaction, f"❌ Erreur: {e}", ephemeral=True)
 
 
 @bot.tree.command(name="force_sync", description="Force la synchronisation des commandes")
 async def force_sync(interaction: discord.Interaction):
-    """Force le sync des commandes. Autorisé pour admin OU ALLOWED_USER_ID."""
-    # ✅ Acknowledge tout de suite (évite 404 Unknown interaction)
+    """Force le sync des commandes (serveur). Autorisé pour admin/manage_guild OU ALLOWED_USER_ID."""
     try:
         await interaction.response.defer(ephemeral=True)
     except Exception:
-        # si déjà ack, on continue et on utilisera followup
         pass
 
-    # ✅ Autorisation: admin OU ton user ID
     if not _user_can_run_checks(interaction):
-        await interaction.followup.send("⛔ Permission insuffisante.", ephemeral=True)
+        await _safe_followup_send(interaction, "⛔ Permission insuffisante.", ephemeral=True)
         return
 
+    guild = interaction.guild
+    if guild is None:
+        await _safe_followup_send(interaction, "❌ Impossible: commande utilisable uniquement dans un serveur.", ephemeral=True)
+        return
+
+    # Cooldown sync par guild (évite spam et 429)
+    now = datetime.datetime.now()
+    last = _LAST_SYNC_AT.get(guild.id)
+    if last and (now - last).total_seconds() < SYNC_COOLDOWN_SECONDS:
+        await _safe_followup_send(
+            interaction,
+            f"⏳ Sync déjà fait récemment. Attends ~{SYNC_COOLDOWN_SECONDS}s avant de resynchroniser.",
+            ephemeral=True
+        )
+        return
+    _LAST_SYNC_AT[guild.id] = now
+
     try:
-        guild = interaction.guild
-        if guild is None:
-            await interaction.followup.send("❌ Impossible: commande utilisable uniquement dans un serveur.", ephemeral=True)
-            return
-
         bot.tree.copy_global_to(guild=guild)
-        await bot.tree.sync(guild=guild)
-
-        await interaction.followup.send("✅ Commandes synchronisées pour ce serveur !", ephemeral=True)
+        await _safe_tree_sync(guild=guild)
+        await _safe_followup_send(interaction, "✅ Commandes synchronisées pour ce serveur !", ephemeral=True)
+    except discord.errors.HTTPException as e:
+        if getattr(e, "status", None) == 429:
+            await _safe_followup_send(interaction, "⚠️ Rate limit Discord (429). Réessaie dans quelques minutes.", ephemeral=True)
+            return
+        await _safe_followup_send(interaction, f"❌ Erreur: {e}", ephemeral=True)
     except Exception as e:
-        await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
+        await _safe_followup_send(interaction, f"❌ Erreur: {e}", ephemeral=True)
 
+
+@bot.tree.command(name="clean_ghost_commands", description="Nettoie les commandes fantômes (serveur) et resynchronise")
+async def clean_ghost_commands(interaction: discord.Interaction):
+    """Supprime les commandes de guild côté Discord, puis republie les commandes actuelles.
+    Utile si tu vois des commandes fantômes / CommandNotFound.
+    """
+    try:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+    except Exception:
+        pass
+
+    if not _user_can_run_checks(interaction):
+        await _safe_followup_send(interaction, "⛔ Permission insuffisante.", ephemeral=True)
+        return
+
+    guild = interaction.guild
+    if guild is None:
+        await _safe_followup_send(interaction, "❌ Impossible: commande utilisable uniquement dans un serveur.", ephemeral=True)
+        return
+
+    # Petite protection anti-spam sync/clean
+    now = datetime.datetime.now()
+    last = _LAST_SYNC_AT.get(guild.id)
+    if last and (now - last).total_seconds() < 30:
+        await _safe_followup_send(interaction, "⏳ Attends quelques secondes avant de relancer un nettoyage.", ephemeral=True)
+        return
+    _LAST_SYNC_AT[guild.id] = now
+
+    try:
+        # 1) Supprime toutes les commandes guild enregistrées côté Discord
+        bot.tree.clear_commands(guild=guild)
+        await _safe_tree_sync(guild=guild)
+        await asyncio.sleep(1.0)
+
+        # 2) Republie l'état actuel des commandes (global -> guild)
+        bot.tree.copy_global_to(guild=guild)
+        await _safe_tree_sync(guild=guild)
+
+        await _safe_followup_send(interaction, "🧹 Nettoyage terminé. Les commandes du serveur ont été régénérées.", ephemeral=True)
+    except discord.errors.HTTPException as e:
+        if getattr(e, "status", None) == 429:
+            await _safe_followup_send(interaction, "⚠️ Rate limit Discord (429). Réessaie dans quelques minutes.", ephemeral=True)
+            return
+        await _safe_followup_send(interaction, f"❌ Erreur: {e}", ephemeral=True)
+    except Exception as e:
+        await _safe_followup_send(interaction, f"❌ Erreur: {e}", ephemeral=True)
 
 
 @bot.tree.command(name="check_count", description="Compte les threads (actifs + archivés) dans les forums")
 async def check_count(interaction: discord.Interaction):
     if not _user_can_run_checks(interaction):
-        await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+        try:
+            await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+        except Exception:
+            pass
         return
 
-    await interaction.response.send_message("⏳ Comptage en cours…", ephemeral=True)
+    try:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+    except Exception:
+        pass
 
     results = []
     for forum_id, forum_type in [
@@ -592,21 +750,48 @@ async def check_count(interaction: discord.Interaction):
         threads = await _collect_all_forum_threads(forum)
         results.append(f"📌 {forum_type}: {len(threads)} threads (actifs + archivés)")
 
-    await interaction.followup.send("\n".join(results), ephemeral=True)
+    await _safe_followup_send(interaction, "\n".join(results), ephemeral=True)
+
+
+# ==================== GESTION ERREURS COMMANDES (ANTI-BRUIT / ANTI-GHOST) ====================
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    # Commandes fantômes / caches Discord : on ignore le bruit
+    if isinstance(error, app_commands.CommandNotFound):
+        return
+
+    # Si Discord est en 429 global, on évite de spammer les logs
+    underlying = getattr(error, "original", None)
+    if isinstance(underlying, discord.errors.HTTPException) and getattr(underlying, "status", None) == 429:
+        return
+
+    # Laisse remonter les autres erreurs (pour debug)
+    raise error
 
 
 # ==================== ÉVÉNEMENTS ====================
+
 @bot.event
 async def on_ready():
     print(f'🤖 Bot Serveur 2 prêt : {bot.user}')
-    
-    # Sync commandes slash
-    try:
-        await bot.tree.sync()
-        print("✅ Commandes slash synchronisées (/check_version, /check_auto, /check_semiauto)")
-    except Exception as e:
-        print(f"⚠️ Sync commandes slash échouée: {e}")
-    
+
+    # Sync commandes slash (avec jitter + retry sur 429)
+    # Tu peux désactiver l'auto-sync via DISABLE_AUTO_SYNC=1
+    if not getattr(bot, "_did_initial_sync", False):
+        bot._did_initial_sync = True
+        if os.getenv("DISABLE_AUTO_SYNC", "0") != "1":
+            await asyncio.sleep(2.0 + random.random() * 4.0)
+            try:
+                await _safe_tree_sync(guild=None)
+                print("✅ Commandes slash synchronisées (/check_version, /check_auto, /check_semiauto)")
+            except discord.errors.HTTPException as e:
+                if getattr(e, "status", None) == 429:
+                    print("⚠️ Sync commandes slash rate-limited (429). Ignoré au démarrage.")
+                else:
+                    print(f"⚠️ Sync commandes slash échouée: {e}")
+            except Exception as e:
+                print(f"⚠️ Sync commandes slash échouée: {e}")
+
     # Lancement tâche quotidienne
     if not daily_version_check.is_running():
         daily_version_check.start()
