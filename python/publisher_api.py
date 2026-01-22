@@ -802,30 +802,6 @@ async def force_sync(interaction: discord.Interaction):
         logger.error(f"❌ Erreur force_sync: {e}")
         await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
 
-@owner_only()
-@bot.tree.command(name="purge_guild_commands", description="Supprime toutes les commandes slash du bot pour ce serveur")
-async def purge_guild_commands(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-
-    if not interaction.guild_id:
-        return await interaction.followup.send("❌ À utiliser dans un serveur (pas en DM).", ephemeral=True)
-
-    guild = discord.Object(id=interaction.guild_id)
-    bot.tree.clear_commands(guild=guild)
-    await bot.tree.sync(guild=guild)
-
-    await interaction.followup.send("🧹 Purge serveur OK.", ephemeral=True)
-
-
-@owner_only()
-@bot.tree.command(name="purge_global_commands", description="Supprime toutes les commandes slash globales du bot")
-async def purge_global_commands(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-
-    bot.tree.clear_commands(guild=None)
-    await bot.tree.sync()
-
-    await interaction.followup.send("🧹 Purge globale OK.", ephemeral=True)
 
 # Définir l'ID du propriétaire (celui qui peut utiliser ces commandes)
 OWNER_IDS = {394893413843206155}
