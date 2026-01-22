@@ -36,7 +36,6 @@ intents.guilds = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ==================== ANTI-RATE LIMIT / CONCURRENCY ====================
-# Empêche plusieurs contrôles/syncs simultanés + réduit les risques de 429 global Discord.
 CHECK_LOCK = asyncio.Lock()
 _LAST_MANUAL_CHECK_AT: Optional[datetime.datetime] = None
 MANUAL_CHECK_COOLDOWN_SECONDS = int(os.getenv("MANUAL_CHECK_COOLDOWN_SECONDS", "90"))
@@ -114,10 +113,13 @@ _RE_GAME_VERSION = re.compile(
     r"^\s*Version\s+du\s+jeu\s*:\s*(?P<ver>.+?)\s*$",
     re.IGNORECASE | re.MULTILINE
 )
+_RE_TRANSLATION_VERSION = re.compile(
+    r"^\s*Version\s+de\s+la\s+traduction\s*:\s*(?P<ver>.+?)\s*$",
+    re.IGNORECASE | re.MULTILINE
+)
 _RE_BRACKETS = re.compile(r"\[(?P<val>[^\]]+)\]")
 
 # ==================== STOCKAGE ANTI-DOUBLON ====================
-# Structure: {thread_id: {"f95_version": "Ch.7", "timestamp": datetime}}
 _notified_versions: Dict[int, Dict] = {}
 
 def _clean_old_notifications():
@@ -152,18 +154,20 @@ def a_tag_maj(thread) -> bool:
     return False
 
 # ==================== EXTRACTION VERSION ====================
-def _extract_link_and_declared_version(text: str) -> Tuple[Optional[str], Optional[str]]:
-    """Extrait (url_f95, version_thread) depuis le contenu du message."""
+def _extract_link_and_versions(text: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Extrait (url_f95, version_jeu, version_traduction) depuis le contenu du message."""
     if not text:
-        return None, None
+        return None, None, None
     
     m_link = _RE_GAME_LINK.search(text)
-    m_ver = _RE_GAME_VERSION.search(text)
+    m_game_ver = _RE_GAME_VERSION.search(text)
+    m_trad_ver = _RE_TRANSLATION_VERSION.search(text)
     
     url = m_link.group("url").strip() if m_link else None
-    ver = m_ver.group("ver").strip() if m_ver else None
+    game_ver = m_game_ver.group("ver").strip() if m_game_ver else None
+    trad_ver = m_trad_ver.group("ver").strip() if m_trad_ver else None
     
-    return url, ver
+    return url, game_ver, trad_ver
 
 def _extract_version_from_f95_title(title_text: str) -> Optional[str]:
     """Récupère la version depuis le titre F95, ex: 'Game [Ch.7] [Author]' -> 'Ch.7'"""
@@ -185,13 +189,12 @@ async def _fetch_f95_title(session: aiohttp.ClientSession, url: str) -> Optional
         print(f"⚠️ Erreur fetch F95 {url}: {e}")
         return None
 
-    # Parsing léger: cherche <h1 class="p-title-value">...</h1>
     m = re.search(r"<h1[^>]*class=\"p-title-value\"[^>]*>(.*?)</h1>", html, re.IGNORECASE | re.DOTALL)
     if not m:
         return None
     
     raw = m.group(1)
-    txt = re.sub(r"<[^>]+>", "", raw)  # Supprime les tags HTML
+    txt = re.sub(r"<[^>]+>", "", raw)
     txt = re.sub(r"\s+", " ", txt).strip()
     
     return txt or None
@@ -200,19 +203,20 @@ async def _fetch_f95_title(session: aiohttp.ClientSession, url: str) -> Optional
 class VersionAlert:
     """Représente une alerte de version"""
     def __init__(self, thread_name: str, thread_url: str, f95_version: Optional[str], 
-                 declared_version: Optional[str], forum_type: str):
+                 post_game_version: Optional[str], post_trad_version: Optional[str], 
+                 forum_type: str):
         self.thread_name = thread_name
         self.thread_url = thread_url
         self.f95_version = f95_version
-        self.declared_version = declared_version
-        self.forum_type = forum_type  # "Auto" ou "Semi-Auto"
+        self.post_game_version = post_game_version
+        self.post_trad_version = post_trad_version
+        self.forum_type = forum_type
 
 async def _group_and_send_alerts(channel: discord.TextChannel, alerts: List[VersionAlert]):
-    """Regroupe et envoie les alertes par catégorie (max 10 par message)"""
+    """Regroupe et envoie les alertes par catégorie (max 5 par message)"""
     if not alerts:
         return
     
-    # Groupement par type (Auto/Semi-Auto) et par catégorie (différente/non détectée)
     groups = {
         "Auto_diff": [],
         "Auto_missing": [],
@@ -226,21 +230,22 @@ async def _group_and_send_alerts(channel: discord.TextChannel, alerts: List[Vers
         key = f"{prefix}_{suffix}"
         groups[key].append(alert)
     
-    # Envoi par catégorie
     for key, alert_list in groups.items():
         if not alert_list:
             continue
         
-        # Déterminer le titre du message
-        forum_type = "Traduction Auto" if "Auto" in key else "Traduction Semi-Auto"
-        if "diff" in key:
-            title = f"🚨 **{forum_type} : Mises à jour détectées sur F95** ({len(alert_list)} jeux)"
+        if "Auto" in key:
+            forum_name = "Mes traductions"
         else:
-            title = f"⚠️ **{forum_type} : Version indisponible sur F95** ({len(alert_list)} jeux)"
+            forum_name = "Traductions communautaires"
         
-        # Découpage par paquets de 10
-        for i in range(0, len(alert_list), 10):
-            batch = alert_list[i:i+10]
+        if "diff" in key:
+            title = f"🚨 **Mises à jour détectées : {forum_name}** ({len(alert_list)} jeux)"
+        else:
+            title = f"⚠️ **Version indisponible sur F95 : {forum_name}** ({len(alert_list)} jeux)"
+        
+        for i in range(0, len(alert_list), 5):
+            batch = alert_list[i:i+5]
             
             msg_parts = [title, ""]
             for alert in batch:
@@ -248,48 +253,39 @@ async def _group_and_send_alerts(channel: discord.TextChannel, alerts: List[Vers
                     msg_parts.append(
                         f"**{alert.thread_name}**\n"
                         f"├ Version F95 : `{alert.f95_version}`\n"
-                        f"├ Version annoncée : `{alert.declared_version or 'Non renseignée'}`\n"
+                        f"├ Version du poste : `{alert.post_game_version or 'Non renseignée'}`\n"
+                        f"├ Version traduction : `{alert.post_trad_version or 'Non renseignée'}`\n"
                         f"└ Lien : {alert.thread_url}\n"
                     )
                 else:
                     msg_parts.append(
                         f"**{alert.thread_name}**\n"
-                        f"├ Version annoncée : `{alert.declared_version or 'Non renseignée'}`\n"
+                        f"├ Version du poste : `{alert.post_game_version or 'Non renseignée'}`\n"
+                        f"├ Version traduction : `{alert.post_trad_version or 'Non renseignée'}`\n"
                         f"└ Lien : {alert.thread_url}\n"
                     )
             
-            await channel.send("\n".join(msg_parts))
-            await asyncio.sleep(1.5)  # Anti-rate limit
+            await _safe_channel_send(channel, "\n".join(msg_parts))
+            await asyncio.sleep(1.5)
 
 
 async def _collect_all_forum_threads(forum: discord.ForumChannel) -> List[discord.Thread]:
-    """
-    Retourne TOUS les threads d'un forum :
-    - Actifs (forum.threads)
-    - Archivés publics (forum.archived_threads)
-    
-    Note: les 'private archived threads' ne concernent généralement pas les forums.
-    """
+    """Retourne TOUS les threads d'un forum : actifs + archivés"""
     all_threads: Dict[int, discord.Thread] = {}
 
-    # 1) Threads actifs (cache)
     for t in list(getattr(forum, "threads", []) or []):
         all_threads[t.id] = t
 
-    # 2) Threads archivés publics (pagination)
-    # discord.py expose généralement forum.archived_threads(...)
     if hasattr(forum, "archived_threads"):
         before = None
         while True:
             batch = []
             try:
-                async for t in forum.archived_threads(limit=100, before=before):  # public archived
+                async for t in forum.archived_threads(limit=100, before=before):
                     batch.append(t)
             except TypeError:
-                # Compat si la signature diffère (certaines versions)
                 async for t in forum.archived_threads(limit=100):
                     batch.append(t)
-                    # pas de pagination possible -> 1 passe
 
             if not batch:
                 break
@@ -297,12 +293,9 @@ async def _collect_all_forum_threads(forum: discord.ForumChannel) -> List[discor
             for t in batch:
                 all_threads[t.id] = t
 
-            # Pagination : on continue "avant" le plus vieux de la page
             before = batch[-1].archive_timestamp or batch[-1].created_at
-            # Sécurité anti-rate limit
             await asyncio.sleep(0.8)
 
-            # Si on ne peut pas paginer correctement, on sort
             if before is None:
                 break
 
@@ -310,16 +303,12 @@ async def _collect_all_forum_threads(forum: discord.ForumChannel) -> List[discor
 
 
 async def run_version_check_once(forum_filter: Optional[str] = None):
-    """
-    Effectue le contrôle des versions F95
-    forum_filter: None (tous), "auto", ou "semiauto"
-    """
+    """Effectue le contrôle des versions F95"""
     channel_warn = bot.get_channel(WARNING_MAJ_CHANNEL_ID)
     if not channel_warn:
         print("❌ Salon avertissements MAJ/version introuvable")
         return
     
-    # Déterminer quels forums vérifier
     forum_configs = []
     if forum_filter is None or forum_filter == "auto":
         if FORUM_AUTO_ID:
@@ -332,7 +321,6 @@ async def run_version_check_once(forum_filter: Optional[str] = None):
         print("⚠️ Aucun forum configuré pour le check version")
         return
     
-    # Nettoyer les anciennes notifications
     _clean_old_notifications()
     
     headers = {
@@ -350,16 +338,12 @@ async def run_version_check_once(forum_filter: Optional[str] = None):
                 print(f"⚠️ Forum {forum_id} introuvable")
                 continue
             
-            # threads = list(getattr(forum, "threads", []) or [])
-            # print(f"🔎 Check version F95 [{forum_type}]: {len(threads)} threads actifs")
             threads = await _collect_all_forum_threads(forum)
             print(f"🔎 Check version F95 [{forum_type}]: {len(threads)} threads (actifs + archivés)")
 
             for thread in threads:
-                # Jitter anti-rate limit
                 await asyncio.sleep(0.6 + random.random() * 0.6)
                 
-                # Récupérer starter message
                 msg = thread.starter_message
                 if not msg:
                     try:
@@ -369,38 +353,33 @@ async def run_version_check_once(forum_filter: Optional[str] = None):
                         msg = None
                 
                 content = (msg.content if msg else "") or ""
-                f95_url, declared_version = _extract_link_and_declared_version(content)
+                f95_url, post_game_version, post_trad_version = _extract_link_and_versions(content)
                 
-                if not f95_url or not declared_version:
+                if not f95_url or not post_game_version:
                     continue
                 
-                # Fetch titre F95
                 title_text = await _fetch_f95_title(session, f95_url)
                 f95_version = _extract_version_from_f95_title(title_text or "")
                 
-                # Cas 1: Version non détectée sur F95
                 if not f95_version:
                     if not _is_already_notified(thread.id, "NO_VERSION"):
                         all_alerts.append(VersionAlert(
                             thread.name, thread.jump_url, None, 
-                            declared_version, forum_type
+                            post_game_version, post_trad_version, forum_type
                         ))
                         _mark_as_notified(thread.id, "NO_VERSION")
                     continue
                 
-                # Cas 2: Versions différentes
-                if f95_version.strip() != declared_version.strip():
+                if f95_version.strip() != post_game_version.strip():
                     if not _is_already_notified(thread.id, f95_version):
                         all_alerts.append(VersionAlert(
                             thread.name, thread.jump_url, f95_version,
-                            declared_version, forum_type
+                            post_game_version, post_trad_version, forum_type
                         ))
                         _mark_as_notified(thread.id, f95_version)
                 else:
-                    # Version identique - log uniquement
-                    print(f"✅ Version OK [{forum_type}]: {thread.name} ({declared_version})")
+                    print(f"✅ Version OK [{forum_type}]: {thread.name} ({post_game_version})")
     
-    # Envoi groupé des alertes
     await _group_and_send_alerts(channel_warn, all_alerts)
     print(f"📊 Contrôle terminé : {len(all_alerts)} alertes envoyées")
 
@@ -410,7 +389,6 @@ async def daily_version_check():
     """Contrôle quotidien à 06:00 Europe/Paris"""
     print(f"🕕 Démarrage contrôle quotidien des versions F95")
 
-    # Évite de lancer un contrôle si un autre est déjà en cours (manuel/auto)
     if CHECK_LOCK.locked():
         print("⏭️ Contrôle quotidien ignoré: un contrôle est déjà en cours.")
         return
@@ -423,28 +401,24 @@ async def daily_version_check():
 
 # ==================== ENVOI NOTIFICATION F95 ====================
 async def envoyer_notification_f95(thread, is_update: bool = False):
-    """Envoie un rappel pour la publication F95fr (FONCTION CORRIGÉE)"""
+    """Envoie un rappel pour la publication F95fr"""
     channel_notif = bot.get_channel(NOTIFICATION_CHANNEL_F95_ID)
     if not channel_notif:
         print("❌ Canal de notification F95 non trouvé")
         return
     
     try:
-        # Jitter pour éviter collision avec autre bot
         await asyncio.sleep(random.random() * 3)
         
-        # Récupération du starter message
         message = thread.starter_message
         if not message:
             await asyncio.sleep(1.5)
             message = thread.starter_message or await thread.fetch_message(thread.id)
         
-        # Auteur du thread
         auteur = "Inconnu"
         if message and getattr(message, "author", None):
             auteur = message.author.display_name
         
-        # Calcul date de publication (Gestion de la modification incluse)
         date_ref = message.edited_at if (message and message.edited_at) else thread.created_at
         date_publication = date_ref + datetime.timedelta(days=DAYS_BEFORE_PUBLICATION)
         timestamp_discord = int(date_publication.timestamp())
@@ -466,8 +440,6 @@ async def envoyer_notification_f95(thread, is_update: bool = False):
         print(f"❌ Erreur notification F95 : {e}")
 
 # ==================== COMMANDES SLASH ====================
-
-# ✅ Accès direct autorisé (override permissions)
 ALLOWED_USER_ID = 394893413843206155
 
 def _user_can_run_checks(interaction: discord.Interaction) -> bool:
@@ -479,32 +451,28 @@ def _user_can_run_checks(interaction: discord.Interaction) -> bool:
 
 @bot.tree.command(name="check_help", description="Affiche la liste des commandes et leur utilité")
 async def check_help(interaction: discord.Interaction):
-    # ✅ Ack immédiat (réduit risques 404/timeout)
     try:
         await interaction.response.defer(ephemeral=True)
     except Exception:
         pass
-
     if not _user_can_run_checks(interaction):
         await _safe_followup_send(interaction, "⛔ Permission insuffisante.", ephemeral=True)
         return
-
     help_text = (
         "**🧰 Commandes disponibles (Bot Publication Traduction)**\n\n"
         "**/check_version** — Lance le contrôle complet des versions F95 (Auto + Semi-Auto).\n"
         "**/check_auto** — Lance le contrôle des versions F95 uniquement sur le forum Auto.\n"
         "**/check_semiauto** — Lance le contrôle des versions F95 uniquement sur le forum Semi-Auto.\n"
-        "**/check_count** — Compte les threads du forum (actifs + archivés) pour vérifier que le bot “voit tout”.\n"
+        "**/check_count** — Compte les threads du forum (actifs + archivés) pour vérifier que le bot \"voit tout\".\n"
         "**/force_sync** — Force la synchronisation des commandes slash (serveur).\n"
         "**/clean_ghost_commands** — Nettoie les commandes fantômes (serveur) et resynchronise.\n"
     )
-
     await _safe_followup_send(interaction, help_text, ephemeral=True)
 
 
 @bot.tree.command(name="check_version", description="Contrôle les versions F95 (Auto + Semi-Auto)")
 async def check_version(interaction: discord.Interaction):
-    """Lance le contrôle complet immédiatement (protégé anti-spam / anti-concurrence)."""
+    """Lance le contrôle complet immédiatement."""
     if not _user_can_run_checks(interaction):
         try:
             await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
@@ -512,7 +480,6 @@ async def check_version(interaction: discord.Interaction):
             pass
         return
 
-    # Cooldown anti-spam (évite de déclencher plusieurs fois et taper les limites globales)
     if not _manual_check_allowed():
         try:
             await interaction.response.send_message(
@@ -523,7 +490,6 @@ async def check_version(interaction: discord.Interaction):
             pass
         return
 
-    # Ack immédiat (moins risqué qu'un send direct en période de rate-limit)
     try:
         await interaction.response.defer(ephemeral=True, thinking=True)
     except discord.errors.HTTPException as e:
@@ -533,7 +499,6 @@ async def check_version(interaction: discord.Interaction):
     except Exception:
         pass
 
-    # Une seule exécution à la fois
     if CHECK_LOCK.locked():
         await _safe_followup_send(interaction, "⏳ Un contrôle est déjà en cours. Réessaie plus tard.", ephemeral=True)
         return
