@@ -733,7 +733,184 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
     # Laisse remonter les autres erreurs (pour debug)
     raise error
 
+# Définir l'ID du propriétaire (celui qui peut utiliser ces commandes)
+OWNER_IDS = {394893413843206155}
 
+def owner_only():
+    """Décorateur pour limiter les commandes aux propriétaires uniquement"""
+    async def predicate(interaction: discord.Interaction) -> bool:
+        return interaction.user and interaction.user.id in OWNER_IDS
+    return app_commands.check(predicate)
+
+
+@owner_only()
+@bot.tree.command(name="reset_commands", description="[OWNER] Nettoie et resynchronise TOUTES les commandes (global + serveur)")
+async def reset_commands(interaction: discord.Interaction):
+    """
+    Commande ultime de reset : nettoie tout et resynchronise
+    - Supprime les commandes globales
+    - Supprime les commandes du serveur
+    - Resynchronise tout proprement
+    """
+    try:
+        await interaction.response.defer(ephemeral=True)
+    except Exception as e:
+        print(f"⚠️ Erreur defer: {e}")
+        return
+
+    bot_name = bot.user.name if bot.user else "Bot"
+    guild = interaction.guild
+    
+    try:
+        # ÉTAPE 1: Nettoyage global
+        print(f"🧹 [{bot_name}] Étape 1/4: Suppression commandes globales...")
+        bot.tree.clear_commands(guild=None)
+        await bot.tree.sync()
+        await asyncio.sleep(2)
+        
+        # ÉTAPE 2: Nettoyage serveur (si dans un serveur)
+        if guild:
+            print(f"🧹 [{bot_name}] Étape 2/4: Suppression commandes serveur {guild.name}...")
+            bot.tree.clear_commands(guild=guild)
+            await bot.tree.sync(guild=guild)
+            await asyncio.sleep(2)
+        else:
+            print(f"⏭️  [{bot_name}] Étape 2/4: Ignorée (pas dans un serveur)")
+        
+        # ÉTAPE 3: Resync global
+        print(f"🔄 [{bot_name}] Étape 3/4: Synchronisation globale...")
+        await bot.tree.sync()
+        await asyncio.sleep(2)
+        
+        # ÉTAPE 4: Resync serveur (si dans un serveur)
+        if guild:
+            print(f"🔄 [{bot_name}] Étape 4/4: Synchronisation serveur {guild.name}...")
+            bot.tree.copy_global_to(guild=guild)
+            await bot.tree.sync(guild=guild)
+        else:
+            print(f"⏭️  [{bot_name}] Étape 4/4: Ignorée (pas dans un serveur)")
+        
+        # Message de succès
+        success_msg = (
+            f"✅ **Reset terminé pour {bot_name}**\n\n"
+            f"**Actions effectuées:**\n"
+            f"✓ Commandes globales nettoyées\n"
+        )
+        if guild:
+            success_msg += f"✓ Commandes serveur '{guild.name}' nettoyées\n"
+        success_msg += (
+            f"✓ Resynchronisation globale\n"
+        )
+        if guild:
+            success_msg += f"✓ Resynchronisation serveur '{guild.name}'\n"
+        
+        success_msg += f"\n**⏰ Délai total: ~8-10 secondes**\n"
+        success_msg += f"**ℹ️ Les commandes peuvent mettre jusqu'à 1h pour apparaître partout.**"
+        
+        await interaction.followup.send(success_msg, ephemeral=True)
+        print(f"✅ [{bot_name}] Reset complet terminé avec succès!")
+        
+    except discord.errors.HTTPException as e:
+        error_msg = f"❌ Erreur Discord HTTP: {e}"
+        print(f"❌ [{bot_name}] {error_msg}")
+        await interaction.followup.send(error_msg, ephemeral=True)
+    except Exception as e:
+        error_msg = f"❌ Erreur inattendue: {type(e).__name__}: {e}"
+        print(f"❌ [{bot_name}] {error_msg}")
+        await interaction.followup.send(error_msg, ephemeral=True)
+
+
+@owner_only()
+@bot.tree.command(name="sync_commands", description="[OWNER] Synchronise les commandes sans nettoyer")
+async def sync_commands(interaction: discord.Interaction):
+    """
+    Synchronise les commandes sans faire de nettoyage
+    Utile pour mettre à jour après modification du code
+    """
+    try:
+        await interaction.response.defer(ephemeral=True)
+    except Exception as e:
+        print(f"⚠️ Erreur defer: {e}")
+        return
+
+    bot_name = bot.user.name if bot.user else "Bot"
+    guild = interaction.guild
+    
+    try:
+        # Sync global
+        print(f"🔄 [{bot_name}] Synchronisation globale...")
+        await bot.tree.sync()
+        await asyncio.sleep(1)
+        
+        # Sync serveur si applicable
+        if guild:
+            print(f"🔄 [{bot_name}] Synchronisation serveur {guild.name}...")
+            bot.tree.copy_global_to(guild=guild)
+            await bot.tree.sync(guild=guild)
+        
+        success_msg = f"✅ **Sync terminé pour {bot_name}**\n\n"
+        success_msg += "✓ Commandes globales synchronisées\n"
+        if guild:
+            success_msg += f"✓ Commandes serveur '{guild.name}' synchronisées\n"
+        success_msg += "\n**ℹ️ Les commandes peuvent mettre jusqu'à 1h pour apparaître partout.**"
+        
+        await interaction.followup.send(success_msg, ephemeral=True)
+        print(f"✅ [{bot_name}] Sync terminé avec succès!")
+        
+    except discord.errors.HTTPException as e:
+        error_msg = f"❌ Erreur Discord HTTP: {e}"
+        print(f"❌ [{bot_name}] {error_msg}")
+        await interaction.followup.send(error_msg, ephemeral=True)
+    except Exception as e:
+        error_msg = f"❌ Erreur inattendue: {type(e).__name__}: {e}"
+        print(f"❌ [{bot_name}] {error_msg}")
+        await interaction.followup.send(error_msg, ephemeral=True)
+
+
+@owner_only()
+@bot.tree.command(name="list_commands", description="[OWNER] Liste toutes les commandes enregistrées")
+async def list_commands(interaction: discord.Interaction):
+    """
+    Affiche la liste des commandes actuellement enregistrées
+    Utile pour diagnostiquer les problèmes
+    """
+    try:
+        await interaction.response.defer(ephemeral=True)
+    except Exception as e:
+        print(f"⚠️ Erreur defer: {e}")
+        return
+
+    bot_name = bot.user.name if bot.user else "Bot"
+    
+    try:
+        # Récupérer les commandes
+        global_commands = await bot.tree.fetch_commands()
+        
+        msg = f"📋 **Commandes enregistrées pour {bot_name}**\n\n"
+        msg += f"**Commandes globales ({len(global_commands)}):**\n"
+        
+        if global_commands:
+            for cmd in global_commands:
+                msg += f"• `/{cmd.name}` - {cmd.description}\n"
+        else:
+            msg += "*Aucune commande globale*\n"
+        
+        # Commandes serveur (si dans un serveur)
+        if interaction.guild:
+            guild_commands = await bot.tree.fetch_commands(guild=interaction.guild)
+            msg += f"\n**Commandes serveur ({len(guild_commands)}):**\n"
+            if guild_commands:
+                for cmd in guild_commands:
+                    msg += f"• `/{cmd.name}` - {cmd.description}\n"
+            else:
+                msg += "*Aucune commande serveur*\n"
+        
+        await interaction.followup.send(msg, ephemeral=True)
+        
+    except Exception as e:
+        error_msg = f"❌ Erreur: {type(e).__name__}: {e}"
+        print(f"❌ [{bot_name}] {error_msg}")
+        await interaction.followup.send(error_msg, ephemeral=True)
 # ==================== ÉVÉNEMENTS ====================
 
 @bot.event
