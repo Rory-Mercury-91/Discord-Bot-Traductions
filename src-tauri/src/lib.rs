@@ -251,6 +251,35 @@ async fn import_config(content: String) -> Result<String, String> {
     Ok(content)
 }
 
+#[tauri::command]
+async fn open_url(url: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", &url])
+            .spawn()
+            .map_err(|e| format!("Erreur ouverture URL: {}", e))?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Erreur ouverture URL: {}", e))?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Erreur ouverture URL: {}", e))?;
+    }
+    
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -277,6 +306,7 @@ pub fn run() {
             export_config,
             import_config,
             save_window_state,  // ✅ Nouvelle commande
+            open_url,  // ✅ Commande pour ouvrir des URLs
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

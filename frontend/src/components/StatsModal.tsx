@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
-import { useApp } from '../state/appContext';
+import { useMemo, useState } from 'react';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useModalScrollLock } from '../hooks/useModalScrollLock';
+import { useApp } from '../state/appContext';
 
 interface StatsModalProps {
   onClose?: () => void;
@@ -10,20 +10,20 @@ interface StatsModalProps {
 export default function StatsModal({ onClose }: StatsModalProps) {
   useEscapeKey(() => onClose?.(), true);
   useModalScrollLock();
-  
-  const { publishedPosts } = useApp();
+
+  const { publishedPosts, savedTags } = useApp();
   const [periodFilter, setPeriodFilter] = useState('all'); // all, 7d, 30d, 6m
   const [typeFilter, setTypeFilter] = useState('all'); // all, my, partner
 
   // Filtrer les posts selon la période
   const filteredPosts = useMemo(() => {
     let filtered = [...publishedPosts];
-    
+
     // Filtre par période
     if (periodFilter !== 'all') {
       const now = Date.now();
       const day = 24 * 60 * 60 * 1000;
-      
+
       filtered = filtered.filter(post => {
         switch (periodFilter) {
           case '7d':
@@ -52,17 +52,23 @@ export default function StatsModal({ onClose }: StatsModalProps) {
     const partners = filteredPosts.filter(p => p.template === 'partner').length;
     const total = filteredPosts.length;
 
-    // Traducteurs les plus fréquents
+    // Traducteurs les plus fréquents - Basé sur les tags avec isTranslator: true
     const translatorCount: Record<string, number> = {};
+
+    // Récupérer tous les tags de traducteurs
+    const translatorTags = savedTags.filter(tag => tag.isTranslator);
+
+    // Compter les occurrences de chaque tag traducteur dans les posts
     filteredPosts.forEach(post => {
-      const content = post.content.toLowerCase();
-      const translatorMatch = content.match(/traducteur[:\s]+([^\n]+)/i) || 
-                             content.match(/translator[:\s]+([^\n]+)/i);
-      if (translatorMatch && translatorMatch[1]) {
-        const translator = translatorMatch[1].trim();
-        if (translator && translator.length > 0 && translator.length < 50) {
-          translatorCount[translator] = (translatorCount[translator] || 0) + 1;
-        }
+      if (post.tags) {
+        const postTagIds = post.tags.split(',').map(t => t.trim()).filter(Boolean);
+        postTagIds.forEach(tagId => {
+          const translatorTag = translatorTags.find(t => (t.id || t.name) === tagId);
+          if (translatorTag) {
+            const translatorName = translatorTag.name;
+            translatorCount[translatorName] = (translatorCount[translatorName] || 0) + 1;
+          }
+        });
       }
     });
 
@@ -148,10 +154,10 @@ export default function StatsModal({ onClose }: StatsModalProps) {
         </div>
 
         {/* Filtres */}
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-          gap: 12, 
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: 12,
           marginBottom: 20,
           padding: 16,
           background: 'rgba(255,255,255,0.03)',
@@ -163,9 +169,9 @@ export default function StatsModal({ onClose }: StatsModalProps) {
             <select
               value={periodFilter}
               onChange={(e) => setPeriodFilter(e.target.value)}
-              style={{ 
+              style={{
                 width: '100%',
-                padding: '8px 12px', 
+                padding: '8px 12px',
                 background: 'rgba(255,255,255,0.05)',
                 border: '1px solid var(--border)',
                 borderRadius: 6,
@@ -186,9 +192,9 @@ export default function StatsModal({ onClose }: StatsModalProps) {
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
-              style={{ 
+              style={{
                 width: '100%',
-                padding: '8px 12px', 
+                padding: '8px 12px',
                 background: 'rgba(255,255,255,0.05)',
                 border: '1px solid var(--border)',
                 borderRadius: 6,
@@ -204,7 +210,7 @@ export default function StatsModal({ onClose }: StatsModalProps) {
           </div>
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-            <button 
+            <button
               onClick={exportCSV}
               className="btn"
               style={{ flex: 1, fontSize: 13, padding: '8px 12px' }}
@@ -212,7 +218,7 @@ export default function StatsModal({ onClose }: StatsModalProps) {
             >
               📊 CSV
             </button>
-            <button 
+            <button
               onClick={exportJSON}
               className="btn"
               style={{ flex: 1, fontSize: 13, padding: '8px 12px' }}
@@ -226,9 +232,9 @@ export default function StatsModal({ onClose }: StatsModalProps) {
         {/* Contenu scrollable */}
         <div style={{ flex: 1, overflowY: 'auto', marginRight: -16, paddingRight: 16 }}>
           {filteredPosts.length === 0 ? (
-            <div style={{ 
-              textAlign: 'center', 
-              padding: 40, 
+            <div style={{
+              textAlign: 'center',
+              padding: 40,
               color: 'var(--muted)',
               background: 'rgba(255,255,255,0.03)',
               borderRadius: 8
@@ -240,7 +246,7 @@ export default function StatsModal({ onClose }: StatsModalProps) {
             <>
               {/* Cartes de métriques principales */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
-                <div style={{ 
+                <div style={{
                   padding: 20,
                   background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(37, 99, 235, 0.05))',
                   border: '1px solid rgba(59, 130, 246, 0.2)',
@@ -251,7 +257,7 @@ export default function StatsModal({ onClose }: StatsModalProps) {
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>publications</div>
                 </div>
 
-                <div style={{ 
+                <div style={{
                   padding: 20,
                   background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(22, 163, 74, 0.05))',
                   border: '1px solid rgba(34, 197, 94, 0.2)',
@@ -264,7 +270,7 @@ export default function StatsModal({ onClose }: StatsModalProps) {
                   </div>
                 </div>
 
-                <div style={{ 
+                <div style={{
                   padding: 20,
                   background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(147, 51, 234, 0.05))',
                   border: '1px solid rgba(168, 85, 247, 0.2)',
@@ -284,17 +290,17 @@ export default function StatsModal({ onClose }: StatsModalProps) {
                   <h4 style={{ fontSize: 16, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
                     👤 Traducteurs les plus actifs
                   </h4>
-                  <div style={{ 
+                  <div style={{
                     background: 'rgba(255,255,255,0.02)',
                     border: '1px solid var(--border)',
                     borderRadius: 8,
                     overflow: 'hidden'
                   }}>
                     {stats.topTranslators.map((translator, index) => (
-                      <div 
+                      <div
                         key={translator.name}
-                        style={{ 
-                          display: 'flex', 
+                        style={{
+                          display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center',
                           padding: '12px 16px',
@@ -302,7 +308,7 @@ export default function StatsModal({ onClose }: StatsModalProps) {
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                          <div style={{ 
+                          <div style={{
                             width: 32,
                             height: 32,
                             borderRadius: '50%',
@@ -317,7 +323,7 @@ export default function StatsModal({ onClose }: StatsModalProps) {
                           </div>
                           <span style={{ fontSize: 14 }}>{translator.name}</span>
                         </div>
-                        <div style={{ 
+                        <div style={{
                           fontSize: 16,
                           fontWeight: 600,
                           color: ['#3b82f6', '#22c55e', '#a855f7', '#f59e0b', '#ef4444'][index]
@@ -336,7 +342,7 @@ export default function StatsModal({ onClose }: StatsModalProps) {
                   <h4 style={{ fontSize: 16, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
                     📆 Publications par mois
                   </h4>
-                  <div style={{ 
+                  <div style={{
                     background: 'rgba(255,255,255,0.02)',
                     border: '1px solid var(--border)',
                     borderRadius: 8,
@@ -345,20 +351,20 @@ export default function StatsModal({ onClose }: StatsModalProps) {
                     {stats.monthlyData.map((item, index) => {
                       const maxCount = Math.max(...stats.monthlyData.map(d => d.count));
                       const percentage = (item.count / maxCount) * 100;
-                      
+
                       return (
                         <div key={item.month} style={{ marginBottom: index < stats.monthlyData.length - 1 ? 12 : 0 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13 }}>
                             <span style={{ color: 'var(--muted)' }}>{item.month}</span>
                             <span style={{ fontWeight: 600 }}>{item.count}</span>
                           </div>
-                          <div style={{ 
+                          <div style={{
                             height: 8,
                             background: 'rgba(255,255,255,0.05)',
                             borderRadius: 4,
                             overflow: 'hidden'
                           }}>
-                            <div style={{ 
+                            <div style={{
                               height: '100%',
                               width: `${percentage}%`,
                               background: 'linear-gradient(90deg, #3b82f6, #2563eb)',
@@ -376,9 +382,9 @@ export default function StatsModal({ onClose }: StatsModalProps) {
         </div>
 
         {/* Footer avec bouton fermer */}
-        <div style={{ 
-          marginTop: 16, 
-          paddingTop: 16, 
+        <div style={{
+          marginTop: 16,
+          paddingTop: 16,
           borderTop: '1px solid var(--border)',
           display: 'flex',
           justifyContent: 'flex-end'

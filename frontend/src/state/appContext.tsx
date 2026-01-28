@@ -34,7 +34,12 @@ export type LinkConfig = {
   value: string; // ID ou URL complète selon la source
 };
 
-export type Tag = { name: string; id?: string; template?: string };
+export type AdditionalTranslationLink = {
+  label: string;
+  link: string;
+};
+
+export type Tag = { name: string; id?: string; template?: string; isTranslator?: boolean };
 
 export type PublishedPost = {
   id: string;
@@ -58,6 +63,7 @@ export type PublishedPost = {
     Translate_link: LinkConfig;
     Mod_link: LinkConfig;
   };
+  savedAdditionalTranslationLinks?: AdditionalTranslationLink[];
   templateId?: string;
 };
 
@@ -67,19 +73,17 @@ const defaultVarsConfig: VarConfig[] = [
   { name: 'Translate_version', label: 'Version de la traduction', placeholder: 'v0.1' },
   { name: 'Game_link', label: 'Lien du jeu', placeholder: 'https://...' },
   { name: 'Translate_link', label: 'Lien de la traduction', placeholder: 'https://...' },
-  { name: 'Traductor', label: 'Traducteur', placeholder: 'Rory Mercury 91', hasSaveLoad: true },
-  { name: 'Developpeur', label: 'Développeur', placeholder: 'Nom du développeur' },
   { name: 'Overview', label: 'Synopsis', placeholder: 'Synopsis du jeu...', type: 'textarea' },
-  { name: 'is_modded_game', label: 'Jeu modé', type: 'text' }, // Stocké comme "true"/"false"
+  { name: 'is_modded_game', label: 'Mod compatible', type: 'text' }, // Stocké comme "true"/"false"
   { name: 'Mod_link', label: 'Lien du mod', placeholder: 'https://...' }
 ];
 
 const defaultTemplates: Template[] = [
   {
-    id: 'mes',
+    id: 'my',
     name: 'Mes traductions',
     type: 'my',
-    content: `## :flag_fr: La traduction française de **[Game_name]** est disponible ! :tada:
+    content: `## :flag_fr: La traduction française de [Game_name] est disponible ! :tada:
 
 Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. Bon jeu à tous ! :point_down:
 
@@ -88,10 +92,10 @@ Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. 
 * **Version du jeu :** \`[Game_version]\`
 * **Version traduite :** \`[Translate_version]\`
 * **Type de traduction :** [Translation_Type]
-* **Jeu modé :** [is_modded_game]
+* **Mod compatible :** [is_modded_game]
 * **Lien du jeu :** [Accès au jeu original](<[Game_link]>)
 * **Lien de la Traduction :** [Téléchargez la traduction ici !](<[Translate_link]>)
-
+[ADDITIONAL_TRANSLATION_LINKS]
 > **Synopsis du jeu :**
 > [Overview]
 [instruction]
@@ -100,23 +104,22 @@ Pour m'encourager et soutenir mes efforts :
 * **Soutien au Traducteur (Moi !) :** [Offrez-moi un café pour le temps passé !](https://discord.com/channels/1417811606674477139/1433930090349330493)`
   },
   {
-    id: 'partenaire',
+    id: 'partner',
     name: 'Traductions partenaire',
     type: 'partner',
-    content: `## :flag_fr: La traduction française de **[Game_name]** est disponible ! :tada:
+    content: `## :flag_fr: La traduction française de [Game_name] est disponible ! :tada:
 
 Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. Bon jeu à tous ! :point_down:
 
 ### :computer: Infos du Mod & Liens de Téléchargement
-* **Traducteur :** [Traductor]
 * **Nom du jeu :** [Game_name]
 * **Version du jeu :** \`[Game_version]\`
 * **Version traduite :** \`[Translate_version]\`
 * **Type de traduction :** [Translation_Type]
-* **Jeu modé :** [is_modded_game]
+* **Mod compatible :** [is_modded_game]
 * **Lien du jeu :** [Accès au jeu original](<[Game_link]>)
 * **Lien de la Traduction :** [Téléchargez la traduction ici !](<[Translate_link]>)
-
+[ADDITIONAL_TRANSLATION_LINKS]
 > **Synopsis du jeu :**
 > [Overview]
 [instruction]`
@@ -152,13 +155,10 @@ type AppContextValue = {
   saveInstruction: (name: string, text: string) => void;
   deleteInstruction: (name: string) => void;
 
-  savedTraductors: string[];
-  saveTraductor: (name: string) => void;
-  deleteTraductor: (idx: number) => void;
-
-  uploadedImages: Array<{ id: string, path: string, name: string, isMain: boolean }>;
+  uploadedImages: Array<{ id: string, path?: string, url?: string, name: string, isMain: boolean }>;
   addImages: (files: FileList | File[]) => void;
   addImageFromPath: (filePath: string) => Promise<void>;
+  addImageFromUrl: (url: string) => void;
   removeImage: (idx: number) => void;
   setMainImage: (idx: number) => void;
 
@@ -217,6 +217,12 @@ type AppContextValue = {
   // Discord config global
   discordConfig: any;
   setDiscordConfig: React.Dispatch<React.SetStateAction<any>>;
+
+  // Liens additionnels de traduction
+  additionalTranslationLinks: AdditionalTranslationLink[];
+  addAdditionalTranslationLink: () => void;
+  updateAdditionalTranslationLink: (index: number, link: AdditionalTranslationLink) => void;
+  deleteAdditionalTranslationLink: (index: number) => void;
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -278,8 +284,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     let importedVars = config.allVarsConfig;
     if (Array.isArray(importedVars)) {
-      // Petite migration: retirer install_instructions si jamais présent (comme ton init)
-      importedVars = importedVars.filter((v: any) => v?.name !== 'install_instructions');
+      // Migration: retirer les anciennes variables qui ne sont plus utilisées
+      importedVars = importedVars.filter((v: any) =>
+        v?.name !== 'install_instructions' &&
+        v?.name !== 'Traductor' &&
+        v?.name !== 'Developpeur'
+      );
       setAllVarsConfig(importedVars);
     }
 
@@ -291,10 +301,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setSavedInstructions(config.savedInstructions);
     }
 
-    if (Array.isArray(config.savedTraductors)) {
-      setSavedTraductors(config.savedTraductors);
-    }
-
     if (Array.isArray(config.publishedPosts)) {
       setPublishedPosts(config.publishedPosts);
     }
@@ -303,6 +309,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (Array.isArray(importedVars)) {
       setInputs(prev => {
         const next: Record<string, string> = { ...prev };
+
+        // Migration: supprimer les anciennes variables des inputs
+        delete next['Traductor'];
+        delete next['Developpeur'];
 
         for (const v of importedVars) {
           if (v?.name && !(v.name in next)) next[v.name] = '';
@@ -331,18 +341,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (e) { }
     return {
       Game_link: { source: 'F95', value: '' },
-      Translate_link: { source: 'F95', value: '' },
-      Mod_link: { source: 'F95', value: '' }
+      Translate_link: { source: 'Autre', value: '' },
+      Mod_link: { source: 'Autre', value: '' }
     };
   });
+
+  // Liens additionnels de traduction
+  const [additionalTranslationLinks, setAdditionalTranslationLinks] = useState<AdditionalTranslationLink[]>(() => {
+    try {
+      const raw = localStorage.getItem('additionalTranslationLinks');
+      if (raw) return JSON.parse(raw);
+    } catch (e) { }
+    return [];
+  });
+
+  // Sauvegarder les liens additionnels dans localStorage
+  useEffect(() => {
+    localStorage.setItem('additionalTranslationLinks', JSON.stringify(additionalTranslationLinks));
+  }, [additionalTranslationLinks]);
+
+  const addAdditionalTranslationLink = useCallback(() => {
+    setAdditionalTranslationLinks(prev => [...prev, { label: '', link: '' }]);
+  }, []);
+
+  const updateAdditionalTranslationLink = useCallback((index: number, link: AdditionalTranslationLink) => {
+    setAdditionalTranslationLinks(prev => {
+      const next = [...prev];
+      next[index] = link;
+      return next;
+    });
+  }, []);
+
+  const deleteAdditionalTranslationLink = useCallback((index: number) => {
+    setAdditionalTranslationLinks(prev => prev.filter((_, i) => i !== index));
+  }, []);
 
   const [allVarsConfig, setAllVarsConfig] = useState<VarConfig[]>(() => {
     try {
       const raw = localStorage.getItem('customVariables');
       if (raw) {
         const vars = JSON.parse(raw);
-        // Migration: supprimer l'ancienne variable install_instructions qui est remplacée par le système d'instructions
-        return vars.filter((v: VarConfig) => v.name !== 'install_instructions');
+        // Migration: supprimer les anciennes variables qui ne sont plus utilisées
+        return vars.filter((v: VarConfig) =>
+          v.name !== 'install_instructions' &&
+          v.name !== 'Traductor' &&
+          v.name !== 'Developpeur'
+        );
       }
     } catch (e) { }
     return defaultVarsConfig;
@@ -356,11 +400,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Initialiser is_modded_game à "false" par défaut
     obj['is_modded_game'] = 'false';
     obj['Mod_link'] = '';
-    obj['Developpeur'] = '';
     try {
       const raw = localStorage.getItem('savedInputs');
       if (raw) {
         const parsed = JSON.parse(raw);
+        // Migration: supprimer les anciennes variables Traductor et Developpeur des inputs sauvegardés
+        delete parsed['Traductor'];
+        delete parsed['Developpeur'];
         Object.assign(obj, parsed);
       }
     } catch (e) { }
@@ -370,11 +416,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [savedInstructions, setSavedInstructions] = useState<Record<string, string>>(() => {
     try { const raw = localStorage.getItem('savedInstructions'); if (raw) return JSON.parse(raw); } catch (e) { }
     return {};
-  });
-
-  const [savedTraductors, setSavedTraductors] = useState<string[]>(() => {
-    try { const raw = localStorage.getItem('savedTraductors'); if (raw) return JSON.parse(raw); } catch (e) { }
-    return [];
   });
 
   // Translation type and integration state
@@ -411,7 +452,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
-  const [uploadedImages, setUploadedImages] = useState<Array<{ id: string, path: string, name: string, isMain: boolean }>>(() => {
+  const [uploadedImages, setUploadedImages] = useState<Array<{ id: string, path?: string, url?: string, name: string, isMain: boolean }>>(() => {
     try {
       const raw = localStorage.getItem('uploadedImages');
       if (raw) {
@@ -423,7 +464,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Migration: ajouter name si manquant
         return parsed.map((img: any) => ({
           ...img,
-          name: img.name || img.path?.split(/[/\\]/).pop() || 'image'
+          name: img.name || img.path?.split(/[/\\]/).pop() || img.url?.split('/').pop() || 'image'
         }));
       }
     } catch (e) { }
@@ -492,12 +533,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [linkConfigs]);
 
   // Génération automatique du titre dynamique
-  // Format : Nom du jeu [Version du jeu] [FR = Version de la trad] [Développeur]
+  // Format : Nom du jeu [Version du jeu]
   useEffect(() => {
     const gameName = inputs['Game_name']?.trim();
     const gameVersion = inputs['Game_version']?.trim();
-    const translateVersion = inputs['Translate_version']?.trim();
-    const developpeur = inputs['Developpeur']?.trim();
 
     let titleParts: string[] = [];
 
@@ -512,21 +551,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       titleParts.push(`[${gameVersion}]`);
     }
 
-    // Version de la trad : [FR = Version de la trad]
-    if (translateVersion) {
-      titleParts.push(`[FR = ${translateVersion}]`);
-    }
-
-    // Développeur : [Développeur]
-    if (developpeur) {
-      titleParts.push(`[${developpeur}]`);
-    }
-
     // On assemble le tout avec un espace
     const finalTitle = titleParts.join(' ');
     setPostTitle(finalTitle);
 
-  }, [inputs['Game_name'], inputs['Game_version'], inputs['Translate_version'], inputs['Developpeur']]);
+  }, [inputs['Game_name'], inputs['Game_version']]);
 
   // Envoyer la configuration Discord à l'API au démarrage
   useEffect(() => {
@@ -709,7 +738,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         game_name: inputs['Game_name'] || '',
         game_version: inputs['Game_version'] || '',
         translate_version: inputs['Translate_version'] || '',
-        traductor: inputs['Traductor'] || '',
         translation_type: translationType || '',
         is_integrated: isIntegrated,
         etat: tags || '',
@@ -717,9 +745,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
 
 
+      // Ajouter le lien d'image masqué à la fin du contenu si une image est présente
+      // Note: Discord ne supporte que les URLs HTTP/HTTPS pour les embeds automatiques
+      let finalContent = content;
+      if (uploadedImages.length > 0) {
+        const mainImage = uploadedImages.find(img => img.isMain) || uploadedImages[0];
+        let imageUrl = '';
+
+        if (mainImage.url) {
+          // URL externe (http:// ou https://), utiliser directement
+          imageUrl = mainImage.url;
+        } else if (mainImage.path) {
+          // Fichier local : Discord ne supporte pas les data URLs dans les embeds automatiques
+          // L'utilisateur doit utiliser une URL externe pour que l'embed fonctionne
+          console.warn('Les fichiers locaux ne peuvent pas être utilisés comme embeds Discord. Veuillez utiliser une URL externe.');
+          // On ne fait rien, l'image ne sera pas ajoutée
+        }
+
+        // Ajouter le lien à la fin du contenu pour créer l'embed Discord
+        // Uniquement si c'est une URL HTTP/HTTPS valide
+        if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
+          // Pour que Discord crée un embed automatique, le lien doit être dans le contenu
+          // On ajoute le lien avec un caractère invisible avant pour le rendre moins visible
+          // Note: Discord peut toujours afficher le lien, mais l'embed sera créé
+          finalContent = content + '\n\u200b' + imageUrl;
+        }
+      }
+
       const formData = new FormData();
       formData.append('title', title);
-      formData.append('content', content);
+      formData.append('content', finalContent); // Utiliser finalContent avec le lien masqué
       formData.append('tags', tags);
       formData.append('template', templateType);
 
@@ -737,61 +792,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      // Traitement des images (code existant inchangé)
-      if (uploadedImages.length > 0) {
-        const images = [];
-        for (const img of uploadedImages) {
-          if (!img.path) continue;
-          try {
-            const imgResult = await tauriAPI.readImage(img.path);
-            if (imgResult.ok && imgResult.buffer) {
-              const buffer = new Uint8Array(imgResult.buffer);
-              let base64 = '';
-              const chunkSize = 8192;
-              for (let i = 0; i < buffer.length; i += chunkSize) {
-                const chunk = buffer.slice(i, i + chunkSize);
-                base64 += String.fromCharCode(...chunk);
-              }
-              base64 = btoa(base64);
-              const ext = (img.path.split('.').pop() || 'png').toLowerCase();
-              const mimeTypes: Record<string, string> = {
-                'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
-                'png': 'image/png', 'gif': 'image/gif',
-                'webp': 'image/webp', 'avif': 'image/avif',
-                'bmp': 'image/bmp', 'svg': 'image/svg+xml',
-                'ico': 'image/x-icon', 'tiff': 'image/tiff', 'tif': 'image/tiff'
-              };
-              const mimeType = mimeTypes[ext] || 'image/' + ext;
-              images.push({
-                dataUrl: `data:${mimeType};base64,${base64}`,
-                filename: img.path.split('_').slice(2).join('_'),
-                isMain: img.isMain
-              });
-            }
-          } catch (e) {
-            console.error('Failed to read image:', img.path, e);
-          }
-        }
-        if (images.length > 0) {
-          for (let i = 0; i < images.length; i++) {
-            const img = images[i];
-            if (!img.dataUrl) continue;
-
-            const parts = img.dataUrl.split(',');
-            const meta = parts[0] || '';
-            const data = parts[1] || '';
-            const m = meta.match(/data:([^;]+);/);
-            const contentType = m ? m[1] : 'application/octet-stream';
-            const buffer = Uint8Array.from(atob(data), c => c.charCodeAt(0));
-            const blob = new Blob([buffer], { type: contentType });
-            formData.append(`image_${i}`, blob, img.filename || `image_${i}.png`);
-
-            if (img.isMain) {
-              formData.append('main_image_index', String(i));
-            }
-          }
-        }
-      }
+      // Plus besoin d'envoyer les images comme attachments, elles sont dans le contenu
 
       const apiKey = localStorage.getItem('apiKey') || '';
 
@@ -859,11 +860,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             content,
             tags,
             template: templateType,
-            imagePath: uploadedImages.find(i => i.isMain)?.path,
+            imagePath: uploadedImages.find(i => i.isMain)?.path || uploadedImages.find(i => i.isMain)?.url,
             translationType,
             isIntegrated,
             savedInputs: { ...inputs },
             savedLinkConfigs: JSON.parse(JSON.stringify(linkConfigs)),
+            savedAdditionalTranslationLinks: JSON.parse(JSON.stringify(additionalTranslationLinks)),
             templateId: templates[currentTemplateIdx]?.id,
             discordUrl: threadUrl || editingPostData.discordUrl
           };
@@ -879,11 +881,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             content,
             tags,
             template: templateType,
-            imagePath: uploadedImages.find(i => i.isMain)?.path,
+            imagePath: uploadedImages.find(i => i.isMain)?.path || uploadedImages.find(i => i.isMain)?.url,
             translationType,
             isIntegrated,
             savedInputs: { ...inputs },
             savedLinkConfigs: JSON.parse(JSON.stringify(linkConfigs)),
+            savedAdditionalTranslationLinks: JSON.parse(JSON.stringify(additionalTranslationLinks)),
             templateId: templates[currentTemplateIdx]?.id,
             threadId: String(threadId),
             messageId: String(messageId),
@@ -913,7 +916,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   useEffect(() => {
-    localStorage.setItem('customVariables', JSON.stringify(allVarsConfig));
+    // Migration: nettoyer les anciennes variables avant de sauvegarder
+    const cleanedVars = allVarsConfig.filter(v =>
+      v.name !== 'Traductor' &&
+      v.name !== 'Developpeur' &&
+      v.name !== 'install_instructions'
+    );
+    localStorage.setItem('customVariables', JSON.stringify(cleanedVars));
   }, [allVarsConfig]);
 
   useEffect(() => {
@@ -921,7 +930,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [savedTags]);
 
   useEffect(() => {
-    localStorage.setItem('savedInputs', JSON.stringify(inputs));
+    // Migration: nettoyer les anciennes variables avant de sauvegarder
+    const cleanedInputs = { ...inputs };
+    delete cleanedInputs['Traductor'];
+    delete cleanedInputs['Developpeur'];
+    localStorage.setItem('savedInputs', JSON.stringify(cleanedInputs));
   }, [inputs]);
 
   useEffect(() => {
@@ -935,10 +948,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     localStorage.setItem('savedInstructions', JSON.stringify(savedInstructions));
   }, [savedInstructions]);
-
-  useEffect(() => {
-    localStorage.setItem('savedTraductors', JSON.stringify(savedTraductors));
-  }, [savedTraductors]);
 
   useEffect(() => {
     localStorage.setItem('uploadedImages', JSON.stringify(uploadedImages));
@@ -967,6 +976,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   function addVarConfig(v: VarConfig) {
+    // Empêcher l'ajout des variables obsolètes
+    if (v.name === 'Traductor' || v.name === 'Developpeur' || v.name === 'install_instructions') {
+      console.warn(`Variable "${v.name}" n'est plus supportée et ne peut pas être ajoutée`);
+      return;
+    }
     setAllVarsConfig(prev => [...prev, { ...v, isCustom: true }]);
   }
   function updateVarConfig(idx: number, v: VarConfig) {
@@ -1080,14 +1094,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
   function deleteInstruction(name: string) {
     setSavedInstructions(prev => { const copy = { ...prev }; delete copy[name]; return copy; });
-  }
-
-  // Traductors
-  function saveTraductor(name: string) {
-    setSavedTraductors(prev => prev.includes(name) ? prev : [...prev, name]);
-  }
-  function deleteTraductor(idx: number) {
-    setSavedTraductors(prev => { const copy = [...prev]; copy.splice(idx, 1); return copy; });
   }
 
   // Images
@@ -1260,7 +1266,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   async function removeImage(idx: number) {
     const img = uploadedImages[idx];
-    if (img?.path) {
+    // Supprimer le fichier uniquement si c'est un fichier local (pas une URL)
+    if (img?.path && !img.url) {
       try {
         // Delete image file from filesystem
         await tauriAPI.deleteImage(img.path);
@@ -1269,6 +1276,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
     setUploadedImages(prev => { const copy = [...prev]; copy.splice(idx, 1); if (copy.length && !copy.some(i => i.isMain)) copy[0].isMain = true; return copy; });
+  }
+
+  // Fonction pour ajouter une image depuis une URL
+  function addImageFromUrl(url: string) {
+    if (!url.trim()) return;
+
+    // Valider que c'est une URL valide
+    try {
+      new URL(url);
+    } catch {
+      console.error('URL invalide:', url);
+      return;
+    }
+
+    setUploadedImages(prev => {
+      // Supprimer l'ancienne image si elle existe
+      if (prev.length > 0) {
+        const oldImg = prev[0];
+        // Supprimer le fichier local si c'est un fichier (pas une URL)
+        if (oldImg.path && !oldImg.url) {
+          tauriAPI.deleteImage(oldImg.path).catch(e => console.error('Failed to delete old image:', e));
+        }
+      }
+
+      // Extraire le nom de l'image depuis l'URL ou utiliser un nom par défaut
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname;
+      const fileName = pathname.split('/').pop() || 'image.jpg';
+
+      // Ajouter la nouvelle image (une seule)
+      return [{
+        id: Date.now().toString() + '_' + Math.random().toString(36).substr(2, 9),
+        url: url.trim(),
+        name: fileName,
+        isMain: true
+      }];
+    });
   }
 
   function setMainImage(idx: number) {
@@ -1280,19 +1324,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setInput('instruction', '');
     setInput('is_modded_game', 'false');
     setInput('Mod_link', '');
-    setInput('Developpeur', '');
     setPostTitle('');
     setPostTags('');
     setTranslationType('Automatique');
     setIsIntegrated(false);
     setLinkConfigs({
       Game_link: { source: 'F95', value: '' },
-      Translate_link: { source: 'F95', value: '' },
-      Mod_link: { source: 'F95', value: '' }
+      Translate_link: { source: 'Autre', value: '' },
+      Mod_link: { source: 'Autre', value: '' }
     });
-    const imagesToRemove = [...uploadedImages];
-    imagesToRemove.forEach(() => removeImage(0));
-  }, [allVarsConfig, uploadedImages, setTranslationType, setIsIntegrated, setPostTitle, setPostTags, setLinkConfigs]);
+    setAdditionalTranslationLinks([]);
+    // Réinitialiser les images (supprimer les fichiers locaux uniquement)
+    setUploadedImages([]);
+  }, [allVarsConfig, setTranslationType, setIsIntegrated, setPostTitle, setPostTags, setLinkConfigs]);
 
   // SUPPRESSION COMPLÈTE DU DEBOUNCE pour un rendu instantané
   // Le preview dépend directement de inputs et currentTemplateIdx
@@ -1308,7 +1352,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     let content = tpl.content;
 
-    // 1. GESTION DU JEU MODÉ
+    // 1. GESTION DU MOD COMPATIBLE
     const isModded = (inputs as any)['is_modded_game'] === true || (inputs as any)['is_modded_game'] === 'true';
     const modLink = cleanGameLink((inputs['Mod_link'] || '').trim()); // ✅ Nettoyer le lien
 
@@ -1365,8 +1409,53 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Nettoyage final du tag instruction
     content = content.split('[instruction]').join('');
 
+    // 5. Remplacement/Insertion des liens additionnels de traduction
+    const additionalLinksText = additionalTranslationLinks
+      .filter(link => link.label.trim() && link.link.trim())
+      .map(link => {
+        const cleanedLink = cleanGameLink(link.link.trim());
+        return `* **${link.label.trim()} :** [Lien](<${cleanedLink}>)`;
+      })
+      .join('\n');
+
+    if (additionalLinksText) {
+      // Si le template contient [ADDITIONAL_TRANSLATION_LINKS], l'utiliser comme point d'insertion
+      if (content.includes('[ADDITIONAL_TRANSLATION_LINKS]')) {
+        content = content.split('[ADDITIONAL_TRANSLATION_LINKS]').join(additionalLinksText + '\n');
+      } else {
+        // Sinon, insérer automatiquement après la ligne contenant Translate_link
+        // Chercher la ligne avec Translate_link et insérer après
+        const lines = content.split('\n');
+        const translateLinkIndex = lines.findIndex(line =>
+          line.includes('[Translate_link]') || line.includes('Translate_link')
+        );
+
+        if (translateLinkIndex !== -1) {
+          // Insérer les liens additionnels après la ligne du lien de traduction
+          lines.splice(translateLinkIndex + 1, 0, additionalLinksText);
+          content = lines.join('\n');
+        } else {
+          // Si on ne trouve pas Translate_link, chercher "Lien de la Traduction" ou similaire
+          const translationLabelIndex = lines.findIndex(line =>
+            line.toLowerCase().includes('lien de la traduction') ||
+            line.toLowerCase().includes('lien de la trad')
+          );
+
+          if (translationLabelIndex !== -1) {
+            lines.splice(translationLabelIndex + 1, 0, additionalLinksText);
+            content = lines.join('\n');
+          }
+        }
+      }
+    } else {
+      // Si pas de liens additionnels, supprimer le placeholder s'il existe
+      content = content.split('[ADDITIONAL_TRANSLATION_LINKS]').join('');
+    }
+
+    // Ne pas ajouter le lien dans le preview - il sera ajouté uniquement lors de la publication
+    // L'image sera affichée séparément via le composant PreviewImage
     return content;
-  }, [templates, currentTemplateIdx, allVarsConfig, inputs, translationType, isIntegrated]);
+  }, [templates, currentTemplateIdx, allVarsConfig, inputs, translationType, isIntegrated, additionalTranslationLinks, uploadedImages]);
 
   const value: AppContextValue = {
     resetAllFields,
@@ -1400,13 +1489,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     saveInstruction,
     deleteInstruction,
 
-    savedTraductors,
-    saveTraductor,
-    deleteTraductor,
-
     uploadedImages,
     addImages,
     addImageFromPath,
+    addImageFromUrl,
     removeImage,
     setMainImage,
 
@@ -1468,32 +1554,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (post.savedInputs) {
           setLinkConfigs({
             Game_link: { source: 'F95', value: post.savedInputs.Game_link || '' },
-            Translate_link: { source: 'F95', value: post.savedInputs.Translate_link || '' },
-            Mod_link: { source: 'F95', value: post.savedInputs.Mod_link || '' }
+            Translate_link: { source: 'Autre', value: post.savedInputs.Translate_link || '' },
+            Mod_link: { source: 'Autre', value: post.savedInputs.Mod_link || '' }
           });
         }
       }
 
+      // ✅ Restaurer les liens additionnels de traduction
+      if (post.savedAdditionalTranslationLinks) {
+        setAdditionalTranslationLinks(JSON.parse(JSON.stringify(post.savedAdditionalTranslationLinks)));
+      } else {
+        setAdditionalTranslationLinks([]);
+      }
+
       // ✅ Restaurer l'image si elle existe encore
       if (post.imagePath) {
-        // Vérifier si l'image existe dans le dossier images/
-        tauriAPI.readImage(post.imagePath)
-          .then(result => {
-            if (result.ok) {
-              // L'image existe, on peut la restaurer
-              const fileName = post.imagePath!.split(/[/\\]/).pop() || 'image';
-              setUploadedImages([{
-                id: Date.now().toString(),
-                path: post.imagePath!,
-                name: fileName,
-                isMain: true
-              }]);
-            }
-          })
-          .catch(err => {
-            console.warn('Image du post non trouvée:', err);
-            // L'image n'existe plus dans le dossier local, on continue sans
-          });
+        // Vérifier si c'est une URL ou un chemin local
+        if (post.imagePath.startsWith('http://') || post.imagePath.startsWith('https://')) {
+          // C'est une URL externe
+          const fileName = new URL(post.imagePath).pathname.split('/').pop() || 'image.jpg';
+          setUploadedImages([{
+            id: Date.now().toString(),
+            url: post.imagePath,
+            name: fileName,
+            isMain: true
+          }]);
+        } else {
+          // C'est un fichier local, vérifier s'il existe dans le dossier images/
+          tauriAPI.readImage(post.imagePath)
+            .then(result => {
+              if (result.ok) {
+                // L'image existe, on peut la restaurer
+                const fileName = post.imagePath!.split(/[/\\]/).pop() || 'image';
+                setUploadedImages([{
+                  id: Date.now().toString(),
+                  path: post.imagePath!,
+                  name: fileName,
+                  isMain: true
+                }]);
+              }
+            })
+            .catch(err => {
+              console.warn('Image du post non trouvée:', err);
+              // L'image n'existe plus dans le dossier local, on continue sans
+            });
+        }
       }
 
       // Restaurer le template utilisé
@@ -1517,6 +1622,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setPostTags(post.tags);
       const templateIdx = templates.findIndex(t => t.type === post.template);
       if (templateIdx !== -1) setCurrentTemplateIdx(templateIdx);
+
+      // Restaurer les liens additionnels si disponibles
+      if (post.savedAdditionalTranslationLinks) {
+        setAdditionalTranslationLinks(JSON.parse(JSON.stringify(post.savedAdditionalTranslationLinks)));
+      } else {
+        setAdditionalTranslationLinks([]);
+      }
     },
 
     // API status global
@@ -1525,7 +1637,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // Discord config global
     discordConfig,
-    setDiscordConfig
+    setDiscordConfig,
+
+    // Liens additionnels de traduction
+    additionalTranslationLinks,
+    addAdditionalTranslationLink,
+    updateAdditionalTranslationLink,
+    deleteAdditionalTranslationLink
   };
 
   return (

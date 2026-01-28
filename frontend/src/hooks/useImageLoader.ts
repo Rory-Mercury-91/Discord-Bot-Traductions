@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { tauriAPI } from '../lib/tauri-api';
 
 /**
@@ -28,7 +28,16 @@ export function useImageLoader(imagePath: string | undefined) {
         setIsLoading(true);
         setError(null);
 
-        // Lire l'image depuis le filesystem via Tauri (comme dans la version legacy)
+        // Vérifier si c'est une URL (commence par http:// ou https://)
+        if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+          // C'est une URL externe, l'utiliser directement
+          if (!isMounted) return;
+          setImageUrl(imagePath);
+          setIsLoading(false);
+          return;
+        }
+
+        // Sinon, lire l'image depuis le filesystem via Tauri (comme dans la version legacy)
         const result = await tauriAPI.readImage(imagePath);
         
         if (!result.ok || !result.buffer) {

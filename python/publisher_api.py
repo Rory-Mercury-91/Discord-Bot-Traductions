@@ -1056,6 +1056,11 @@ async def _discord_patch_form(session, path, form):
 async def _discord_post_form(session, path, form):
     return await _discord_request(session, "POST", path, headers=_auth_headers(), data=form)
 
+async def _discord_post_json(session, path, payload):
+    """Envoie une requête POST avec JSON et retourne les 3 valeurs attendues"""
+    status, data, headers = await _discord_request(session, "POST", path, headers=_auth_headers(), json_data=payload)
+    return status, data, headers
+
 async def _discord_suppress_embeds(session, channel_id: str, message_id: str) -> bool:
     try:
         status, msg = await _discord_get(session, f"/channels/{channel_id}/messages/{message_id}")
@@ -1102,16 +1107,30 @@ async def _resolve_applied_tag_ids(session, forum_id, tags_raw):
 async def _create_forum_post(session, forum_id, title, content, tags_raw, images, metadata_b64=None):
     """
     Crée un post de forum Discord avec un embed invisible contenant les métadonnées.
+    Les images sont maintenant gérées via des liens dans le contenu (embeds automatiques Discord).
     """
     applied_tag_ids = await _resolve_applied_tag_ids(session, forum_id, tags_raw)
 
-    payload = {
-        "name": title,
-        "message": {
-            "content": content or " "
-        }
-    }
-
+    # Détecter les liens d'images dans le contenu (URLs avec extensions d'images)
+    import re
+    image_extensions = r'\.(jpg|jpeg|png|gif|webp|avif|bmp|svg|ico|tiff|tif)(\?|&|$)'
+    image_url_pattern = re.compile(r'https?://[^\s<>"\']+' + image_extensions, re.IGNORECASE)
+    
+    # Extraire les URLs complètes
+    image_urls_full = []
+    for match in image_url_pattern.finditer(content):
+        image_urls_full.append(match.group(0))
+    
+    # Retirer les liens d'images du contenu pour les masquer (ils seront dans l'embed)
+    final_content = content
+    if image_urls_full:
+        for img_url in image_urls_full:
+            # Retirer le lien et les caractères invisibles qui l'entourent
+            final_content = re.sub(r'\s*\u200b*\s*' + re.escape(img_url) + r'\s*\u200b*\s*', '', final_content)
+            final_content = re.sub(r'\s*\u200b+\s*' + re.escape(img_url) + r'\s*\u200b+\s*', '', final_content)
+    
+    embeds = []
+    
     # Embed invisible avec metadata
     if metadata_b64:
         try:
@@ -1120,28 +1139,37 @@ async def _create_forum_post(session, forum_id, title, content, tags_raw, images
             if len(metadata_b64) > 25000:
                 logger.warning("⚠️ metadata_b64 trop long, embed ignoré pour éviter un 400 Discord")
             else:
-                payload["message"]["embeds"] = [_build_metadata_embed(metadata_b64)]
+                embeds.append(_build_metadata_embed(metadata_b64))
 
             logger.info(f"✅ Métadonnées structurées ajoutées: {metadata.get('game_name', 'N/A')}")
         except Exception as e:
             logger.error(f"❌ Erreur décodage métadonnées: {e}")
+    
+    # Créer un embed avec l'image si un lien d'image est détecté
+    if image_urls_full:
+        # Prendre la première image trouvée
+        image_url = image_urls_full[0]
+        # Créer un embed avec l'image
+        image_embed = {
+            "image": {"url": image_url},
+            "color": 0  # Couleur transparente/noire pour que seul l'image soit visible
+        }
+        embeds.append(image_embed)
+        logger.info(f"✅ Embed image créé: {image_url[:50]}...")
+
+    payload = {
+        "name": title,
+        "message": {
+            "content": final_content or " ",
+            "embeds": embeds if embeds else None
+        }
+    }
 
     if applied_tag_ids:
         payload["applied_tags"] = applied_tag_ids
 
-    form = aiohttp.FormData()
-    form.add_field("payload_json", json.dumps(payload), content_type="application/json")
-
-    if images:
-        for i, img in enumerate(images):
-            form.add_field(
-                f"files[{i}]",
-                img["bytes"],
-                filename=img["filename"],
-                content_type=img["content_type"]
-            )
-
-    status, data, _ = await _discord_post_form(session, f"/channels/{forum_id}/threads", form)
+    # Les images sont maintenant dans le contenu (liens masqués) et dans un embed
+    status, data, _ = await _discord_post_json(session, f"/channels/{forum_id}/threads", payload)
 
     if status >= 300:
         return False, {"status": status, "discord": data}
@@ -1205,17 +1233,19 @@ async def forum_post(request):
             template = (await part.text()).strip()
         elif part.name == "metadata":
             metadata_b64 = (await part.text()).strip()
-        elif part.name and part.name.startswith("image_") and part.filename:
-            images.append({
-                "bytes": await part.read(decode=False),
-                "filename": part.filename,
-                "content_type": part.headers.get("Content-Type", "image/png")
-            })
+        # Plus besoin de traiter les images comme attachments, elles sont dans le contenu (liens masqués)
+        # elif part.name and part.name.startswith("image_") and part.filename:
+        #     images.append({
+        #         "bytes": await part.read(decode=False),
+        #         "filename": part.filename,
+        #         "content_type": part.headers.get("Content-Type", "image/png")
+        #     })
 
     forum_id = _pick_forum_id(template)
     
     async with aiohttp.ClientSession() as session:
-        ok, result = await _create_forum_post(session, forum_id, title, content, tags, images, metadata_b64)
+        # Plus besoin d'envoyer les images comme attachments, elles sont dans le contenu
+        ok, result = await _create_forum_post(session, forum_id, title, content, tags, [], metadata_b64)
     
     if not ok:
         return _with_cors(request, web.json_response({"ok": False, "details": result}, status=500))
@@ -1260,12 +1290,13 @@ async def forum_post_update(request):
             message_id = (await part.text()).strip()
         elif part.name == "metadata":
             metadata_b64 = (await part.text()).strip()
-        elif part.name and part.name.startswith("image_") and part.filename:
-            images.append({
-                "bytes": await part.read(decode=False),
-                "filename": part.filename,
-                "content_type": part.headers.get("Content-Type", "image/png")
-            })
+        # Plus besoin de traiter les images comme attachments, elles sont dans le contenu (liens masqués)
+        # elif part.name and part.name.startswith("image_") and part.filename:
+        #     images.append({
+        #         "bytes": await part.read(decode=False),
+        #         "filename": part.filename,
+        #         "content_type": part.headers.get("Content-Type", "image/png")
+        #     })
 
     if not thread_id or not message_id:
         return _with_cors(request, web.json_response({"ok": False, "error": "threadId and messageId required"}, status=400))
@@ -1275,8 +1306,26 @@ async def forum_post_update(request):
     async with aiohttp.ClientSession() as session:
         message_path = f"/channels/{thread_id}/messages/{message_id}"
 
-        message_payload = {"content": content or " "}
-
+        # Détecter les liens d'images dans le contenu
+        import re
+        image_extensions = r'\.(jpg|jpeg|png|gif|webp|avif|bmp|svg|ico|tiff|tif)(\?|&|$)'
+        image_url_pattern = re.compile(r'https?://[^\s<>"\']+' + image_extensions, re.IGNORECASE)
+        
+        # Extraire les URLs complètes
+        image_urls_full = []
+        for match in image_url_pattern.finditer(content):
+            image_urls_full.append(match.group(0))
+        
+        # Retirer les liens d'images du contenu pour les masquer (ils seront dans l'embed)
+        final_content = content
+        if image_urls_full:
+            for img_url in image_urls_full:
+                # Retirer le lien et les caractères invisibles qui l'entourent
+                final_content = re.sub(r'\s*\u200b*\s*' + re.escape(img_url) + r'\s*\u200b*\s*', '', final_content)
+                final_content = re.sub(r'\s*\u200b+\s*' + re.escape(img_url) + r'\s*\u200b+\s*', '', final_content)
+        
+        embeds = []
+        
         # Embed invisible avec metadata
         if metadata_b64:
             try:
@@ -1285,24 +1334,29 @@ async def forum_post_update(request):
                 if len(metadata_b64) > 25000:
                     logger.warning("⚠️ metadata_b64 trop long, embed ignoré pour éviter un 400 Discord")
                 else:
-                    message_payload["embeds"] = [_build_metadata_embed(metadata_b64)]
+                    embeds.append(_build_metadata_embed(metadata_b64))
             except Exception as e:
                 logger.error(f"❌ Erreur décodage métadonnées: {e}")
+        
+        # Créer un embed avec l'image si un lien d'image est détecté
+        if image_urls_full:
+            # Prendre la première image trouvée
+            image_url = image_urls_full[0]
+            # Créer un embed avec l'image
+            image_embed = {
+                "image": {"url": image_url},
+                "color": 0  # Couleur transparente/noire pour que seul l'image soit visible
+            }
+            embeds.append(image_embed)
+            logger.info(f"✅ Embed image créé pour mise à jour: {image_url[:50]}...")
 
-        # Mettre à jour le message
-        if images:
-            form = aiohttp.FormData()
-            form.add_field("payload_json", json.dumps(message_payload), content_type="application/json")
-            for i, img in enumerate(images):
-                form.add_field(
-                    f"files[{i}]",
-                    img["bytes"],
-                    filename=img["filename"],
-                    content_type=img.get("content_type", "image/png")
-                )
-            status, data, _ = await _discord_patch_form(session, message_path, form)
-        else:
-            status, data = await _discord_patch_json(session, message_path, message_payload)
+        message_payload = {
+            "content": final_content or " ",
+            "embeds": embeds if embeds else None
+        }
+
+        # Les images sont maintenant dans le contenu (liens masqués) et dans un embed
+        status, data = await _discord_patch_json(session, message_path, message_payload)
 
         if status >= 300:
             return _with_cors(request, web.json_response({"ok": False, "details": data}, status=500))

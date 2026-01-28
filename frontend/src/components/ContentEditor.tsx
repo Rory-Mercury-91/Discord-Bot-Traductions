@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import DiscordIcon from '../assets/discord-icon.svg';
 import { useConfirm } from '../hooks/useConfirm';
 import { useUndoRedo } from '../hooks/useUndoRedo';
+import { tauriAPI } from '../lib/tauri-api';
 import { useApp } from '../state/appContext';
 import ConfirmModal from './ConfirmModal';
 import ImageThumbnail from './ImageThumbnail';
@@ -23,13 +24,13 @@ export default function ContentEditor() {
     publishInProgress,
     lastPublishResult,
     savedTags,
-    savedTraductors,
     savedInstructions,
     templates,
     currentTemplateIdx,
     uploadedImages,
     addImages,
     addImageFromPath,
+    addImageFromUrl,
     removeImage,
     setMainImage,
     editingPostId,
@@ -39,7 +40,12 @@ export default function ContentEditor() {
     isIntegrated,
     setIsIntegrated,
     setEditingPostData,
-    rateLimitCooldown
+    rateLimitCooldown,
+    resetAllFields,
+    additionalTranslationLinks,
+    addAdditionalTranslationLink,
+    updateAdditionalTranslationLink,
+    deleteAdditionalTranslationLink
   } = useApp();
 
   const { showToast } = useToast();
@@ -56,8 +62,6 @@ export default function ContentEditor() {
   const [selectedTagId, setSelectedTagId] = useState<string>('');
   const [tagSearchQuery, setTagSearchQuery] = useState<string>('');
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
-  const [traductorSearchQuery, setTraductorSearchQuery] = useState<string>('');
-  const [showTraductorSuggestions, setShowTraductorSuggestions] = useState(false);
   const [instructionSearchQuery, setInstructionSearchQuery] = useState<string>('');
   const [showInstructionSuggestions, setShowInstructionSuggestions] = useState(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
@@ -66,15 +70,12 @@ export default function ContentEditor() {
   // 4️⃣ ENFIN : useEffect
   useEffect(() => {
     // Si les valeurs dans le contexte sont vides, on reset les barres de recherche locales
-    if (!inputs['Traductor']) setTraductorSearchQuery('');
     if (!inputs['instruction']) setInstructionSearchQuery('');
-  }, [inputs['Traductor'], inputs['instruction']]);
+  }, [inputs['instruction']]);
 
   // On garde celui-ci pour les changements de templates/posts
   useEffect(() => {
-    setTraductorSearchQuery('');
     setInstructionSearchQuery('');
-    setInput('Traductor', '');
     setInput('instruction', '');
   }, [currentTemplateIdx, editingPostId]);
 
@@ -113,7 +114,7 @@ export default function ContentEditor() {
   // Variables déjà affichées en dur dans le formulaire (à exclure de visibleVars)
   const hardcodedVarNames = [
     'Game_name', 'Game_version', 'Game_link', 'Translate_version', 'Translate_link',
-    'Traductor', 'Developpeur', 'Overview', 'is_modded_game', 'Mod_link', 'instruction'
+    'Overview', 'is_modded_game', 'Mod_link', 'instruction'
   ];
 
   const visibleVars = useMemo(() => {
@@ -143,11 +144,6 @@ export default function ContentEditor() {
     );
   }, [visibleTags, tagSearchQuery]);
 
-  const filteredTraductors = useMemo(() => {
-    if (!traductorSearchQuery.trim()) return savedTraductors;
-    const query = traductorSearchQuery.toLowerCase();
-    return savedTraductors.filter(t => t.toLowerCase().includes(query));
-  }, [savedTraductors, traductorSearchQuery]);
 
   const filteredInstructions = useMemo(() => {
     if (!instructionSearchQuery.trim()) return Object.keys(savedInstructions);
@@ -206,20 +202,57 @@ export default function ContentEditor() {
                 </label>
 
                 {/* Prévisualisation du lien final */}
-                <div style={{
-                  fontSize: 11,
-                  color: '#5865F2',
-                  fontFamily: 'monospace',
-                  padding: '2px 8px',
-                  background: 'rgba(88, 101, 242, 0.1)',
-                  borderRadius: 4,
-                  maxWidth: '300px',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
-                }}>
-                  🔗 {finalUrl}
-                </div>
+                {finalUrl && !finalUrl.includes('...') ? (
+                  <div
+                    onClick={async () => {
+                      const result = await tauriAPI.openUrl(finalUrl);
+                      if (!result.ok) {
+                        console.error('Erreur ouverture URL:', result.error);
+                      }
+                    }}
+                    style={{
+                      fontSize: 11,
+                      color: '#5865F2',
+                      fontFamily: 'monospace',
+                      padding: '2px 8px',
+                      background: 'rgba(88, 101, 242, 0.1)',
+                      borderRadius: 4,
+                      maxWidth: '300px',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      cursor: 'pointer',
+                      display: 'inline-block',
+                      transition: 'all 0.2s'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(88, 101, 242, 0.2)';
+                      e.currentTarget.style.textDecoration = 'underline';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(88, 101, 242, 0.1)';
+                      e.currentTarget.style.textDecoration = 'none';
+                    }}
+                    title="Cliquer pour ouvrir dans le navigateur externe"
+                  >
+                    🔗 {finalUrl}
+                  </div>
+                ) : (
+                  <div style={{
+                    fontSize: 11,
+                    color: '#5865F2',
+                    fontFamily: 'monospace',
+                    padding: '2px 8px',
+                    background: 'rgba(88, 101, 242, 0.1)',
+                    borderRadius: 4,
+                    maxWidth: '300px',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    🔗 {finalUrl}
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -341,9 +374,6 @@ export default function ContentEditor() {
       // ✅ Champs simples (inputs)
       if (data.name) setInput('Game_name', data.name);
       if (data.version) setInput('Game_version', data.version);
-
-      // ✅ IMPORTANT : ton UI utilise "Developpeur"
-      if (data.developer) setInput('Developpeur', data.developer);
 
       // ✅ IMPORTANT : ton UI "Lien du jeu" utilise linkConfigs + setLinkConfig
       const rawLink = typeof data.link === 'string' ? data.link.trim() : '';
@@ -639,42 +669,91 @@ export default function ContentEditor() {
               Média
             </label>
             {uploadedImages.length === 0 ? (
-              <div
-                onClick={() => imageInputRef.current?.click()}
-                style={{
-                  width: '120px',
-                  minHeight: '140px',
-                  margin: '0 auto',
-                  border: '2px dashed var(--border)',
-                  borderRadius: 6,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  background: 'rgba(255,255,255,0.02)',
-                  transition: 'all 0.2s',
-                  color: 'var(--muted)',
-                  padding: '16px',
-                  gap: '12px'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--accent)';
-                  e.currentTarget.style.background = 'rgba(99, 102, 241, 0.05)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--border)';
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.02)';
-                }}
-              >
-                <div style={{ fontSize: 32 }}>🖼️</div>
-                <div style={{ fontSize: 11, fontWeight: 600, textAlign: 'center' }}>
-                  Glisser ou cliquer
+              <>
+                {/* Zone de dépôt de fichier */}
+                <div
+                  onClick={() => imageInputRef.current?.click()}
+                  style={{
+                    width: '120px',
+                    minHeight: '100px',
+                    margin: '0 auto 8px auto',
+                    border: '2px dashed var(--border)',
+                    borderRadius: 6,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    background: 'rgba(255,255,255,0.02)',
+                    transition: 'all 0.2s',
+                    color: 'var(--muted)',
+                    padding: '12px',
+                    gap: '8px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--accent)';
+                    e.currentTarget.style.background = 'rgba(99, 102, 241, 0.05)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--border)';
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.02)';
+                  }}
+                >
+                  <div style={{ fontSize: 28 }}>🖼️</div>
+                  <div style={{ fontSize: 10, fontWeight: 600, textAlign: 'center' }}>
+                    Glisser ou cliquer
+                  </div>
                 </div>
-              </div>
+
+                {/* Champ URL */}
+                <div style={{ width: '100%', fontSize: 11, color: 'var(--muted)', textAlign: 'center', marginBottom: 4 }}>
+                  ou
+                </div>
+                <input
+                  type="text"
+                  placeholder="URL de l'image (https://...)"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      const url = (e.target as HTMLInputElement).value.trim();
+                      if (url) {
+                        addImageFromUrl(url);
+                        (e.target as HTMLInputElement).value = '';
+                      }
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    height: 32,
+                    borderRadius: 6,
+                    padding: '0 10px',
+                    fontSize: 12,
+                    marginBottom: 4
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    const input = e.currentTarget.previousElementSibling as HTMLInputElement;
+                    const url = input.value.trim();
+                    if (url) {
+                      addImageFromUrl(url);
+                      input.value = '';
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    height: 28,
+                    fontSize: 11,
+                    padding: '4px 8px',
+                    borderRadius: 4
+                  }}
+                >
+                  Ajouter depuis URL
+                </button>
+              </>
             ) : (
               <ImageThumbnail
-                imagePath={uploadedImages[0].path}
+                imagePath={uploadedImages[0].path || uploadedImages[0].url || ''}
                 isMain={true}
                 onSetMain={() => { }}
                 onCopyName={() => { }}
@@ -712,66 +791,7 @@ export default function ContentEditor() {
           </div>
         </div>
 
-        {/* LIGNE 4 : Développeur et Traducteur */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <div>
-            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>
-              Développeur
-            </label>
-            <input
-              value={inputs['Developpeur'] || ''}
-              onChange={e => setInput('Developpeur', e.target.value)}
-              style={{ width: '100%', height: '40px', borderRadius: 6, padding: '0 12px' }}
-              placeholder="Nom du développeur"
-            />
-          </div>
-
-          <div style={{ position: 'relative' }}>
-            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>
-              Traducteur
-            </label>
-            <input
-              type="text"
-              value={traductorSearchQuery || inputs['Traductor'] || ''}
-              onChange={e => {
-                setTraductorSearchQuery(e.target.value);
-                setInput('Traductor', e.target.value);
-                setShowTraductorSuggestions(true);
-              }}
-              onFocus={() => setShowTraductorSuggestions(true)}
-              style={{ width: '100%', height: '40px', borderRadius: 6, padding: '0 12px' }}
-              placeholder="Nom du traducteur..."
-            />
-            {showTraductorSuggestions && filteredTraductors.length > 0 && (
-              <div
-                className="suggestions-dropdown"
-                style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  right: 0,
-                  zIndex: 1001
-                }}
-              >
-                {filteredTraductors.map((t, idx) => (
-                  <div
-                    key={idx}
-                    className="suggestion-item"
-                    onClick={() => {
-                      setInput('Traductor', t);
-                      setTraductorSearchQuery(t);
-                      setShowTraductorSuggestions(false);
-                    }}
-                  >
-                    {t}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* LIGNE 5 : Version du jeu et Version de la trad */}
+        {/* LIGNE 4 : Version du jeu et Version de la trad */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 12, alignItems: 'end' }}>
           <div>
             <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>
@@ -834,6 +854,129 @@ export default function ContentEditor() {
             linkName="Translate_link"
             placeholder="https://..."
           />
+        </div>
+
+        {/* LIGNE 6.5 : Liens additionnels de traduction */}
+        <div style={{ marginTop: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <label style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>
+              Liens additionnels (Saisons, Épisodes spéciaux, etc.)
+            </label>
+            <button
+              type="button"
+              onClick={addAdditionalTranslationLink}
+              style={{
+                padding: '6px 12px',
+                fontSize: 13,
+                height: 32,
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                cursor: 'pointer',
+                background: 'transparent',
+                color: 'var(--text)',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(99, 102, 241, 0.1)';
+                e.currentTarget.style.borderColor = 'var(--accent)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.borderColor = 'var(--border)';
+              }}
+            >
+              ➕ Ajouter un lien additionnel
+            </button>
+          </div>
+
+          {additionalTranslationLinks.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {additionalTranslationLinks.map((link, index) => (
+                <div
+                  key={index}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr auto',
+                    gap: 8,
+                    alignItems: 'center',
+                    padding: 12,
+                    background: 'rgba(255,255,255,0.03)',
+                    borderRadius: 6,
+                    border: '1px solid var(--border)'
+                  }}
+                >
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 }}>
+                      Label (ex: Saison 1, Épisode Noël)
+                    </label>
+                    <input
+                      type="text"
+                      value={link.label}
+                      onChange={(e) => updateAdditionalTranslationLink(index, { ...link, label: e.target.value })}
+                      placeholder="Saison 1"
+                      style={{
+                        width: '100%',
+                        height: 36,
+                        borderRadius: 6,
+                        padding: '0 10px',
+                        fontSize: 13
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 }}>
+                      Lien
+                    </label>
+                    <input
+                      type="text"
+                      value={link.link}
+                      onChange={(e) => updateAdditionalTranslationLink(index, { ...link, link: e.target.value })}
+                      placeholder="https://..."
+                      style={{
+                        width: '100%',
+                        height: 36,
+                        borderRadius: 6,
+                        padding: '0 10px',
+                        fontSize: 13
+                      }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => deleteAdditionalTranslationLink(index)}
+                    style={{
+                      padding: '8px',
+                      height: 36,
+                      width: 36,
+                      border: '1px solid var(--border)',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      background: 'transparent',
+                      color: 'var(--error)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 16
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                      e.currentTarget.style.borderColor = 'var(--error)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.borderColor = 'var(--border)';
+                    }}
+                    title="Supprimer ce lien"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* LIGNE 7 : Type de traduction et Lien du mod */}
@@ -925,27 +1068,66 @@ export default function ContentEditor() {
                   {/* Groupe : Prévisualisation + Checkbox */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {/* Prévisualisation du lien */}
-                    <div style={{
-                      fontSize: 11,
-                      color: '#5865F2',
-                      fontFamily: 'monospace',
-                      padding: '2px 8px',
-                      background: 'rgba(88, 101, 242, 0.1)',
-                      borderRadius: 4,
-                      maxWidth: '200px',  // ⬅️ Réduit pour laisser place à la checkbox
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap'
-                    }}>
-                      🔗 {(() => {
-                        const config = linkConfigs['Mod_link'];
-                        return config.source === 'F95'
-                          ? `https://f95zone.to/threads/${config.value || '...'}/`
-                          : config.source === 'Lewd'
-                            ? `https://lewdcorner.com/threads/${config.value || '...'}/`
-                            : config.value || '...';
-                      })()}
-                    </div>
+                    {(() => {
+                      const config = linkConfigs['Mod_link'];
+                      const modFinalUrl = config.source === 'F95'
+                        ? `https://f95zone.to/threads/${config.value || '...'}/`
+                        : config.source === 'Lewd'
+                          ? `https://lewdcorner.com/threads/${config.value || '...'}/`
+                          : config.value || '...';
+
+                      return modFinalUrl && !modFinalUrl.includes('...') ? (
+                        <div
+                          onClick={async () => {
+                            const result = await tauriAPI.openUrl(modFinalUrl);
+                            if (!result.ok) {
+                              console.error('Erreur ouverture URL:', result.error);
+                            }
+                          }}
+                          style={{
+                            fontSize: 11,
+                            color: '#5865F2',
+                            fontFamily: 'monospace',
+                            padding: '2px 8px',
+                            background: 'rgba(88, 101, 242, 0.1)',
+                            borderRadius: 4,
+                            maxWidth: '200px',  // ⬅️ Réduit pour laisser place à la checkbox
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            cursor: 'pointer',
+                            display: 'inline-block',
+                            transition: 'all 0.2s'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'rgba(88, 101, 242, 0.2)';
+                            e.currentTarget.style.textDecoration = 'underline';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'rgba(88, 101, 242, 0.1)';
+                            e.currentTarget.style.textDecoration = 'none';
+                          }}
+                          title="Cliquer pour ouvrir dans le navigateur externe"
+                        >
+                          🔗 {modFinalUrl}
+                        </div>
+                      ) : (
+                        <div style={{
+                          fontSize: 11,
+                          color: '#5865F2',
+                          fontFamily: 'monospace',
+                          padding: '2px 8px',
+                          background: 'rgba(88, 101, 242, 0.1)',
+                          borderRadius: 4,
+                          maxWidth: '200px',  // ⬅️ Réduit pour laisser place à la checkbox
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          🔗 {modFinalUrl}
+                        </div>
+                      );
+                    })()}
 
                     {/* Checkbox */}
                     <label style={{
@@ -968,7 +1150,7 @@ export default function ContentEditor() {
                         onChange={e => setInput('is_modded_game', e.target.checked ? 'true' : 'false')}
                         style={{ width: 16, height: 16, cursor: 'pointer' }}
                       />
-                      <span>Jeu modé</span>
+                      <span>Mod compatible</span>
                     </label>
                   </div>
                 </div>
@@ -1114,26 +1296,60 @@ export default function ContentEditor() {
           borderTop: '1px solid var(--border)'
         }}>
 
-          <button
-            type="button"
-            onClick={handlePasteImport}
-            style={{
-              background: 'rgba(99, 102, 241, 0.1)',
-              border: '1px solid rgba(99, 102, 241, 0.3)',
-              color: '#818cf8',
-              padding: '10px 16px',
-              borderRadius: 6,
-              cursor: 'pointer',
-              fontWeight: 600,
-              fontSize: 13,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8
-            }}
-          >
-            <span>📥</span>
-            Importer Data
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              onClick={handlePasteImport}
+              style={{
+                background: 'rgba(99, 102, 241, 0.1)',
+                border: '1px solid rgba(99, 102, 241, 0.3)',
+                color: '#818cf8',
+                padding: '10px 16px',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: 13,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}
+            >
+              <span>📥</span>
+              Importer Data
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                const ok = await confirm({
+                  title: 'Vider le formulaire',
+                  message: 'Voulez-vous vraiment vider tous les champs du formulaire ? Cette action est irréversible.',
+                  confirmText: 'Vider',
+                  cancelText: 'Annuler',
+                  type: 'danger'
+                });
+                if (ok) {
+                  resetAllFields();
+                  showToast('Formulaire vidé', 'success');
+                }
+              }}
+              style={{
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                color: '#ef4444',
+                padding: '10px 16px',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: 13,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}
+            >
+              <span>🗑️</span>
+              Vider le formulaire
+            </button>
+          </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             {rateLimitCooldown !== null && (
@@ -1216,11 +1432,10 @@ export default function ContentEditor() {
         </div> {/* FIN LIGNE 10 */}
 
         {/* Overlay global pour fermer les suggestions */}
-        {(showTagSuggestions || showTraductorSuggestions || showInstructionSuggestions) && (
+        {(showTagSuggestions || showInstructionSuggestions) && (
           <div
             onClick={() => {
               setShowTagSuggestions(false);
-              setShowTraductorSuggestions(false);
               setShowInstructionSuggestions(false);
             }}
             style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}

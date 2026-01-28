@@ -13,23 +13,89 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
   useEscapeKey(() => onClose?.(), true);
   useModalScrollLock();
   const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm();
-  const [form, setForm] = useState({ name: '', id: '', template: 'mes' });
+
+  const [activeTab, setActiveTab] = useState<'my' | 'partner'>('partner');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [form, setForm] = useState({ name: '', id: '', isTranslator: false });
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [searchGeneric, setSearchGeneric] = useState('');
+  const [searchTranslator, setSearchTranslator] = useState('');
 
-  function startEdit(idx: number) {
-    const t = savedTags[idx];
+  // Filtrer les tags selon l'onglet actif
+  const currentTemplate = activeTab === 'my' ? 'my' : 'partner';
+  const filteredTags = savedTags.filter(t => t.template === currentTemplate);
+
+  // Fonction pour retirer les emojis au début d'un texte
+  const removeLeadingEmojis = (text: string): string => {
+    return text.replace(/^[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F000}-\u{1F02F}\u{1F0A0}-\u{1F0FF}\u{1F100}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\s]+/gu, '').trim();
+  };
+
+  // Séparer les tags génériques et traducteurs
+  const genericTags = filteredTags.filter(t => !t.isTranslator);
+  const translatorTags = filteredTags.filter(t => t.isTranslator);
+
+  // Filtrer avec recherche (en ignorant les emojis)
+  const filterBySearch = (tags: typeof savedTags, searchTerm: string) => {
+    if (!searchTerm.trim()) return tags;
+    const searchLower = searchTerm.toLowerCase();
+    return tags.filter(t => {
+      const nameWithoutEmoji = removeLeadingEmojis(t.name).toLowerCase();
+      const nameWithEmoji = t.name.toLowerCase();
+      return nameWithoutEmoji.includes(searchLower) || nameWithEmoji.includes(searchLower);
+    });
+  };
+
+  const filteredGenericTags = filterBySearch(genericTags, searchGeneric);
+  const filteredTranslatorTags = filterBySearch(translatorTags, searchTranslator);
+
+  // Grouper et trier
+  const groupTags = (tags: typeof savedTags) => {
+    const grouped = tags.reduce((acc, tag, originalIdx) => {
+      const templateName = templates.find(tp => tp.id === tag.template)?.name || tag.template || 'Sans salon';
+      if (!acc[templateName]) {
+        acc[templateName] = [];
+      }
+      acc[templateName].push({ ...tag, originalIdx: savedTags.indexOf(tag) });
+      return acc;
+    }, {} as Record<string, Array<typeof savedTags[0] & { originalIdx: number }>>);
+
+    // Trier A-Z sans emojis
+    Object.keys(grouped).forEach(key => {
+      grouped[key].sort((a, b) => {
+        const nameA = removeLeadingEmojis(a.name);
+        const nameB = removeLeadingEmojis(b.name);
+        return nameA.localeCompare(nameB);
+      });
+    });
+
+    return grouped;
+  };
+
+  const groupedGenericTags = groupTags(filteredGenericTags);
+  const groupedTranslatorTags = groupTags(filteredTranslatorTags);
+
+  function openAddModal() {
+    setForm({ name: '', id: '', isTranslator: false });
+    setEditingIdx(null);
+    setShowAddModal(true);
+  }
+
+  function startEdit(originalIdx: number) {
+    const t = savedTags[originalIdx];
     setForm({
       name: t.name,
       id: t.id || '',
-      template: t.template || ''
+      isTranslator: t.isTranslator || false
     });
-    setEditingIdx(idx);
+    setEditingIdx(originalIdx);
+    setShowAddModal(true);
   }
 
-  function cancelEdit() {
-    setForm({ name: '', id: '', template: 'mes' });
+  function closeAddModal() {
+    setForm({ name: '', id: '', isTranslator: false });
     setEditingIdx(null);
+    setShowAddModal(false);
   }
 
   function saveTag() {
@@ -38,12 +104,6 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
       return;
     }
 
-    if (!form.template) {
-      showToast('Le template est requis (Mes traductions ou Traductions partenaire)', 'warning');
-      return;
-    }
-
-    // Vérifier si l'ID existe déjà (sauf si on édite le même tag)
     const existingIdx = savedTags.findIndex((t, i) => t.id === form.id && i !== editingIdx);
     if (existingIdx !== -1) {
       showToast('Un tag avec cet ID existe déjà', 'warning');
@@ -53,22 +113,22 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
     const tag = {
       name: form.name,
       id: form.id,
-      template: form.template
+      template: currentTemplate,
+      isTranslator: form.isTranslator
     };
 
     if (editingIdx !== null) {
-      // Pour update, il faut supprimer et rajouter car pas de updateSavedTag dans appContext
       const newTags = [...savedTags];
       newTags[editingIdx] = tag;
       deleteSavedTag(editingIdx);
       addSavedTag(tag);
+      showToast('Tag modifié', 'success');
     } else {
       addSavedTag(tag);
+      showToast('Tag ajouté', 'success');
     }
 
-    setForm({ name: '', id: '', template: '' });
-    setEditingIdx(null);
-    showToast(editingIdx !== null ? 'Tag modifié' : 'Tag ajouté', 'success');
+    closeAddModal();
   }
 
   async function handleDelete(idx: number) {
@@ -80,172 +140,390 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
     });
     if (!ok) return;
     deleteSavedTag(idx);
-    if (editingIdx === idx) cancelEdit();
     showToast('Tag supprimé', 'success');
   }
 
-  return (
-    <div className="modal">
-      <div className="panel" onClick={e => e.stopPropagation()} style={{
-        maxWidth: 1000,
-        width: '95%',
-        maxHeight: '90vh',
-        display: 'flex',
-        flexDirection: 'column'
-      }}>
-        <h3>🏷️ Gestion des tags</h3>
+  const renderTagGrid = (groupedTags: ReturnType<typeof groupTags>) => {
+    if (Object.keys(groupedTags).length === 0) {
+      return (
+        <div style={{
+          color: 'var(--muted)',
+          fontStyle: 'italic',
+          padding: 24,
+          textAlign: 'center',
+          border: '1px dashed var(--border)',
+          borderRadius: 8
+        }}>
+          Aucun tag trouvé
+        </div>
+      );
+    }
 
-        <div style={{ display: 'grid', gap: 16, flex: 1, minHeight: 0 }}>
-          {/* Liste des tags existants - SCROLLABLE */}
-          <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <h4>Tags sauvegardés ({savedTags.length})</h4>
-            {savedTags.length === 0 ? (
-              <div style={{ color: 'var(--muted)', fontStyle: 'italic', padding: 12, textAlign: 'center' }}>
-                Aucun tag sauvegardé. Utilisez le formulaire ci-dessous pour en ajouter.
+    return Object.entries(groupedTags).map(([templateName, tags]) => (
+      <div key={templateName} style={{ marginBottom: 24 }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+          gap: 8
+        }}>
+          {tags.map((t) => (
+            <div key={t.originalIdx} style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: 12,
+              background: 'transparent',
+              transition: 'background 0.2s'
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <strong
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(t.id || t.name);
+                      setCopiedIdx(t.originalIdx);
+                      setTimeout(() => setCopiedIdx(null), 2000);
+                      showToast('ID du tag copié', 'success', 2000);
+                    } catch (e) {
+                      showToast('Erreur lors de la copie', 'error');
+                    }
+                  }}
+                  style={{
+                    cursor: 'pointer',
+                    color: copiedIdx === t.originalIdx ? '#4ade80' : '#4a9eff',
+                    transition: 'color 0.3s',
+                    display: 'block',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}
+                  title={`Cliquer pour copier l'ID: ${t.id}`}
+                >
+                  {t.name} {copiedIdx === t.originalIdx && <span style={{ fontSize: 11 }}>✓</span>}
+                </strong>
+                <div style={{
+                  color: 'var(--muted)',
+                  fontSize: 11,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>
+                  ID: {t.id}
+                </div>
               </div>
-            ) : (
+              <div style={{ display: 'flex', gap: 8, marginLeft: 8 }}>
+                <button
+                  onClick={() => startEdit(t.originalIdx)}
+                  title="Éditer"
+                  style={{ padding: '4px 8px', fontSize: 14 }}
+                >
+                  ✏️
+                </button>
+                <button
+                  onClick={() => handleDelete(t.originalIdx)}
+                  title="Supprimer"
+                  style={{ padding: '4px 8px', fontSize: 14 }}
+                >
+                  🗑️
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    ));
+  };
+
+  return (
+    <>
+      <div className="modal">
+        <div className="panel" onClick={e => e.stopPropagation()} style={{
+          maxWidth: 1000,
+          width: '95%',
+          height: '80vh',  // Changé de 70vh à 80vh
+          display: 'flex',
+          flexDirection: 'column'
+        }}>
+          {/* HEADER : Titre + Navigation */}
+          <div style={{
+            borderBottom: '2px solid var(--border)',
+            paddingBottom: 0
+          }}>
+            <h3 style={{ marginBottom: 12 }}>🏷️ Gestion des tags</h3>
+
+            {/* Onglets avec compteurs */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => setActiveTab('partner')}
+                style={{
+                  background: activeTab === 'partner' ? 'var(--panel)' : 'transparent',
+                  border: 'none',
+                  borderBottom: activeTab === 'partner' ? '2px solid #4a9eff' : '2px solid transparent',
+                  padding: '8px 16px',
+                  cursor: 'pointer',
+                  fontWeight: activeTab === 'partner' ? 'bold' : 'normal',
+                  color: activeTab === 'partner' ? '#4a9eff' : 'var(--text)',
+                  marginBottom: '-2px'
+                }}
+              >
+                📚 Mes traductions ({savedTags.filter(t => t.template === 'partner').length})
+              </button>
+              <button
+                onClick={() => setActiveTab('my')}
+                style={{
+                  background: activeTab === 'my' ? 'var(--panel)' : 'transparent',
+                  border: 'none',
+                  borderBottom: activeTab === 'my' ? '2px solid #4a9eff' : '2px solid transparent',
+                  padding: '8px 16px',
+                  cursor: 'pointer',
+                  fontWeight: activeTab === 'my' ? 'bold' : 'normal',
+                  color: activeTab === 'my' ? '#4a9eff' : 'var(--text)',
+                  marginBottom: '-2px'
+                }}
+              >
+                🌟 Traductions Rory ({savedTags.filter(t => t.template === 'my').length})
+              </button>
+            </div>
+          </div>
+
+          {/* CONTENU SCROLLABLE */}
+          <div style={{
+            flex: 1,
+            padding: '16px',
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 16
+          }}>
+            {/* SECTION TAGS GÉNÉRIQUES */}
+            <div style={{
+              flex: 1,
+              minHeight: activeTab === 'partner' ? '251px' : '528px', // 3 lignes × (80px carte + 8px gap) = 264px
+              maxHeight: activeTab === 'partner' ? '251px' : '528px', // Force exactement 3 lignes
+              display: 'flex',
+              flexDirection: 'column'
+            }}>
               <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, 1fr)',
-                gap: 8,
-                overflowY: 'auto',
-                paddingRight: 8
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 12,
+                gap: 16
               }}>
-                {savedTags.map((t, idx) => (
-                  <div key={idx} style={{
-                    display: 'grid',
-                    gridTemplateColumns: editingIdx === idx ? '1fr' : '1fr auto auto',
-                    gap: 8,
+                <h4 style={{
+                  margin: 0,
+                  fontSize: 16,
+                  color: 'var(--text)',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8
+                }}>
+                  🏷️ Tags génériques
+                </h4>
+                <input
+                  type="text"
+                  placeholder="🔍 Rechercher..."
+                  value={searchGeneric}
+                  onChange={e => setSearchGeneric(e.target.value)}
+                  style={{
+                    width: '250px',
+                    padding: '6px 12px',
+                    fontSize: 13
+                  }}
+                />
+              </div>
+              <div style={{
+                flex: 1,
+                overflowY: 'auto',
+                minHeight: 0,
+                paddingRight: 8
+              }} className="styled-scrollbar">
+                {renderTagGrid(groupedGenericTags)}
+              </div>
+            </div>
+
+
+            {/* LIGNE SÉPARATRICE - Visible uniquement pour "Mes traductions" */}
+            {activeTab === 'partner' && (
+              <div style={{
+                height: 2,
+                background: 'linear-gradient(to right, transparent, var(--border), transparent)',
+                margin: '8px 0'
+              }} />
+            )}
+
+            {/* SECTION TAGS TRADUCTEURS - Visible uniquement pour "Mes traductions" */}
+            {activeTab === 'partner' && (
+              <div style={{
+                flex: 1,
+                minHeight: activeTab === 'partner' ? '251px' : '528px', // 3 lignes × (80px carte + 8px gap) = 264px
+                maxHeight: activeTab === 'partner' ? '251px' : '528px', // Force exactement 3 lignes
+                display: 'flex',
+                flexDirection: 'column'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 12,
+                  gap: 16
+                }}>
+                  <h4 style={{
+                    margin: 0,
+                    fontSize: 16,
+                    color: 'var(--text)',
+                    fontWeight: 600,
+                    display: 'flex',
                     alignItems: 'center',
-                    border: '1px solid var(--border)',
-                    borderRadius: 6,
-                    padding: 8,
-                    background: editingIdx === idx ? 'rgba(255,255,255,0.05)' : 'transparent'
+                    gap: 8
                   }}>
-                    {editingIdx === idx ? (
-                      <div style={{ display: 'grid', gap: 8 }}>
-                        <div style={{ color: 'var(--muted)', fontSize: 12 }}>✏️ Mode édition</div>
-                        <div>
-                          <strong>{t.name}</strong>
-                          <div style={{ color: 'var(--muted)', fontSize: 12 }}>
-                            ID : {t.id} | Template : {templates.find(tp => tp.id === t.template)?.name || t.template}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div>
-                          <div>
-                            <strong
-                              onClick={async () => {
-                                try {
-                                  await navigator.clipboard.writeText(t.id || t.name);
-                                  setCopiedIdx(idx);
-                                  setTimeout(() => setCopiedIdx(null), 2000);
-                                  showToast('ID du tag copié', 'success', 2000);
-                                } catch (e) {
-                                  showToast('Erreur lors de la copie', 'error');
-                                }
-                              }}
-                              style={{
-                                cursor: 'pointer',
-                                color: copiedIdx === idx ? '#4ade80' : '#4a9eff',
-                                transition: 'color 0.3s'
-                              }}
-                              title="Cliquer pour copier l'ID"
-                            >
-                              {t.name} {copiedIdx === idx && <span style={{ fontSize: 11, marginLeft: 6 }}>✓ Copié</span>}
-                            </strong>
-                          </div>
-                          <div style={{ color: 'var(--muted)', fontSize: 12 }}>
-                            ID : {t.id}
-                            {t.template
-                              ? ` | Template : ${templates.find(tp => tp.id === t.template)?.name || t.template}`
-                              : ' | ⚠️ Template manquant'
-                            }
-                          </div>
-                        </div>
-                        <button onClick={() => startEdit(idx)} title="Éditer">✏️</button>
-                        <button onClick={() => handleDelete(idx)} title="Supprimer">🗑️</button>
-                      </>
-                    )}
-                  </div>
-                ))}
+                    👤 Traducteurs
+                  </h4>
+                  <input
+                    type="text"
+                    placeholder="🔍 Rechercher..."
+                    value={searchTranslator}
+                    onChange={e => setSearchTranslator(e.target.value)}
+                    style={{
+                      width: '250px',
+                      padding: '6px 12px',
+                      fontSize: 13
+                    }}
+                  />
+                </div>
+                <div style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  minHeight: 0,
+                  paddingRight: 8
+                }} className="styled-scrollbar">
+                  {renderTagGrid(groupedTranslatorTags)}
+                </div>
               </div>
             )}
           </div>
 
-          {/* Formulaire d'ajout/édition */}
-          <div style={{ borderTop: '2px solid var(--border)', paddingTop: 16 }}>
-            <h4>{editingIdx !== null ? '✏️ Modifier le tag' : '➕ Ajouter un tag'}</h4>
-            <div style={{ display: 'grid', gap: 8 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
-                    Nom du tag *
-                  </label>
+          {/* FOOTER : Boutons */}
+          <div style={{
+            borderTop: '2px solid var(--border)',
+            paddingTop: 16,
+            display: 'flex',
+            justifyContent: 'space-between',
+            gap: 8
+          }}>
+            <button onClick={openAddModal} style={{ background: '#4a9eff', color: 'white' }}>
+              ➕ Ajouter un tag
+            </button>
+            <button onClick={onClose}>🚪 Fermer</button>
+          </div>
+        </div>
+
+        <ConfirmModal
+          isOpen={confirmState.isOpen}
+          title={confirmState.title}
+          message={confirmState.message}
+          confirmText={confirmState.confirmText}
+          cancelText={confirmState.cancelText}
+          type={confirmState.type}
+          onConfirm={handleConfirm}
+          onCancel={handleCancel}
+        />
+      </div>
+
+      {/* Modale d'ajout/édition */}
+      {showAddModal && (
+        <div className="modal" style={{ zIndex: 1001 }}>
+          <div className="panel" onClick={e => e.stopPropagation()} style={{
+            maxWidth: 500,
+            width: '90%'
+          }}>
+            <h3>{editingIdx !== null ? '✏️ Modifier le tag' : '➕ Ajouter un tag'}</h3>
+
+            <div style={{
+              background: 'rgba(74, 158, 255, 0.1)',
+              border: '1px solid rgba(74, 158, 255, 0.3)',
+              borderRadius: 6,
+              padding: 12,
+              marginBottom: 16,
+              fontSize: 13
+            }}>
+              <strong>
+                {activeTab === 'partner' ? '📚 Mes traductions' : '🌟 Traductions Rory'}
+              </strong>
+              <div style={{ color: 'var(--muted)', marginTop: 4 }}>
+                Le tag sera automatiquement associé à ce salon
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
+                  Nom du tag *
+                </label>
+                <input
+                  placeholder="ex: Traduction FR"
+                  value={form.name}
+                  onChange={e => setForm({ ...form, name: e.target.value })}
+                  style={{ width: '100%' }}
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
+                  ID Discord *
+                </label>
+                <input
+                  placeholder="ex: 1234567890"
+                  value={form.id}
+                  onChange={e => setForm({ ...form, id: e.target.value })}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              {/* Checkbox Traducteur - Visible uniquement pour "Mes traductions" */}
+              {activeTab === 'partner' && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 12px',
+                  background: 'rgba(74, 158, 255, 0.05)',
+                  borderRadius: 6,
+                  border: '1px solid rgba(74, 158, 255, 0.2)'
+                }}>
                   <input
-                    placeholder="ex: Traduction FR"
-                    value={form.name}
-                    onChange={e => setForm({ ...form, name: e.target.value })}
-                    style={{ width: '100%' }}
+                    type="checkbox"
+                    id="isTranslator"
+                    checked={form.isTranslator}
+                    onChange={e => setForm({ ...form, isTranslator: e.target.checked })}
+                    style={{ cursor: 'pointer' }}
                   />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
-                    ID Discord *
-                  </label>
-                  <input
-                    placeholder="ex: 1234567890"
-                    value={form.id}
-                    onChange={e => setForm({ ...form, id: e.target.value })}
-                    style={{ width: '100%' }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
-                    Template (salon) *
-                  </label>
-                  <select
-                    value={form.template}
-                    onChange={e => setForm({ ...form, template: e.target.value })}
-                    style={{ width: '100%', background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                  <label
+                    htmlFor="isTranslator"
+                    style={{ cursor: 'pointer', fontSize: 14, fontWeight: 500 }}
                   >
-                    {templates.map(t => (
-                      <option key={t.id} value={t.id || t.name}>{t.name}</option>
-                    ))}
-                  </select>
+                    👤 Traducteur
+                  </label>
                 </div>
-              </div>
+              )}
 
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                L'ID Discord du tag est lié à un salon Forum spécifique
+              <div style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic' }}>
+                L'ID Discord du tag est lié au salon Forum spécifique
               </div>
+            </div>
 
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
-                {editingIdx !== null && (
-                  <button onClick={cancelEdit}>🚪 Fermer</button>
-                )}
-                <button onClick={saveTag}>
-                  {editingIdx !== null ? '✅ Enregistrer' : '➕ Ajouter'}
-                </button>
-                <button onClick={onClose}>🚪 Fermer</button>
-              </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button onClick={closeAddModal}>Annuler</button>
+              <button onClick={saveTag} style={{ background: '#4a9eff', color: 'white' }}>
+                {editingIdx !== null ? '✅ Enregistrer' : '➕ Ajouter'}
+              </button>
             </div>
           </div>
         </div>
-      </div>
-
-      <ConfirmModal
-        isOpen={confirmState.isOpen}
-        title={confirmState.title}
-        message={confirmState.message}
-        confirmText={confirmState.confirmText}
-        cancelText={confirmState.cancelText}
-        type={confirmState.type}
-        onConfirm={handleConfirm}
-        onCancel={handleCancel}
-      />
-    </div>
+      )}
+    </>
   );
 }

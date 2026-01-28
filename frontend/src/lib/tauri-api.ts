@@ -29,7 +29,6 @@ export interface ConfigData {
   customTemplates?: any[];
   savedTags?: any[];
   savedInstructions?: any[];
-  savedTraductors?: any[];
   customVariables?: any;
 }
 
@@ -364,6 +363,18 @@ export const tauriAPI = {
     try {
       const result = await invoke('get_bots_status');
       return { ok: true, data: result };
+    } catch (error: any) {
+      return { ok: false, error: error.message || String(error) };
+    }
+  },
+
+  /**
+   * Ouvrir une URL dans le navigateur externe
+   */
+  async openUrl(url: string) {
+    try {
+      await invoke('open_url', { url });
+      return { ok: true };
     } catch (error: any) {
       return { ok: false, error: error.message || String(error) };
     }

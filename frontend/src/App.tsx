@@ -2,16 +2,16 @@ import { useEffect, useState } from 'react';
 import ApiStatusBadge from './components/ApiStatusBadge';
 import ConfigModal from './components/ConfigModal';
 import ContentEditor from './components/ContentEditor';
+import DiscordPreviewModal from './components/DiscordPreviewModal';
+import HelpCenterModal from './components/HelpCenterModal';
 import HistoryModal from './components/HistoryModal';
 import InstructionsManagerModal from './components/InstructionsManagerModal';
 import Preview from './components/Preview';
 import PublicationType from './components/PublicationType';
-import ShortcutsHelpModal from './components/ShortcutsHelpModal';
 import StatsModal from './components/StatsModal';
 import TagsModal from './components/TagsModal';
 import TemplatesModal from './components/TemplatesModal';
 import { ToastProvider, useToast } from './components/ToastProvider';
-import TraductorsModal from './components/TraductorsModal';
 import { AppProvider, useApp } from './state/appContext';
 
 function AppContentInner() {
@@ -38,7 +38,6 @@ function AppContentInner() {
 
 
   const { showToast } = useToast();
-  const [previewMode, setPreviewMode] = useState<'raw' | 'styled'>('raw');
 
   // Fonction pour copier le preview
   const handleCopyPreview = async () => {
@@ -65,10 +64,10 @@ function AppContentInner() {
   const [openTags, setOpenTags] = useState(false);
   const [openConfig, setOpenConfig] = useState(false);
   const [openInstructions, setOpenInstructions] = useState(false);
-  const [openTraductors, setOpenTraductors] = useState(false);
   const [openHistory, setOpenHistory] = useState(false);
   const [openStats, setOpenStats] = useState(false);
   const [openShortcutsHelp, setOpenShortcutsHelp] = useState(false);
+  const [openDiscordPreview, setOpenDiscordPreview] = useState(false);
 
   // C. État local du Thème (il est bien ici aussi)
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -128,11 +127,9 @@ function AppContentInner() {
           Générateur de publication
         </h1>
         <div style={{ marginTop: 12 }}>
-          <h3 style={{ margin: 0, marginBottom: 8, fontSize: 14, color: 'var(--muted)' }}>Configurations globale</h3>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <button onClick={() => setOpenTemplates(true)}>📁 Gérer les Templates</button>
             <button onClick={() => setOpenTags(true)}>🏷️ Gérer les Tags</button>
-            <button onClick={() => setOpenTraductors(true)}>👥 Gérer les Traducteurs</button>
             <button onClick={() => setOpenInstructions(true)}>📋 Gérer les Instructions</button>
             <button onClick={() => setOpenHistory(true)}>📜 Historique</button>
             <button onClick={() => setOpenStats(true)}>📈 Statistiques</button>
@@ -221,11 +218,8 @@ function AppContentInner() {
             <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 16 }}>
               <Preview
                 preview={preview || ''}
-                previewMode={previewMode}
-                setPreviewMode={setPreviewMode}
                 onCopy={handleCopyPreview}
-                onReset={handleResetFields}
-                mainImagePath={mainImagePath}
+                onOpenDiscordPreview={() => setOpenDiscordPreview(true)}
               />
             </div>
           </div>
@@ -236,10 +230,17 @@ function AppContentInner() {
       {openTags && <TagsModal onClose={() => setOpenTags(false)} />}
       {openConfig && <ConfigModal onClose={() => setOpenConfig(false)} />}
       {openInstructions && <InstructionsManagerModal onClose={() => setOpenInstructions(false)} />}
-      {openTraductors && <TraductorsModal onClose={() => setOpenTraductors(false)} />}
       {openHistory && <HistoryModal onClose={() => setOpenHistory(false)} />}
       {openStats && <StatsModal onClose={() => setOpenStats(false)} />}
-      {openShortcutsHelp && <ShortcutsHelpModal onClose={() => setOpenShortcutsHelp(false)} />}
+      {openShortcutsHelp && <HelpCenterModal onClose={() => setOpenShortcutsHelp(false)} />}
+      {openDiscordPreview && (
+        <DiscordPreviewModal
+          preview={preview || ''}
+          onClose={() => setOpenDiscordPreview(false)}
+          onCopy={handleCopyPreview}
+          mainImagePath={mainImagePath}
+        />
+      )}
       {/* Removed LogsModal – log display is no longer supported */}
     </div>
   );

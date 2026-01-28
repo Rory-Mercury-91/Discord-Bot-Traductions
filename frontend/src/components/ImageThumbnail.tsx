@@ -23,9 +23,15 @@ export default function ImageThumbnail({ imagePath, isMain, onSetMain, onCopyNam
   const { imageUrl, isLoading, error } = useImageLoader(imagePath);
   const [fileSize, setFileSize] = React.useState<number | null>(null);
 
-  // Récupérer la taille du fichier
+  // Récupérer la taille du fichier (uniquement pour les fichiers locaux, pas les URLs)
   React.useEffect(() => {
     if (!imagePath) return;
+
+    // Ne pas récupérer la taille pour les URLs externes
+    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+      setFileSize(null);
+      return;
+    }
 
     (async () => {
       try {
@@ -35,6 +41,7 @@ export default function ImageThumbnail({ imagePath, isMain, onSetMain, onCopyNam
         }
       } catch (e) {
         console.error('Erreur lors de la récupération de la taille:', e);
+        setFileSize(null);
       }
     })();
   }, [imagePath]);

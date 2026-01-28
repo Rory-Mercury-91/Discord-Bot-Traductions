@@ -22,7 +22,6 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
     templates,
     savedTags,
     savedInstructions,
-    savedTraductors,
     allVarsConfig,
     publishedPosts,
     importFullConfig
@@ -54,7 +53,7 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
         const wv: any = await import('@tauri-apps/api/webviewWindow');
         if (typeof wv.getCurrentWebviewWindow === 'function') win = wv.getCurrentWebviewWindow();
         else if (wv.appWindow) win = wv.appWindow;
-      } catch {}
+      } catch { }
 
       // Tauri v1 (Window/appWindow)
       if (!win) {
@@ -62,7 +61,7 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
           const w: any = await import('@tauri-apps/api/window');
           if (typeof w.getCurrentWindow === 'function') win = w.getCurrentWindow();
           else if (w.appWindow) win = w.appWindow;
-        } catch {}
+        } catch { }
       }
 
       if (!win) return;
@@ -142,7 +141,6 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
         allVarsConfig,
         savedTags,
         savedInstructions,
-        savedTraductors,
         publishedPosts,
         windowState, // ✅ Inclure l'état de fenêtre dans l'export
         exportDate: new Date().toISOString(),
@@ -177,7 +175,7 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
     const ok = await confirm({
       title: '⚠️ Importer une sauvegarde',
       message:
-        "Importer une sauvegarde va écraser tes données actuelles (templates, variables, tags, instructions, traducteurs, historique). Continuer ?",
+        "Importer une sauvegarde va écraser tes données actuelles (templates, variables, tags, instructions, historique). Continuer ?",
       confirmText: 'Importer',
       cancelText: 'Annuler',
       type: 'danger'
@@ -411,7 +409,6 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
               <li>Templates (par défaut modifiés + personnalisés)</li>
               <li>Variables personnalisées</li>
               <li>Tags sauvegardés</li>
-              <li>Traducteurs sauvegardés</li>
               <li>Instructions sauvegardées</li>
               <li>Historique complet des publications</li>
               <li>État de fenêtre préféré</li>
