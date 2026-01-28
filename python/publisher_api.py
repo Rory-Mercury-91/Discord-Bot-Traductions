@@ -1133,13 +1133,25 @@ async def _create_forum_post(session, forum_id, title, content, tags_raw, images
     )
     image_urls_full = [m.group(0) for m in image_url_pattern.finditer(content or "")]
 
+    # Retirer le lien d'image du contenu pour le masquer (il sera dans l'embed)
+    final_content = content or " "
     message_embeds = []
     if image_urls_full:
         image_url = image_urls_full[0]
+        # Créer l'embed avec l'image
         message_embeds.append({"image": {"url": image_url}})
         logger.info(f"✅ Embed image (message principal): {image_url[:60]}...")
+        
+        # Retirer le lien du contenu (y compris s'il est sur une ligne séparée)
+        # On retire le lien et les retours à la ligne qui l'entourent
+        final_content = re.sub(r'\n\s*' + re.escape(image_url) + r'\s*\n?', '\n', final_content)
+        final_content = re.sub(r'\n\s*' + re.escape(image_url) + r'\s*$', '', final_content)
+        final_content = re.sub(re.escape(image_url), '', final_content)
+        # Nettoyer les doubles retours à la ligne
+        final_content = re.sub(r'\n\n\n+', '\n\n', final_content)
+        final_content = final_content.strip()
 
-    message_payload = {"content": content or " "}
+    message_payload = {"content": final_content or " "}
     # Si pas d'image, on force embeds=[] pour nettoyer une éventuelle image précédente lors d'updates
     message_payload["embeds"] = message_embeds if message_embeds else []
 
@@ -1309,13 +1321,25 @@ async def forum_post_update(request):
         )
         image_urls_full = [m.group(0) for m in image_url_pattern.finditer(content or "")]
 
+        # Retirer le lien d'image du contenu pour le masquer (il sera dans l'embed)
+        final_content = content or " "
         message_embeds = []
         if image_urls_full:
             image_url = image_urls_full[0]
+            # Créer l'embed avec l'image
             message_embeds.append({"image": {"url": image_url}})
             logger.info(f"✅ Embed image (update message principal): {image_url[:60]}...")
+            
+            # Retirer le lien du contenu (y compris s'il est sur une ligne séparée)
+            # On retire le lien et les retours à la ligne qui l'entourent
+            final_content = re.sub(r'\n\s*' + re.escape(image_url) + r'\s*\n?', '\n', final_content)
+            final_content = re.sub(r'\n\s*' + re.escape(image_url) + r'\s*$', '', final_content)
+            final_content = re.sub(re.escape(image_url), '', final_content)
+            # Nettoyer les doubles retours à la ligne
+            final_content = re.sub(r'\n\n\n+', '\n\n', final_content)
+            final_content = final_content.strip()
 
-        message_payload = {"content": content or " ", "embeds": message_embeds if message_embeds else []}
+        message_payload = {"content": final_content or " ", "embeds": message_embeds if message_embeds else []}
         status, data = await _discord_patch_json(session, message_path, message_payload)
 
         if status >= 300:

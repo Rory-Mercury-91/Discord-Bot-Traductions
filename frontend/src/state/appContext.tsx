@@ -745,8 +745,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
 
 
-      // Ajouter le lien d'image "masqué" à la fin du contenu si une image est présente.
-      // On utilise un spoiler Discord (||...||) : le lien est caché mais reste éditable dans le thread.
+      // Ajouter le lien d'image à la fin du contenu si une image est présente.
+      // Le backend détectera ce lien, créera un embed avec l'image, puis retirera le lien du contenu.
+      // Ainsi l'image sera visible via l'embed sans que le lien soit affiché.
       let finalContent = content;
       if (uploadedImages.length > 0) {
         const mainImage = uploadedImages.find(img => img.isMain) || uploadedImages[0];
@@ -761,9 +762,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           console.warn('Les fichiers locaux ne peuvent pas être utilisés comme image embed Discord. Veuillez utiliser une URL externe.');
         }
 
-        // Ajouter le lien en spoiler en bas du message.
+        // Ajouter le lien à la fin du contenu (le backend le retirera après avoir créé l'embed)
         if (imageUrl && (imageUrl.startsWith('http://') || imageUrl.startsWith('https://'))) {
-          finalContent = content + `\n||${imageUrl.trim()}||`;
+          finalContent = content + '\n' + imageUrl.trim();
         }
       }
 
