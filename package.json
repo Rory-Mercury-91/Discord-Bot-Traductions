@@ -10,9 +10,14 @@
     "build:win": "tauri build",
     "build": "tauri build",
     "test": "npm --prefix frontend run type-check && npm --prefix frontend run build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "supabase:login": "supabase login",
+    "supabase:link": "supabase link --project-ref ffsdgocbhghyermqqwlv",
+    "supabase:deploy-fn": "supabase functions deploy validate-tags-master-code --no-verify-jwt",
+    "supabase:db-push": "supabase db push"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.9.6"
+    "@tauri-apps/cli": "^2.9.6",
+    "supabase": "^2.0.0"
   }
 }

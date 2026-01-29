@@ -4,33 +4,52 @@ declare global {
     __TAURI__?: any;
   }
 }
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useConfirm } from '../hooks/useConfirm';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useModalScrollLock } from '../hooks/useModalScrollLock';
+import { getSupabase } from '../lib/supabase';
 import { useApp } from '../state/appContext';
+import type { Profile } from '../state/authContext';
+import { useAuth } from '../state/authContext';
 import ConfirmModal from './ConfirmModal';
 import { useToast } from './ToastProvider';
 
-// ✅ NOUVEAU : Type pour l'état de la fenêtre
+// Type pour l'état de la fenêtre
 type WindowState = 'normal' | 'maximized' | 'fullscreen' | 'minimized';
 
-export default function ConfigModal({ onClose }: { onClose?: () => void }) {
+interface ConfigModalProps {
+  onClose?: () => void;
+  /** true = accès admin (fenêtre, export/import) ; false = uniquement API */
+  adminMode?: boolean;
+}
+
+type ProfilePublic = Pick<Profile, 'id' | 'pseudo' | 'discord_id'>;
+
+export default function ConfigModal({ onClose, adminMode = false }: ConfigModalProps) {
   const { showToast } = useToast();
+  const { profile } = useAuth();
   const {
     templates,
     savedTags,
     savedInstructions,
     allVarsConfig,
     publishedPosts,
-    importFullConfig
+    importFullConfig,
+    setApiBaseFromSupabase,
+    clearAllAppData
   } = useApp();
   const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm();
   const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('apiUrl') || localStorage.getItem('apiBase') || '');
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('apiKey') || '');
 
-  // ✅ NOUVEAU : État de la fenêtre
+  // Droits d'édition : liste des profils et des éditeurs autorisés par l'utilisateur connecté
+  const [allProfiles, setAllProfiles] = useState<ProfilePublic[]>([]);
+  const [allowedEditorIds, setAllowedEditorIds] = useState<Set<string>>(new Set());
+  const [editorsLoading, setEditorsLoading] = useState(false);
+
+  // État de la fenêtre
   const [windowState, setWindowState] = useState<WindowState>(() => {
     const saved = localStorage.getItem('windowState') as WindowState;
     return saved || 'maximized';
@@ -40,6 +59,50 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
 
   useEscapeKey(() => onClose?.(), true);
   useModalScrollLock();
+
+  // Charger les profils et les éditeurs autorisés (section utilisateur)
+  useEffect(() => {
+    const sb = getSupabase();
+    if (!sb || !profile?.id) return;
+    setEditorsLoading(true);
+    (async () => {
+      try {
+        const { data: profilesData } = await sb.from('profiles').select('id, pseudo, discord_id');
+        const list = (profilesData ?? []) as ProfilePublic[];
+        setAllProfiles(list);
+        const { data: allowedData } = await sb.from('allowed_editors').select('editor_id').eq('owner_id', profile.id);
+        const ids = new Set((allowedData ?? []).map((r: { editor_id: string }) => r.editor_id));
+        setAllowedEditorIds(ids);
+      } catch (_e) {
+        setAllProfiles([]);
+        setAllowedEditorIds(new Set());
+      } finally {
+        setEditorsLoading(false);
+      }
+    })();
+  }, [profile?.id]);
+
+  const toggleEditor = async (editorId: string, currentlyAllowed: boolean) => {
+    const sb = getSupabase();
+    if (!sb || !profile?.id) return;
+    if (currentlyAllowed) {
+      const { error } = await sb.from('allowed_editors').delete().eq('owner_id', profile.id).eq('editor_id', editorId);
+      if (error) {
+        showToast('Erreur lors de la révocation', 'error');
+        return;
+      }
+      setAllowedEditorIds(prev => { const n = new Set(prev); n.delete(editorId); return n; });
+      showToast('Autorisation révoquée', 'success');
+    } else {
+      const { error } = await sb.from('allowed_editors').insert({ owner_id: profile.id, editor_id: editorId });
+      if (error) {
+        showToast('Erreur lors de l\'autorisation', 'error');
+        return;
+      }
+      setAllowedEditorIds(prev => new Set(prev).add(editorId));
+      showToast('Utilisateur autorisé à modifier vos posts', 'success');
+    }
+  };
 
   const applyWindowStateLive = async (next: WindowState) => {
     try {
@@ -113,6 +176,22 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
     localStorage.setItem('apiBase', apiUrl);
     localStorage.setItem('apiKey', apiKey);
 
+    const baseUrl = (apiUrl || '').trim().replace(/\/+$/, '');
+    if (baseUrl) {
+      setApiBaseFromSupabase(baseUrl);
+      const sb = getSupabase();
+      if (sb) {
+        sb.from('app_config')
+          .upsert(
+            { key: 'api_base_url', value: baseUrl, updated_at: new Date().toISOString() },
+            { onConflict: 'key' }
+          )
+          .then((res) => {
+            if (res?.error) console.warn('⚠️ Supabase app_config:', (res.error as { message?: string })?.message);
+          });
+      }
+    }
+
     // ✅ NOUVEAU : Sauvegarder l'état de fenêtre via Tauri
     try {
       // @ts-ignore - Tauri API
@@ -128,6 +207,24 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
     } catch (e) {
       console.error('Erreur sauvegarde état fenêtre:', e);
       showToast("Configuration enregistrée (erreur état fenêtre)", "warning");
+    }
+    onClose?.();
+  };
+
+  const handleCleanupAllData = async () => {
+    const ok = await confirm({
+      title: 'Nettoyage complet des données',
+      message: 'Supprimer toutes les données applicatives (publications, tags, config, autorisations) sur Supabase et vider l\'historique local. Cette action est irréversible. Continuer ?',
+      confirmText: 'Tout supprimer',
+      type: 'danger'
+    });
+    if (!ok) return;
+    const { ok: success, error } = await clearAllAppData(profile?.id);
+    if (success) {
+      showToast('Données nettoyées avec succès', 'success');
+      onClose?.();
+    } else {
+      showToast('Erreur lors du nettoyage: ' + (error ?? 'inconnue'), 'error');
     }
   };
 
@@ -231,7 +328,7 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
           borderRadius: '12px',
           width: '90%',
           // ✅ Même gabarit que InstructionsManagerModal
-          maxWidth: '650px',
+          maxWidth: '920px',
           maxHeight: '90vh',
           overflowY: 'auto',
           border: '1px solid var(--border)',
@@ -263,233 +360,364 @@ export default function ConfigModal({ onClose }: { onClose?: () => void }) {
           </button>
         </div>
 
-        <div className="modal-body" style={{ padding: '20px', display: 'grid', gap: 16 }}>
-          {/* Section API */}
-          <div
-            style={{
-              border: '1px solid var(--border)',
-              borderRadius: 12,
-              padding: 12,
-              background: 'rgba(255,255,255,0.02)',
-              display: 'grid',
-              gap: 12
-            }}
-          >
-            <h4 style={{ margin: 0 }}>🌐 Configuration API</h4>
-
-            <div>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
-                URL de l'API Koyeb
-              </label>
-              <input
-                type="text"
-                value={apiUrl}
-                onChange={(e) => setApiUrl(e.target.value)}
-                placeholder="https://votre-app.koyeb.app"
-                style={{ width: '100%' }}
-              />
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-                💡 URL de base de votre service Koyeb (sans /api)
-              </div>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6 }}>
-                Clé API
-              </label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Votre clé secrète"
-                style={{ width: '100%' }}
-              />
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-                🔒 Clé de sécurité pour l'accès à l'API
-              </div>
-            </div>
-          </div>
-
-          {/* ✅ NOUVELLE SECTION : État de la fenêtre */}
-          <div
-            style={{
-              border: '1px solid var(--border)',
-              borderRadius: 12,
-              padding: 12,
-              background: 'rgba(255,255,255,0.02)',
-              display: 'grid',
-              gap: 12
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 }}>
-              <h4 style={{ margin: 0 }}>🪟 État de la fenêtre au démarrage</h4>
-              <div style={{ color: 'var(--muted)', fontSize: 12 }}>{windowState}</div>
-            </div>
-
-            <div
+        <div
+          className="modal-body"
+          style={{
+            padding: '24px 28px',
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 24,
+            minWidth: 0,
+            alignItems: 'start',
+          }}
+        >
+          {/* Colonne gauche : API + Droits d'édition */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {/* Section API — toujours visible */}
+            <section
               style={{
-                display: 'flex',
-                gap: 8,
-                padding: 4,
-                borderRadius: 10,
                 border: '1px solid var(--border)',
-                background: 'rgba(255,255,255,0.03)'
+                borderRadius: 14,
+                padding: 20,
+                background: 'rgba(255,255,255,0.02)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 18,
               }}
             >
-              {(['normal', 'maximized', 'fullscreen', 'minimized'] as WindowState[]).map((state) => {
-                const labels = {
-                  normal: '📐 Normal',
-                  maximized: '⬜ Maximisé',
-                  fullscreen: '🖥️ Plein écran',
-                  minimized: '➖ Minimisé'
-                };
+              <h4 style={{ margin: 0, fontSize: '1rem' }}>🌐 Configuration API</h4>
 
-                const active = windowState === state;
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label style={{ display: 'block', fontSize: 14, color: 'var(--muted)', fontWeight: 500 }}>
+                  URL de l'API Koyeb
+                </label>
+                <input
+                  type="text"
+                  value={apiUrl}
+                  onChange={(e) => setApiUrl(e.target.value)}
+                  placeholder="https://votre-app.koyeb.app"
+                  style={{
+                    width: '100%',
+                    padding: '12px 14px',
+                    borderRadius: 10,
+                    border: '1px solid var(--border)',
+                    background: 'rgba(255,255,255,0.05)',
+                    color: 'var(--text)',
+                    fontSize: 14,
+                    boxSizing: 'border-box',
+                  }}
+                />
+                <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+                  💡 URL de base de votre service Koyeb (sans /api)
+                </p>
+              </div>
 
-                return (
-                  <button
-                    key={state}
-                    type="button"
-                    onClick={() => { setWindowState(state); void applyWindowStateLive(state); }}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <label style={{ display: 'block', fontSize: 14, color: 'var(--muted)', fontWeight: 500 }}>
+                  Clé API
+                </label>
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Votre clé secrète"
+                  style={{
+                    width: '100%',
+                    padding: '12px 14px',
+                    borderRadius: 10,
+                    border: '1px solid var(--border)',
+                    background: 'rgba(255,255,255,0.05)',
+                    color: 'var(--text)',
+                    fontSize: 14,
+                    boxSizing: 'border-box',
+                  }}
+                />
+                <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+                  🔒 Clé de sécurité pour l'accès à l'API
+                </p>
+              </div>
+            </section>
+
+            {/* Section Droits d'édition (section utilisateur) : qui peut modifier mes posts */}
+            {profile?.id && (
+              <section
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 14,
+                  padding: 20,
+                  background: 'rgba(255,255,255,0.02)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 16,
+                }}
+              >
+                <h4 style={{ margin: 0, fontSize: '1rem' }}>👥 Qui peut modifier mes posts</h4>
+                <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>
+                  Autorisez ou révoquez le droit d'édition de vos publications pour les autres utilisateurs.
+                </p>
+                {editorsLoading ? (
+                  <div style={{ fontSize: 13, color: 'var(--muted)' }}>Chargement…</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 220, overflowY: 'auto' }}>
+                    {allProfiles
+                      .filter(p => p.id !== profile.id)
+                      .map(p => {
+                        const allowed = allowedEditorIds.has(p.id);
+                        return (
+                          <div
+                            key={p.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 12,
+                              padding: '10px 12px',
+                              background: 'rgba(255,255,255,0.03)',
+                              borderRadius: 10,
+                              border: '1px solid var(--border)',
+                            }}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 600, fontSize: 14 }}>{p.pseudo || '—'}</div>
+                              <div style={{ fontSize: 12, color: 'var(--muted)' }}>ID Discord : {p.discord_id || '—'}</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => toggleEditor(p.id, allowed)}
+                              style={{
+                                padding: '6px 14px',
+                                borderRadius: 8,
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: 12,
+                                fontWeight: 600,
+                                background: allowed ? 'rgba(239, 68, 68, 0.2)' : 'var(--accent)',
+                                color: allowed ? 'var(--error, #ef4444)' : '#fff',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {allowed ? 'Révoquer' : 'Autoriser'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    {allProfiles.filter(p => p.id !== profile.id).length === 0 && (
+                      <div style={{ fontSize: 13, color: 'var(--muted)', fontStyle: 'italic' }}>
+                        Aucun autre utilisateur en base.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+          </div>
+
+          {/* Colonne droite : Fenêtre + Sauvegarde (mode admin) ou message */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {!adminMode && (
+              <div style={{ fontSize: 13, color: 'var(--muted)', fontStyle: 'italic', padding: 16 }}>
+                Débloquez le mode admin (Configuration API) pour gérer l'état de la fenêtre et les sauvegardes.
+              </div>
+            )}
+            {adminMode && (
+              <>
+                <section
+                  style={{
+                    border: '1px solid var(--border)',
+                    borderRadius: 14,
+                    padding: 20,
+                    background: 'rgba(255,255,255,0.02)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 16,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <h4 style={{ margin: 0, fontSize: '1rem' }}>🪟 État de la fenêtre au démarrage</h4>
+                    <span style={{ color: 'var(--muted)', fontSize: 13 }}>{windowState}</span>
+                  </div>
+
+                  <div
                     style={{
-                      flex: 1,
-                      padding: '10px',
-                      borderRadius: 8,
-                      border: 'none',
-                      cursor: 'pointer',
-                      background: active ? 'var(--accent)' : 'transparent',
-                      color: active ? 'white' : 'var(--muted)',
-                      fontSize: 12,
-                      fontWeight: active ? 700 : 600,
-                      transition: 'all 0.15s'
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(2, 1fr)',
+                      gap: 10,
                     }}
                   >
-                    {labels[state]}
-                  </button>
-                );
-              })}
-            </div>
+                    {(['normal', 'maximized', 'fullscreen', 'minimized'] as WindowState[]).map((state) => {
+                      const labels = {
+                        normal: '📐 Normal',
+                        maximized: '⬜ Maximisé',
+                        fullscreen: '🖥️ Plein écran',
+                        minimized: '➖ Minimisé',
+                      };
+                      const active = windowState === state;
+                      return (
+                        <button
+                          key={state}
+                          type="button"
+                          onClick={() => {
+                            setWindowState(state);
+                            void applyWindowStateLive(state);
+                          }}
+                          style={{
+                            padding: '14px 12px',
+                            borderRadius: 10,
+                            border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                            cursor: 'pointer',
+                            background: active ? 'var(--accent)' : 'rgba(255,255,255,0.03)',
+                            color: active ? '#fff' : 'var(--text)',
+                            fontSize: 13,
+                            fontWeight: active ? 700 : 500,
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          {labels[state]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
 
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              <button onClick={onClose}>🚪 Fermer</button>
-              <button onClick={handleSave}>💾 Enregistrer</button>
-            </div>
+                <section
+                  style={{
+                    padding: 20,
+                    background: 'rgba(74, 158, 255, 0.08)',
+                    border: '1px solid rgba(74, 158, 255, 0.25)',
+                    borderRadius: 14,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 16,
+                  }}
+                >
+                  <h4 style={{ margin: 0, fontSize: '1rem', color: 'var(--text)' }}>💾 Sauvegarde complète</h4>
+                  <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0, lineHeight: 1.55 }}>
+                    Exporter ou importer toutes les données (API, templates, variables, tags, instructions, historique, état de fenêtre).
+                  </p>
+                  <ul
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--muted)',
+                      margin: 0,
+                      paddingLeft: 20,
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    <li>Configuration API</li>
+                    <li>Templates et variables</li>
+                    <li>Tags et instructions</li>
+                    <li>Historique des publications</li>
+                    <li>État de fenêtre</li>
+                  </ul>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 10,
+                      padding: '12px 14px',
+                      background: 'rgba(255,255,255,0.06)',
+                      borderRadius: 10,
+                      borderLeft: '3px solid var(--accent)',
+                    }}
+                  >
+                    <span style={{ fontSize: 14 }}>ℹ️</span>
+                    <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0, fontStyle: 'italic' }}>
+                      Le fichier sera enregistré dans votre dossier Téléchargements.
+                    </p>
+                  </div>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={handleImportFile}
+                    style={{ display: 'none' }}
+                  />
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <button
+                      onClick={handleImportClick}
+                      style={{
+                        width: '100%',
+                        padding: '14px 16px',
+                        background: 'rgba(74, 255, 158, 0.12)',
+                        border: '1px solid rgba(74, 255, 158, 0.3)',
+                        color: 'var(--text)',
+                        borderRadius: 10,
+                        cursor: 'pointer',
+                        fontSize: 14,
+                        fontWeight: 600,
+                      }}
+                    >
+                      📥 Importer une sauvegarde
+                    </button>
+                    <button
+                      onClick={handleExportConfig}
+                      style={{
+                        width: '100%',
+                        padding: '14px 16px',
+                        background: 'rgba(74, 158, 255, 0.2)',
+                        border: '1px solid rgba(74, 158, 255, 0.4)',
+                        color: 'var(--accent)',
+                        borderRadius: 10,
+                        cursor: 'pointer',
+                        fontSize: 14,
+                        fontWeight: 600,
+                      }}
+                    >
+                      📤 Télécharger la sauvegarde complète
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCleanupAllData}
+                      style={{
+                        width: '100%',
+                        padding: '14px 16px',
+                        background: 'rgba(239, 68, 68, 0.15)',
+                        border: '1px solid rgba(239, 68, 68, 0.4)',
+                        color: 'var(--error, #ef4444)',
+                        borderRadius: 10,
+                        cursor: 'pointer',
+                        fontSize: 14,
+                        fontWeight: 600,
+                      }}
+                    >
+                      🗑️ Nettoyage complet des données
+                    </button>
+                  </div>
+                </section>
+              </>
+            )}
           </div>
 
-          {/* Section Sauvegarde */}
-          <div style={{
-            padding: '16px',
-            background: 'rgba(74, 158, 255, 0.1)',
-            border: '1px solid rgba(74, 158, 255, 0.3)',
-            borderRadius: 12
-          }}>
-            <h4 style={{
-              margin: '0 0 12px 0',
-              fontSize: '0.95rem',
-              color: 'var(--text)'
-            }}>
-              💾 Sauvegarde complète
-            </h4>
-            <p style={{
-              fontSize: '13px',
-              color: 'var(--muted)',
-              margin: '0 0 12px 0',
-              lineHeight: '1.5'
-            }}>
-              Exporter toutes les données de l'application dans un fichier JSON :
-            </p>
-            <ul style={{
-              fontSize: '12px',
-              color: 'var(--muted)',
-              margin: '0 0 16px 0',
-              paddingLeft: '20px',
-              lineHeight: '1.6'
-            }}>
-              <li>Configuration API</li>
-              <li>Templates (par défaut modifiés + personnalisés)</li>
-              <li>Variables personnalisées</li>
-              <li>Tags sauvegardés</li>
-              <li>Instructions sauvegardées</li>
-              <li>Historique complet des publications</li>
-              <li>État de fenêtre préféré</li>
-            </ul>
-
-            <div style={{
+          {/* Actions principales (pleine largeur) */}
+          <div
+            style={{
               display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '8px 12px',
-              background: 'rgba(255, 255, 255, 0.05)',
-              borderRadius: '6px',
-              marginBottom: '12px',
-              borderLeft: '3px solid #4a9eff'
-            }}>
-              <span style={{ fontSize: '14px' }}>ℹ️</span>
-              <p style={{
-                fontSize: '11px',
-                color: 'var(--muted)',
-                margin: 0,
-                fontStyle: 'italic'
-              }}>
-                Le fichier sera enregistré automatiquement dans votre dossier <strong>"Téléchargements"</strong>.
-              </p>
-            </div>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/json,.json"
-              onChange={handleImportFile}
-              style={{ display: 'none' }}
-            />
-
+              gap: 12,
+              justifyContent: 'flex-end',
+              flexWrap: 'wrap',
+              paddingTop: 8,
+              borderTop: '1px solid var(--border)',
+              gridColumn: '1 / -1',
+            }}
+          >
             <button
-              onClick={handleImportClick}
+              type="button"
+              onClick={handleSave}
               style={{
-                width: '100%',
-                padding: '10px',
-                background: 'rgba(74, 255, 158, 0.12)',
-                border: '1px solid rgba(74, 255, 158, 0.25)',
-                color: 'var(--text)',
-                borderRadius: '6px',
+                padding: '12px 24px',
+                borderRadius: 10,
+                border: 'none',
+                background: 'var(--accent)',
+                color: '#fff',
                 cursor: 'pointer',
-                fontSize: '14px',
+                fontSize: 14,
                 fontWeight: 600,
-                marginBottom: '10px',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(74, 255, 158, 0.18)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(74, 255, 158, 0.12)';
               }}
             >
-              📥 Importer une sauvegarde
-            </button>
-
-            <button
-              onClick={handleExportConfig}
-              style={{
-                width: '100%',
-                padding: '10px',
-                background: 'rgba(74, 158, 255, 0.2)',
-                border: '1px solid rgba(74, 158, 255, 0.4)',
-                color: '#4a9eff',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: 600,
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(74, 158, 255, 0.3)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(74, 158, 255, 0.2)';
-              }}
-            >
-              📤 Télécharger la sauvegarde complète
+              💾 Enregistrer
             </button>
           </div>
         </div>

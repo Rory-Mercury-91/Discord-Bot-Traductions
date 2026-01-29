@@ -36,6 +36,59 @@ if sys.platform == 'win32':
 
 load_dotenv()
 
+# ==================== SUPABASE (source de vérité published_posts) ====================
+_supabase_client = None
+
+def _get_supabase():
+    global _supabase_client
+    if _supabase_client is not None:
+        return _supabase_client
+    url = (os.getenv("SUPABASE_URL") or "").strip()
+    key = (os.getenv("SUPABASE_ANON_KEY") or "").strip()
+    if not url or not key:
+        return None
+    try:
+        from supabase import create_client
+        _supabase_client = create_client(url, key)
+        return _supabase_client
+    except Exception as e:
+        logger.warning(f"⚠️ Supabase non disponible: {e}")
+        return None
+
+
+def _fetch_post_by_thread_id_sync(thread_id) -> Optional[Dict]:
+    """Récupère la ligne published_posts par thread_id (source de vérité). Retourne None si absent."""
+    sb = _get_supabase()
+    if not sb:
+        return None
+    try:
+        r = sb.table("published_posts").select("*").eq("thread_id", str(thread_id)).order("updated_at", ascending=False).limit(1).execute()
+        if r.data and len(r.data) > 0:
+            return r.data[0]
+    except Exception as e:
+        logger.warning(f"⚠️ Supabase fetch_post_by_thread_id: {e}")
+    return None
+
+
+def _metadata_from_row(row: Dict, new_game_version: Optional[str] = None) -> Optional[str]:
+    """Construit metadata_b64 à partir d'une ligne published_posts (saved_inputs + colonnes)."""
+    saved = row.get("saved_inputs") or {}
+    version = new_game_version if new_game_version is not None else (saved.get("Game_version") or "")
+    metadata = {
+        "game_name": (saved.get("Game_name") or row.get("title") or "").strip(),
+        "game_version": version.strip(),
+        "translate_version": (saved.get("Translate_version") or "").strip(),
+        "translation_type": (row.get("translation_type") or "").strip(),
+        "is_integrated": bool(row.get("is_integrated", False)),
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        metadata_json = json.dumps(metadata, ensure_ascii=False)
+        return base64.b64encode(metadata_json.encode("utf-8")).decode("utf-8")
+    except Exception:
+        return None
+
+
 # ==================== LOGGING ====================
 logging.basicConfig(
     level=logging.INFO,
@@ -64,6 +117,8 @@ class Config:
         # Planification
         self.VERSION_CHECK_HOUR = int(os.getenv("VERSION_CHECK_HOUR", "6"))
         self.VERSION_CHECK_MINUTE = int(os.getenv("VERSION_CHECK_MINUTE", "0"))
+        self.CLEANUP_EMPTY_MESSAGES_HOUR = int(os.getenv("CLEANUP_EMPTY_MESSAGES_HOUR", "4"))
+        self.CLEANUP_EMPTY_MESSAGES_MINUTE = int(os.getenv("CLEANUP_EMPTY_MESSAGES_MINUTE", "0"))
         
         self.configured = bool(
             self.DISCORD_PUBLISHER_TOKEN and 
@@ -332,12 +387,31 @@ async def _collect_all_forum_threads(forum: discord.ForumChannel) -> List[discor
 async def _extract_post_data(thread: discord.Thread) -> Tuple[Optional[str], Optional[str]]:
     """
     Extrait (game_link, game_version) depuis un thread Discord.
-    Priorité : métadonnées embed > parsing texte
-    
+    Priorité : Supabase (published_posts) > métadonnées embed > parsing texte
     Returns:
         (game_link, game_version) ou (None, None) si non trouvé
     """
-    # Récupérer starter message
+    # 1) Priorité : ligne published_posts par thread_id (source de vérité)
+    loop = asyncio.get_event_loop()
+    row = await loop.run_in_executor(None, _fetch_post_by_thread_id_sync, thread.id)
+    if row:
+        saved = row.get("saved_inputs") or {}
+        game_version = (saved.get("Game_version") or "").strip()
+        content = (row.get("content") or "") or ""
+        game_link = None
+        m_link_md = _RE_GAME_LINK_MD.search(content)
+        m_link_plain = _RE_GAME_LINK_PLAIN.search(content)
+        if m_link_md:
+            game_link = m_link_md.group("url").strip()
+        elif m_link_plain:
+            game_link = m_link_plain.group("url").strip()
+        if game_version:
+            game_version = _normalize_version(game_version)
+        if game_link or game_version:
+            logger.info(f"✅ Données post depuis Supabase (thread_id={thread.id})")
+            return game_link, game_version
+
+    # 2) Fallback : message Discord (métadonnées embed ou parsing)
     msg = thread.starter_message
     if not msg:
         try:
@@ -420,94 +494,84 @@ async def _extract_post_data(thread: discord.Thread) -> Tuple[Optional[str], Opt
 # ==================== MODIFICATION POST ====================
 async def _update_post_version(thread: discord.Thread, new_version: str) -> bool:
     """
-    Met à jour la version du jeu dans le post Discord (contenu + métadonnées)
-    
+    Met à jour la version du jeu dans le post Discord (contenu + métadonnées).
+    Priorité : construire les métadonnées depuis Supabase (published_posts), sinon depuis l'embed Discord.
     Returns:
         True si succès, False sinon
     """
     try:
-        # Récupérer le message
         msg = thread.starter_message
         if not msg:
             msg = await thread.fetch_message(thread.id)
-        
         if not msg:
             logger.error(f"❌ Message introuvable pour {thread.name}")
             return False
-        
+
         content = msg.content or ""
-        
-        # 1️⃣ Mise à jour du contenu texte
-        # Remplacer la version dans le format markdown
         new_content = _RE_GAME_VERSION_MD.sub(
             f"* **Version du jeu :** `{new_version}`",
             content
         )
-        
-        # Si pas de match markdown, essayer format plain
         if new_content == content:
             new_content = _RE_GAME_VERSION_PLAIN.sub(
                 f"Version du jeu : `{new_version}`",
                 content
             )
-        
-        # 2️⃣ Mise à jour des métadonnées dans l'embed
-        new_embeds = []
-        metadata_updated = False
-        
-        for embed in msg.embeds:
-            footer_text = embed.footer.text if embed.footer else ""
-            
-            # Vérifier si c'est notre embed de métadonnées
-            if footer_text and footer_text.startswith("metadata:v1:"):
-                # Reconstruction et mise à jour des métadonnées
-                chunks = []
-                for field in embed.fields:
-                    if field.name == "\u200b":
-                        chunks.append(field.value)
-                
-                if chunks:
-                    metadata_b64 = "".join(chunks)
-                    try:
+
+        # Métadonnées : priorité Supabase (row), sinon embed Discord
+        metadata_b64_new = None
+        loop = asyncio.get_event_loop()
+        row = await loop.run_in_executor(None, _fetch_post_by_thread_id_sync, thread.id)
+        if row:
+            metadata_b64_new = _metadata_from_row(row, new_game_version=new_version)
+            if metadata_b64_new:
+                logger.info(f"✅ Métadonnées construites depuis Supabase pour {thread.name}")
+
+        if not metadata_b64_new and msg.embeds:
+            for embed in msg.embeds:
+                footer_text = embed.footer.text if embed.footer else ""
+                if footer_text and footer_text.startswith("metadata:v1:"):
+                    chunks = []
+                    for field in embed.fields:
+                        if field.name == "\u200b":
+                            chunks.append(field.value)
+                    if chunks:
+                        metadata_b64 = "".join(chunks)
                         metadata = _decode_metadata_b64(metadata_b64)
                         if metadata:
-                            # Mettre à jour game_version dans les métadonnées
                             metadata["game_version"] = new_version
                             metadata["timestamp"] = int(time.time() * 1000)
-                            
-                            # Ré-encoder en base64
                             metadata_json = json.dumps(metadata, ensure_ascii=False)
-                            metadata_b64_new = base64.b64encode(metadata_json.encode('utf-8')).decode('utf-8')
-                            
-                            # Recréer l'embed avec les nouvelles métadonnées
-                            new_embed = _build_metadata_embed(metadata_b64_new)
-                            new_embeds.append(new_embed)
-                            metadata_updated = True
-                            logger.info(f"✅ Métadonnées mises à jour pour {thread.name}")
-                    except Exception as e:
-                        logger.warning(f"⚠️ Erreur mise à jour métadonnées: {e}")
-                        new_embeds.append(embed.to_dict())
+                            metadata_b64_new = base64.b64encode(metadata_json.encode("utf-8")).decode("utf-8")
+                    break
+
+        new_embeds = []
+        metadata_updated = False
+        for embed in msg.embeds:
+            footer_text = embed.footer.text if embed.footer else ""
+            if footer_text and footer_text.startswith("metadata:v1:"):
+                if metadata_b64_new:
+                    metadata_updated = True
+                else:
+                    pass
             else:
-                # Garder les autres embeds tels quels
                 new_embeds.append(embed.to_dict())
-        
-        # 3️⃣ Envoi de la modification
+        if metadata_b64_new:
+            new_embeds.append(_build_metadata_embed(metadata_b64_new))
+            metadata_updated = True
+
         try:
             await msg.edit(content=new_content, embeds=[discord.Embed.from_dict(e) for e in new_embeds])
             logger.info(f"✅ Post mis à jour pour {thread.name}: {new_version}")
-            
-            # 4️⃣ Masquer l'embed (SUPPRESS_EMBEDS) si métadonnées présentes
             if metadata_updated:
                 try:
                     await msg.edit(suppress=True)
                 except Exception as e:
                     logger.warning(f"⚠️ Impossible de masquer l'embed: {e}")
-            
             return True
         except Exception as e:
             logger.error(f"❌ Erreur modification message pour {thread.name}: {e}")
             return False
-        
     except Exception as e:
         logger.error(f"❌ Erreur mise à jour post {thread.name}: {e}")
         return False
@@ -682,6 +746,36 @@ async def run_version_check_once(forum_filter: Optional[str] = None):
     await _group_and_send_alerts(channel_notif, all_alerts)
     logger.info(f"📊 Contrôle terminé : {len(all_alerts)} alertes envoyées")
 
+# ==================== NETTOYAGE MESSAGES VIDES ====================
+async def run_cleanup_empty_messages_once():
+    """
+    Parcourt les forums configurés et supprime les messages vides dans chaque thread.
+    Ne supprime jamais le message de départ ni les messages contenant les métadonnées.
+    """
+    logger.info("🧹 Démarrage nettoyage quotidien des messages vides")
+    forum_configs = []
+    if config.FORUM_MY_ID:
+        forum_configs.append((config.FORUM_MY_ID, "My"))
+    if config.FORUM_PARTNER_ID:
+        forum_configs.append((config.FORUM_PARTNER_ID, "Partner"))
+    if not forum_configs:
+        logger.warning("⚠️ Aucun forum configuré pour le nettoyage")
+        return
+    total_deleted = 0
+    async with aiohttp.ClientSession() as session:
+        for forum_id, forum_type in forum_configs:
+            forum = bot.get_channel(forum_id)
+            if not forum:
+                logger.warning(f"⚠️ Forum {forum_id} introuvable")
+                continue
+            threads = await _collect_all_forum_threads(forum)
+            logger.info(f"🧹 Nettoyage [{forum_type}]: {len(threads)} threads")
+            for thread in threads:
+                await asyncio.sleep(0.5 + random.random() * 0.3)
+                n = await _clean_empty_messages_in_thread(session, str(thread.id))
+                total_deleted += n
+    logger.info(f"✅ Nettoyage terminé : {total_deleted} message(s) vide(s) supprimé(s)")
+
 # ==================== TÂCHE QUOTIDIENNE ====================
 @tasks.loop(time=datetime.time(hour=config.VERSION_CHECK_HOUR, minute=config.VERSION_CHECK_MINUTE, tzinfo=ZoneInfo("Europe/Paris")))
 async def daily_version_check():
@@ -691,6 +785,15 @@ async def daily_version_check():
         await run_version_check_once()
     except Exception as e:
         logger.error(f"❌ Erreur contrôle quotidien: {e}")
+
+@tasks.loop(time=datetime.time(hour=config.CLEANUP_EMPTY_MESSAGES_HOUR, minute=config.CLEANUP_EMPTY_MESSAGES_MINUTE, tzinfo=ZoneInfo("Europe/Paris")))
+async def daily_cleanup_empty_messages():
+    """Nettoyage quotidien des messages vides dans les threads (défaut: 4h Europe/Paris)."""
+    logger.info("🧹 Démarrage nettoyage quotidien des messages vides")
+    try:
+        await run_cleanup_empty_messages_once()
+    except Exception as e:
+        logger.error(f"❌ Erreur nettoyage messages vides: {e}")
 
 # ==================== COMMANDES SLASH ====================
 ALLOWED_USER_ID = 394893413843206155
@@ -723,9 +826,11 @@ async def check_help(interaction: discord.Interaction):
         "**/check_versions** — Lance le contrôle complet des versions F95 (My + Partner).\n"
         "**/check_mytrads** — Lance le contrôle uniquement sur le forum 'Mes traductions'.\n"
         "**/check_partnertrads** — Lance le contrôle uniquement sur le forum 'Traductions partenaire'.\n"
+        "**/cleanup_empty_messages** — Supprime les messages vides dans les threads (sauf métadonnées).\n"
         "**/force_sync** — Force la synchronisation des commandes slash.\n\n"
         "**ℹ️ Fonctionnement automatique**\n"
-        f"Le bot effectue un contrôle automatique tous les jours à {config.VERSION_CHECK_HOUR:02d}:{config.VERSION_CHECK_MINUTE:02d} (Europe/Paris).\n"
+        f"Contrôle des versions : tous les jours à {config.VERSION_CHECK_HOUR:02d}:{config.VERSION_CHECK_MINUTE:02d} (Europe/Paris).\n"
+        f"Nettoyage des messages vides : tous les jours à {config.CLEANUP_EMPTY_MESSAGES_HOUR:02d}:{config.CLEANUP_EMPTY_MESSAGES_MINUTE:02d} (Europe/Paris).\n"
         "Système anti-doublon actif (30 jours) pour éviter les notifications répétées."
     )
 
@@ -774,6 +879,21 @@ async def check_partnertrads(interaction: discord.Interaction):
         await interaction.followup.send("✅ Contrôle 'Traductions partenaire' terminé.", ephemeral=True)
     except Exception as e:
         logger.error(f"❌ Erreur commande check_partnertrads: {e}")
+        await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
+
+@bot.tree.command(name="cleanup_empty_messages", description="Supprime les messages vides dans les threads (sauf métadonnées)")
+async def cleanup_empty_messages_cmd(interaction: discord.Interaction):
+    """Lance le nettoyage des messages vides manuellement."""
+    if not _user_can_run_checks(interaction):
+        await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
+        return
+
+    await interaction.response.send_message("⏳ Nettoyage des messages vides en cours…", ephemeral=True)
+    try:
+        await run_cleanup_empty_messages_once()
+        await interaction.followup.send("✅ Nettoyage terminé.", ephemeral=True)
+    except Exception as e:
+        logger.error(f"❌ Erreur commande cleanup_empty_messages: {e}")
         await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
 
 @bot.tree.command(name="force_sync", description="Force la synchronisation des commandes")
@@ -989,14 +1109,17 @@ async def on_ready():
     # Sync commandes slash
     try:
         await bot.tree.sync()
-        logger.info("✅ Commandes slash synchronisées (/check_versions, /check_mytrads, /check_partnertrads, /check_help)")
+        logger.info("✅ Commandes slash synchronisées (/check_versions, /check_mytrads, /check_partnertrads, /cleanup_empty_messages, /check_help)")
     except Exception as e:
         logger.error(f"⚠️ Sync commandes slash échouée: {e}")
     
-    # Lancement tâche quotidienne
+    # Lancement tâches quotidiennes
     if not daily_version_check.is_running():
         daily_version_check.start()
         logger.info(f"✅ Contrôle quotidien programmé à {config.VERSION_CHECK_HOUR:02d}:{config.VERSION_CHECK_MINUTE:02d} Europe/Paris")
+    if not daily_cleanup_empty_messages.is_running():
+        daily_cleanup_empty_messages.start()
+        logger.info(f"✅ Nettoyage messages vides programmé à {config.CLEANUP_EMPTY_MESSAGES_HOUR:02d}:{config.CLEANUP_EMPTY_MESSAGES_MINUTE:02d} Europe/Paris")
 
 # ==================== HELPERS API REST ====================
 def _build_metadata_embed(metadata_b64: str) -> dict:
@@ -1129,6 +1252,64 @@ async def _delete_old_metadata_messages(session, thread_id: str, keep_message_id
         return deleted_count
     except Exception as e:
         logger.warning(f"⚠️ Exception suppression anciens messages metadata: {e}")
+        return 0
+
+def _message_has_metadata_embed(msg_dict: dict) -> bool:
+    """Indique si le message contient un embed de métadonnées (footer metadata:v1:)."""
+    for e in (msg_dict.get("embeds") or []):
+        footer = (e.get("footer") or {}).get("text") or ""
+        if footer.startswith("metadata:v1:") or footer.startswith("metadata:"):
+            return True
+    return False
+
+def _is_message_empty_and_not_metadata(msg_dict: dict) -> bool:
+    """
+    True si le message est totalement vide : pas de contenu, pas de pièce jointe, pas d'embed.
+    On ne supprime jamais les messages contenant les métadonnées ni ceux avec un embed (image, etc.).
+    """
+    content = (msg_dict.get("content") or "").strip()
+    if content:
+        return False
+    attachments = msg_dict.get("attachments") or []
+    if attachments:
+        return False
+    embeds = msg_dict.get("embeds") or []
+    if not embeds:
+        return True
+    if _message_has_metadata_embed(msg_dict):
+        return False
+    return False
+
+async def _clean_empty_messages_in_thread(session, thread_id: str) -> int:
+    """
+    Supprime les messages vides dans un thread (sauf le message de départ et les messages contenant les métadonnées).
+    L'API renvoie les messages du plus récent au plus ancien ; le dernier de la liste est le message de départ.
+    Returns:
+        Nombre de messages supprimés
+    """
+    try:
+        messages = await _discord_list_messages(session, thread_id, limit=50)
+        if len(messages) <= 1:
+            return 0
+        # Ne jamais supprimer le message de départ (le plus ancien = dernier de la liste)
+        starter_id = messages[-1].get("id") if messages else None
+        to_delete = []
+        for m in messages[:-1]:
+            msg_id = m.get("id")
+            if not msg_id or msg_id == starter_id:
+                continue
+            if _is_message_empty_and_not_metadata(m):
+                to_delete.append(msg_id)
+        deleted = 0
+        for msg_id in to_delete:
+            if await _discord_delete_message(session, thread_id, msg_id):
+                deleted += 1
+                logger.info(f"🗑️ Message vide supprimé: {msg_id} (thread {thread_id})")
+            else:
+                logger.warning(f"⚠️ Échec suppression message vide: {msg_id}")
+        return deleted
+    except Exception as e:
+        logger.warning(f"⚠️ Exception nettoyage messages vides (thread {thread_id}): {e}")
         return 0
 
 async def _discord_suppress_embeds(session, channel_id: str, message_id: str) -> bool:

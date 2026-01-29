@@ -4,6 +4,7 @@ import { useConfirm } from '../hooks/useConfirm';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import { tauriAPI } from '../lib/tauri-api';
 import { useApp } from '../state/appContext';
+import { useAuth } from '../state/authContext';
 import ConfirmModal from './ConfirmModal';
 import ImageThumbnail from './ImageThumbnail';
 import TagSelectorModal from './TagSelectorModal';
@@ -45,6 +46,7 @@ export default function ContentEditor() {
     deleteAdditionalTranslationLink
   } = useApp();
 
+  const { profile } = useAuth();
   const { showToast } = useToast();
   const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm();
   const { linkConfigs, setLinkConfig, /* autres... */ } = useApp();
@@ -1422,7 +1424,7 @@ export default function ContentEditor() {
                   message: editingPostId ? 'Modifier ce post sur Discord ?' : 'Envoyer ce nouveau post sur Discord ?'
                 });
                 if (ok) {
-                  const res = await publishPost();
+                  const res = await publishPost(profile?.discord_id);
                   if (res && res.ok) {
                     showToast('Terminé !', 'success');
                     if (editingPostId) {

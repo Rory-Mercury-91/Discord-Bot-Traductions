@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import ErrorModal from '../components/ErrorModal';
+import { getSupabase } from '../lib/supabase';
 import { tauriAPI } from '../lib/tauri-api';
 // The local logger has been removed.  Koyeb collects logs automatically, so
 // there is no need to import or use the custom logger.
@@ -44,6 +45,10 @@ export type Tag = { name: string; id?: string; template?: string; isTranslator?:
 export type PublishedPost = {
   id: string;
   timestamp: number;
+  /** Date de création (ms), pour affichage */
+  createdAt?: number;
+  /** Date de dernière modification (ms), pour affichage */
+  updatedAt?: number;
   title: string;
   content: string;
   tags: string;
@@ -65,6 +70,8 @@ export type PublishedPost = {
   };
   savedAdditionalTranslationLinks?: AdditionalTranslationLink[];
   templateId?: string;
+  /** ID Discord de l'auteur du post (pour droits d'édition) */
+  authorDiscordId?: string;
 };
 
 const defaultVarsConfig: VarConfig[] = [
@@ -177,7 +184,7 @@ type AppContextValue = {
   apiUrl: string;
   publishInProgress: boolean;
   lastPublishResult: string | null;
-  publishPost: () => Promise<{ ok: boolean, data?: any, error?: string }>;
+  publishPost: (authorDiscordId?: string) => Promise<{ ok: boolean, data?: any, error?: string }>;
 
   // Error handling
   showErrorModal: (error: { code?: string | number; message: string; context?: string; httpStatus?: number; discordError?: any }) => void;
@@ -188,6 +195,8 @@ type AppContextValue = {
   updatePublishedPost: (id: string, p: Partial<PublishedPost>) => void;
   deletePublishedPost: (id: string) => void;
   fetchHistoryFromAPI: () => Promise<void>;
+  /** Nettoyage des données applicatives (Supabase + état local). ownerId = profil courant pour supprimer ses lignes allowed_editors. */
+  clearAllAppData: (ownerId?: string) => Promise<{ ok: boolean; error?: string }>;
 
   // Rate limit protection
   rateLimitCooldown: number | null;
@@ -215,6 +224,9 @@ type AppContextValue = {
   setEditingPostData: (post: PublishedPost | null) => void;
   loadPostForEditing: (post: PublishedPost) => void;
   loadPostForDuplication: (post: PublishedPost) => void;
+
+  // Config globale (URL API partagée via Supabase)
+  setApiBaseFromSupabase: (url: string | null) => void;
 
   // API status global
   apiStatus: string;
@@ -503,13 +515,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // API Configuration - URL is now hardcoded for local API
   // Définir l’URL de base en consultant d’abord localStorage, puis .env, et enfin un fallback Koyeb
+  const [apiBaseFromSupabase, setApiBaseFromSupabase] = useState<string | null>(null);
+
   const defaultApiBaseRaw =
-    localStorage.getItem('apiBase') ||
-    import.meta.env.VITE_PUBLISHER_API_URL ||
+    apiBaseFromSupabase ??
+    localStorage.getItem('apiBase') ??
+    localStorage.getItem('apiUrl') ??
+    (typeof import.meta?.env?.VITE_PUBLISHER_API_URL === 'string' ? import.meta.env.VITE_PUBLISHER_API_URL : '') ??
     'https://dependent-klarika-rorymercury91-e1486cf2.koyeb.app';
 
-  // Normaliser l'URL : enlever les slashes de fin
-  const defaultApiBase = defaultApiBaseRaw.replace(/\/+$/, '');
+  const defaultApiBase = (defaultApiBaseRaw || '').replace(/\/+$/, '');
 
   // L’URL complète pour publier un post (sans la partie forum-post par défaut)
   const apiUrl = `${defaultApiBase}/api/forum-post`;
@@ -609,21 +624,147 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('publishedPosts', JSON.stringify(publishedPosts));
   }, [publishedPosts]);
 
-  // History management functions
+  // History management functions (sync Supabase si configuré)
   const addPublishedPost = (p: PublishedPost) => {
-    setPublishedPosts(prev => [p, ...prev]); // Newest first
+    setPublishedPosts(prev => [p, ...prev]);
+    const sb = getSupabase();
+    if (sb) {
+      const row = postToRow(p);
+      sb.from('published_posts').upsert(row, { onConflict: 'id' }).then((res) => {
+        if (res.error) console.warn('⚠️ Supabase insert post:', (res.error as { message?: string })?.message);
+      });
+    }
   };
 
   const updatePublishedPost = (id: string, updates: Partial<PublishedPost>) => {
-    setPublishedPosts(prev => prev.map(post => post.id === id ? { ...post, ...updates } : post));
+    const withUpdatedAt = { ...updates, updatedAt: updates.updatedAt ?? Date.now() };
+    setPublishedPosts(prev => prev.map(post => post.id === id ? { ...post, ...withUpdatedAt } : post));
+    const sb = getSupabase();
+    if (sb) {
+      const post = publishedPosts.find(p => p.id === id);
+      if (!post) return;
+      const merged = { ...post, ...updates, updatedAt: Date.now() };
+      const row = postToRow(merged as PublishedPost);
+      sb.from('published_posts').upsert(row, { onConflict: 'id' }).then((res) => {
+        if (res.error) console.warn('⚠️ Supabase update post:', (res.error as { message?: string })?.message);
+      });
+    }
   };
 
   const deletePublishedPost = (id: string) => {
     setPublishedPosts(prev => prev.filter(post => post.id !== id));
+    const sb = getSupabase();
+    if (sb) sb.from('published_posts').delete().eq('id', id).then((res) => {
+      if (res.error) console.warn('⚠️ Supabase delete post:', (res.error as { message?: string })?.message);
+    });
   };
 
-  // Fonction pour récupérer l'historique depuis l'API (Koyeb = backup des 1000 derniers)
+  async function clearAllAppData(ownerId?: string): Promise<{ ok: boolean; error?: string }> {
+    const sb = getSupabase();
+    try {
+      if (sb) {
+        const { data: postRows } = await sb.from('published_posts').select('id');
+        const postIds = (postRows ?? []).map((r: { id: string }) => r.id);
+        if (postIds.length > 0) {
+          await sb.from('published_posts').delete().in('id', postIds);
+        }
+        const { data: tagRows } = await sb.from('tags').select('id');
+        const tagIds = (tagRows ?? []).map((r: { id: string }) => r.id);
+        if (tagIds.length > 0) {
+          await sb.from('tags').delete().in('id', tagIds);
+        }
+        const { data: configRows } = await sb.from('app_config').select('key');
+        const configKeys = (configRows ?? []).map((r: { key: string }) => r.key);
+        if (configKeys.length > 0) {
+          await sb.from('app_config').delete().in('key', configKeys);
+        }
+        if (ownerId) {
+          await sb.from('allowed_editors').delete().eq('owner_id', ownerId);
+        }
+      }
+      setPublishedPosts([]);
+      return { ok: true };
+    } catch (e: any) {
+      const msg = e?.message ?? String(e);
+      console.warn('⚠️ clearAllAppData:', msg);
+      return { ok: false, error: msg };
+    }
+  }
+
+  // Mappers PublishedPost <-> Supabase row (table published_posts = source de vérité pour bot server 1)
+  function postToRow(p: PublishedPost) {
+    const createdTs = p.createdAt ?? p.timestamp;
+    const updatedTs = p.updatedAt ?? p.timestamp;
+    return {
+      id: p.id,
+      title: p.title ?? '',
+      content: p.content ?? '',
+      tags: p.tags ?? '',
+      template: p.template ?? 'my',
+      image_path: p.imagePath ?? null,
+      translation_type: p.translationType ?? null,
+      is_integrated: p.isIntegrated ?? false,
+      thread_id: p.threadId ?? '',
+      message_id: p.messageId ?? '',
+      discord_url: p.discordUrl ?? '',
+      forum_id: Number(p.forumId) || 0,
+      author_discord_id: p.authorDiscordId ?? null,
+      saved_inputs: p.savedInputs ?? null,
+      saved_link_configs: p.savedLinkConfigs ?? null,
+      saved_additional_translation_links: p.savedAdditionalTranslationLinks ?? null,
+      template_id: p.templateId ?? null,
+      created_at: new Date(createdTs).toISOString(),
+      updated_at: new Date(updatedTs).toISOString()
+    };
+  }
+  function rowToPost(r: Record<string, unknown>): PublishedPost {
+    const createdStr = r.created_at as string;
+    const updatedStr = r.updated_at as string;
+    const createdAt = createdStr ? new Date(createdStr).getTime() : Date.now();
+    const updatedAt = updatedStr ? new Date(updatedStr).getTime() : createdAt;
+    const ts = updatedAt;
+    return {
+      id: String(r.id),
+      timestamp: ts,
+      createdAt,
+      updatedAt,
+      title: String(r.title ?? ''),
+      content: String(r.content ?? ''),
+      tags: String(r.tags ?? ''),
+      template: String(r.template ?? 'my'),
+      imagePath: r.image_path != null ? String(r.image_path) : undefined,
+      translationType: r.translation_type != null ? String(r.translation_type) : undefined,
+      isIntegrated: Boolean(r.is_integrated),
+      threadId: String(r.thread_id ?? ''),
+      messageId: String(r.message_id ?? ''),
+      discordUrl: String(r.discord_url ?? ''),
+      forumId: Number(r.forum_id) || 0,
+      savedInputs: (r.saved_inputs as Record<string, string>) ?? undefined,
+      savedLinkConfigs: (r.saved_link_configs as PublishedPost['savedLinkConfigs']) ?? undefined,
+      savedAdditionalTranslationLinks: (r.saved_additional_translation_links as PublishedPost['savedAdditionalTranslationLinks']) ?? undefined,
+      templateId: r.template_id != null ? String(r.template_id) : undefined,
+      authorDiscordId: r.author_discord_id != null ? String(r.author_discord_id) : undefined
+    };
+  }
+
+  // Récupérer l'historique : d'abord Supabase, puis API Koyeb en backup
   async function fetchHistoryFromAPI() {
+    const sb = getSupabase();
+    if (sb) {
+      try {
+        const { data: rows, error } = await sb
+          .from('published_posts')
+          .select('*')
+          .order('updated_at', { ascending: false })
+          .limit(1000);
+        if (!error && Array.isArray(rows) && rows.length > 0) {
+          setPublishedPosts(rows.map(rowToPost));
+          return;
+        }
+      } catch (_e) {
+        // Continuer vers Koyeb
+      }
+    }
     try {
       const baseUrl = localStorage.getItem('apiBase') || defaultApiBase;
       const apiKey = localStorage.getItem('apiKey') || '';
@@ -639,7 +780,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (!response.ok) {
         if (response.status === 404) {
-          // L'endpoint n'existe pas encore, on garde localStorage uniquement
           console.log('⚠️ Endpoint /api/history non disponible, utilisation de localStorage uniquement');
           return;
         }
@@ -649,43 +789,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const data = await response.json();
       if (Array.isArray(data.posts) || Array.isArray(data)) {
         const koyebPosts = Array.isArray(data.posts) ? data.posts : data;
-
-        // Récupérer l'historique local actuel
         const localPosts = publishedPosts;
-        const localIds = new Set(localPosts.map(p => p.id));
-
-        // Fusionner : Koyeb (backup récent) + localStorage (complet)
-        // On ajoute seulement les posts de Koyeb qui ne sont pas déjà dans localStorage
         const newPostsFromKoyeb = koyebPosts.filter((p: any) => {
-          // Vérifier par thread_id et message_id pour éviter les doublons même si l'ID local diffère
           const koyebThreadId = p.thread_id || p.threadId;
           const koyebMessageId = p.message_id || p.messageId;
-
           return !localPosts.some(local =>
             (local.threadId === koyebThreadId && local.messageId === koyebMessageId) ||
             local.id === p.id
           );
         });
-
         if (newPostsFromKoyeb.length > 0) {
-          // Ajouter les nouveaux posts de Koyeb au début (plus récents)
           setPublishedPosts(prev => {
             const merged = [...newPostsFromKoyeb, ...prev].sort((a, b) => b.timestamp - a.timestamp);
             return merged;
           });
           console.log(`✅ ${newPostsFromKoyeb.length} nouveaux posts récupérés depuis Koyeb (backup)`);
-        } else {
-          console.log('✅ Historique synchronisé : aucun nouveau post depuis Koyeb');
         }
       }
     } catch (e: any) {
-      console.error('❌ Erreur lors de la récupération de l\'historique depuis Koyeb:', e);
-      // Ne pas bloquer l'utilisateur, on garde localStorage uniquement
-      // Koyeb est juste un backup, localStorage est la source principale
+      console.error('❌ Erreur lors de la récupération de l\'historique:', e);
     }
   }
 
-  async function publishPost() {
+  async function publishPost(authorDiscordId?: string) {
     const title = (postTitle || '').trim();
     const content = preview || '';
     const tags = postTags || '';
@@ -887,9 +1013,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           setEditingPostData(null);
           console.log('✅ Post mis à jour dans l\'historique:', updatedPost);
         } else {
+          const now = Date.now();
           const newPost: PublishedPost = {
-            id: `post_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            timestamp: Date.now(),
+            id: `post_${now}_${Math.random().toString(36).substr(2, 9)}`,
+            timestamp: now,
+            createdAt: now,
+            updatedAt: now,
             title,
             content,
             tags,
@@ -904,7 +1033,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             threadId: String(threadId),
             messageId: String(messageId),
             discordUrl: threadUrl,
-            forumId: typeof forumId === 'number' ? forumId : parseInt(String(forumId)) || 0
+            forumId: typeof forumId === 'number' ? forumId : parseInt(String(forumId)) || 0,
+            authorDiscordId: authorDiscordId ?? undefined
           };
           addPublishedPost(newPost);
           console.log('✅ Nouveau post ajouté à l\'historique:', newPost);
@@ -941,6 +1071,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     localStorage.setItem('savedTags', JSON.stringify(savedTags));
   }, [savedTags]);
+
+  // Charger la config globale (URL API) depuis Supabase au montage
+  useEffect(() => {
+    const sb = getSupabase();
+    if (!sb) return;
+    sb.from('app_config')
+      .select('value')
+      .eq('key', 'api_base_url')
+      .maybeSingle()
+      .then((res: { data?: { value: string } | null; error?: unknown }) => {
+        if (res.error || !res.data?.value?.trim()) return;
+        const url = res.data.value.trim().replace(/\/+$/, '');
+        setApiBaseFromSupabase(url);
+        localStorage.setItem('apiBase', url);
+        localStorage.setItem('apiUrl', url);
+      });
+  }, []);
+
+  // Charger les tags depuis Supabase au montage (remplace localStorage si Supabase a des données)
+  useEffect(() => {
+    const sb = getSupabase();
+    if (!sb) return;
+    sb.from('tags')
+      .select('id, name, template, is_translator')
+      .order('created_at', { ascending: true })
+      .then((res) => {
+        if (res.error || !res.data?.length) return;
+        setSavedTags(
+          (res.data as Array<{ id: string; name: string; template: string | null; is_translator: boolean }>).map((r) => ({
+            id: r.id,
+            name: r.name,
+            template: r.template ?? undefined,
+            isTranslator: r.is_translator ?? false
+          }))
+        );
+      });
+  }, []);
 
   useEffect(() => {
     // Migration: nettoyer les anciennes variables avant de sauvegarder
@@ -1098,10 +1265,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }
 
   function addSavedTag(t: Tag) {
-    setSavedTags(prev => [...prev, t]);
+    const sb = getSupabase();
+    if (sb) {
+      sb.from('tags')
+        .insert({
+          name: t.name,
+          template: t.template ?? null,
+          is_translator: t.isTranslator ?? false
+        })
+        .select('id')
+        .single()
+        .then((res) => {
+          if (!res.error && res.data)
+            setSavedTags(prev => [...prev, { ...t, id: (res.data as { id: string }).id }]);
+          else
+            setSavedTags(prev => [...prev, t]);
+        });
+    } else {
+      setSavedTags(prev => [...prev, t]);
+    }
   }
   function deleteSavedTag(idx: number) {
-    setSavedTags(prev => { const copy = [...prev]; copy.splice(idx, 1); return copy; });
+    const tag = savedTags[idx];
+    const sb = getSupabase();
+    if (sb && tag?.id) {
+      sb.from('tags')
+        .delete()
+        .eq('id', tag.id)
+        .then(() => setSavedTags(prev => { const copy = [...prev]; copy.splice(idx, 1); return copy; }));
+    } else {
+      setSavedTags(prev => { const copy = [...prev]; copy.splice(idx, 1); return copy; });
+    }
   }
 
   // Instructions saved
@@ -1381,13 +1575,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // 2. Gestion de l'affichage du lien de traduction standard selon la checkbox
     // Par défaut (non cochée) : le lien est affiché
-    // Quand cochée : le lien est masqué
+    // Quand cochée ("Masquer le lien") : la ligne "Téléchargez la traduction ici !" est masquée
     const hideStandardTranslationLink = (inputs as any)['use_additional_links'] === true || (inputs as any)['use_additional_links'] === 'true';
 
     // Si la checkbox est cochée, supprimer la ligne du lien de traduction standard AVANT le remplacement
     if (hideStandardTranslationLink) {
-      // Supprimer la ligne contenant [Translate_link] dans le contexte "Lien de la Traduction"
+      // Ancien format : "**Lien de la Traduction** : ... [Translate_link]"
       content = content.replace(/^\s*\*\s*\*\*Lien de la [Tt]raduction\s*:\s*\*\*.*\[Translate_link\].*$/gm, '');
+      // Format actuel du template : "   * [Téléchargez la traduction ici !](<[Translate_link]>)"
+      content = content.replace(/^\s*\*\s*.*\[Translate_link\].*$/gm, '');
     }
 
     // 3. Remplacement des variables classiques
@@ -1565,9 +1761,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updatePublishedPost,
     deletePublishedPost,
     fetchHistoryFromAPI,
+    clearAllAppData,
 
     // Rate limit protection
     rateLimitCooldown,
+
+    setApiBaseFromSupabase,
 
     // Edit mode
     editingPostId,

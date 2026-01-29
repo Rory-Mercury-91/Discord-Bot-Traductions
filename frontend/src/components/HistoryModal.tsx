@@ -1,69 +1,56 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useConfirm } from '../hooks/useConfirm';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useModalScrollLock } from '../hooks/useModalScrollLock';
+import { getSupabase } from '../lib/supabase';
 import { PublishedPost, useApp } from '../state/appContext';
+import type { Profile } from '../state/authContext';
+import { useAuth } from '../state/authContext';
 import ConfirmModal from './ConfirmModal';
 import { useToast } from './ToastProvider';
+
+type ProfilePublic = Pick<Profile, 'id' | 'pseudo' | 'discord_id'>;
 
 interface HistoryModalProps {
   onClose?: () => void;
 }
 
-// Composant pour lazy loading des images
-function LazyImage({ src, alt, style }: { src: string; alt: string; style?: React.CSSProperties }) {
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [isInView, setIsInView] = useState(false);
-  const imgRef = useRef<HTMLImageElement>(null);
-
-  useEffect(() => {
-    if (!imgRef.current) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            setIsInView(true);
-            observer.disconnect();
-          }
-        });
-      },
-      { rootMargin: '50px' }
-    );
-
-    observer.observe(imgRef.current);
-
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <img
-      ref={imgRef}
-      src={isInView ? src : undefined}
-      alt={alt}
-      style={{
-        ...style,
-        opacity: isLoaded ? 1 : 0.5,
-        transition: 'opacity 0.3s ease'
-      }}
-      onLoad={() => setIsLoaded(true)}
-    />
-  );
-}
-
-const POSTS_PER_PAGE = 20;
+const POSTS_PER_PAGE = 15;
 
 export default function HistoryModal({ onClose }: HistoryModalProps) {
   useEscapeKey(() => onClose?.(), true);
   useModalScrollLock();
 
-  const { publishedPosts, deletePublishedPost, loadPostForEditing, loadPostForDuplication, fetchHistoryFromAPI } = useApp();
+  const { profile } = useAuth();
+  const { publishedPosts, deletePublishedPost, loadPostForEditing, fetchHistoryFromAPI } = useApp();
   const { showToast } = useToast();
   const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm();
+
+  // Droits d'édition : profils (pour author_discord_id -> id) et owners qui m'ont autorisé
+  const [allProfilesForEdit, setAllProfilesForEdit] = useState<ProfilePublic[]>([]);
+  const [ownerIdsWhoAllowedMe, setOwnerIdsWhoAllowedMe] = useState<Set<string>>(new Set());
 
   // Gestion des erreurs et états de chargement
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Charger profils et droits d'édition à l'ouverture
+  useEffect(() => {
+    const sb = getSupabase();
+    if (!sb || !profile?.id) return;
+    (async () => {
+      try {
+        const { data: profilesData } = await sb.from('profiles').select('id, pseudo, discord_id');
+        setAllProfilesForEdit((profilesData ?? []) as ProfilePublic[]);
+        const { data: allowedData } = await sb.from('allowed_editors').select('owner_id').eq('editor_id', profile.id);
+        const ids = new Set((allowedData ?? []).map((r: { owner_id: string }) => r.owner_id));
+        setOwnerIdsWhoAllowedMe(ids);
+      } catch (_e) {
+        setAllProfilesForEdit([]);
+        setOwnerIdsWhoAllowedMe(new Set());
+      }
+    })();
+  }, [profile?.id]);
 
   // Forcer le refresh de l'historique à l'ouverture de la modale
   useEffect(() => {
@@ -80,102 +67,49 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
       });
   }, []);
 
-  // États pour recherche et filtres
+  // Recherche, tri et filtre par auteur
   const [searchQuery, setSearchQuery] = useState('');
-  const [dateFilter, setDateFilter] = useState('all');
-  const [templateFilter, setTemplateFilter] = useState('all');
-  const [translatorFilter, setTranslatorFilter] = useState('all');
-  const [sortBy, setSortBy] = useState('date-desc');
+  const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc'>('date-desc');
+  const [filterAuthorId, setFilterAuthorId] = useState<string>('');
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Extraire la liste des traducteurs uniques
-  const uniqueTranslators = useMemo(() => {
-    const translators = new Set<string>();
-    publishedPosts.forEach(post => {
-      const content = post.content.toLowerCase();
-      const translatorMatch = content.match(/traducteur[:\s]+([^\n]+)/i) ||
-        content.match(/translator[:\s]+([^\n]+)/i);
-      if (translatorMatch && translatorMatch[1]) {
-        const translator = translatorMatch[1].trim();
-        if (translator && translator.length > 0 && translator.length < 50) {
-          translators.add(translator);
-        }
-      }
-    });
-    return Array.from(translators).sort();
-  }, [publishedPosts]);
-
-  // Filtrer et trier les posts
   const filteredAndSortedPosts = useMemo(() => {
-    let filtered = [...publishedPosts];
-
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(post => {
-        const title = post.title?.toLowerCase() || '';
-        const content = post.content?.toLowerCase() || '';
-        const gameMatch = content.match(/nom du jeu[:\s]+([^\n]+)/i) ||
-          content.match(/game[:\s]+([^\n]+)/i);
-        const gameName = gameMatch ? gameMatch[1].toLowerCase() : '';
-
-        return title.includes(query) || content.includes(query) || gameName.includes(query);
-      });
-    }
-
-    if (dateFilter !== 'all') {
-      const now = Date.now();
-      const day = 24 * 60 * 60 * 1000;
-
-      filtered = filtered.filter(post => {
-        const postDate = post.timestamp;
-        switch (dateFilter) {
-          case 'today':
-            return now - postDate < day;
-          case 'week':
-            return now - postDate < 7 * day;
-          case 'month':
-            return now - postDate < 30 * day;
-          case 'year':
-            return now - postDate < 365 * day;
-          default:
-            return true;
-        }
-      });
-    }
-
-    if (templateFilter !== 'all') {
-      filtered = filtered.filter(post => post.template === templateFilter);
-    }
-
-    if (translatorFilter !== 'all') {
-      filtered = filtered.filter(post => {
-        const content = post.content.toLowerCase();
-        const translatorMatch = content.match(/traducteur[:\s]+([^\n]+)/i) ||
-          content.match(/translator[:\s]+([^\n]+)/i);
-        if (translatorMatch && translatorMatch[1]) {
-          return translatorMatch[1].trim().toLowerCase() === translatorFilter.toLowerCase();
-        }
-        return false;
-      });
-    }
-
-    filtered.sort((a, b) => {
-      switch (sortBy) {
-        case 'date-desc':
-          return b.timestamp - a.timestamp;
-        case 'date-asc':
-          return a.timestamp - b.timestamp;
-        case 'title-asc':
-          return (a.title || '').localeCompare(b.title || '');
-        case 'title-desc':
-          return (b.title || '').localeCompare(a.title || '');
-        default:
-          return 0;
+    let list = [...publishedPosts];
+    if (filterAuthorId) {
+      if (filterAuthorId === 'me') {
+        list = list.filter(post => post.authorDiscordId === profile?.discord_id);
+      } else {
+        const authorDiscordIds = new Set(
+          allProfilesForEdit.filter(p => p.id === filterAuthorId).map(p => p.discord_id)
+        );
+        list = list.filter(post => post.authorDiscordId && authorDiscordIds.has(post.authorDiscordId));
       }
-    });
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(
+        post =>
+          (post.title || '').toLowerCase().includes(q) ||
+          (post.content || '').toLowerCase().includes(q) ||
+          (post.tags || '').toLowerCase().includes(q)
+      );
+    }
+    list.sort((a, b) =>
+      sortBy === 'date-desc' ? b.timestamp - a.timestamp : a.timestamp - b.timestamp
+    );
+    return list;
+  }, [publishedPosts, searchQuery, sortBy, filterAuthorId, profile?.discord_id, allProfilesForEdit]);
 
-    return filtered;
-  }, [publishedPosts, searchQuery, dateFilter, templateFilter, translatorFilter, sortBy]);
+  // Peut modifier ce post : auteur, master admin, ou autorisé par l'auteur
+  const canEditPost = useMemo(() => {
+    return (post: PublishedPost): boolean => {
+      if (!profile?.discord_id) return false;
+      if (profile.discord_id === post.authorDiscordId) return true;
+      if (profile.is_master_admin) return true;
+      const authorProfileId = allProfilesForEdit.find(p => p.discord_id === post.authorDiscordId)?.id;
+      return authorProfileId != null && ownerIdsWhoAllowedMe.has(authorProfileId);
+    };
+  }, [profile?.discord_id, profile?.is_master_admin, allProfilesForEdit, ownerIdsWhoAllowedMe]);
 
   // Pagination
   const totalPages = Math.ceil(filteredAndSortedPosts.length / POSTS_PER_PAGE);
@@ -183,10 +117,18 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
   const endIndex = startIndex + POSTS_PER_PAGE;
   const paginatedPosts = filteredAndSortedPosts.slice(startIndex, endIndex);
 
-  // Reset page lors du changement de filtres
+  const hasActiveFilters = Boolean(searchQuery.trim() || filterAuthorId);
+
+  function resetFilters() {
+    setSearchQuery('');
+    setSortBy('date-desc');
+    setFilterAuthorId('');
+    setCurrentPage(1);
+  }
+
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, dateFilter, templateFilter, translatorFilter, sortBy]);
+  }, [searchQuery, sortBy, filterAuthorId]);
 
   async function handleDelete(id: string) {
     const ok = await confirm({
@@ -211,30 +153,6 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
     }
   }
 
-  function handleDuplicate(post: any) {
-    loadPostForDuplication(post);
-    showToast('Contenu copié pour création d\'un nouveau post', 'success');
-    if (onClose) onClose();
-  }
-
-  function handleOpen(url: string) {
-    if (!url || url.trim() === '') {
-      showToast('Lien Discord manquant ou invalide', 'error');
-      return;
-    }
-
-    // FIX: Utiliser window.open correctement
-    try {
-      const opened = window.open(url, '_blank', 'noopener,noreferrer');
-      if (!opened) {
-        showToast('Impossible d\'ouvrir le lien. Vérifiez que les popups ne sont pas bloqués.', 'warning');
-      }
-    } catch (e) {
-      showToast('Erreur lors de l\'ouverture du lien', 'error');
-      console.error('Erreur ouverture lien:', e);
-    }
-  }
-
   function formatDate(timestamp: number) {
     const date = new Date(timestamp);
     return date.toLocaleDateString('fr-FR', {
@@ -244,12 +162,6 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
       hour: '2-digit',
       minute: '2-digit'
     });
-  }
-
-  function getTemplateLabel(type: string) {
-    if (type === 'my') return '🇫🇷 Mes traductions';
-    if (type === 'partner') return '🤝 Partenaire';
-    return '📄 Autre';
   }
 
   return (
@@ -271,177 +183,88 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
           alignItems: 'center',
           marginBottom: 16,
           paddingBottom: 12,
-          borderBottom: '2px solid var(--border)'
+          borderBottom: '1px solid var(--border)'
         }}>
-          <h3 style={{ margin: 0 }}>📋 Historique des publications</h3>
-          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-            {publishedPosts.length} publication{publishedPosts.length > 1 ? 's' : ''} au total
-          </div>
+          <h3 style={{ margin: 0, fontSize: '1.1rem' }}>📋 Historique des publications</h3>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+            {publishedPosts.length} publication{publishedPosts.length !== 1 ? 's' : ''}
+          </span>
         </div>
 
-        {/* Barre de recherche */}
-        <div style={{ marginBottom: 12 }}>
+        {/* Filtres : auteur, recherche, tri + réinitialiser */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select
+            value={filterAuthorId}
+            onChange={(e) => setFilterAuthorId(e.target.value)}
+            style={{
+              padding: '10px 12px',
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              fontSize: 13,
+              color: 'var(--text)',
+              cursor: 'pointer',
+              minWidth: 160
+            }}
+          >
+            <option value="">Tous les auteurs</option>
+            <option value="me">Moi</option>
+            {allProfilesForEdit
+              .filter(p => p.discord_id !== profile?.discord_id)
+              .map(p => (
+                <option key={p.id} value={p.id}>{p.pseudo || p.discord_id || p.id}</option>
+              ))}
+          </select>
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="🔍 Rechercher par titre, contenu ou nom du jeu..."
+            placeholder="Rechercher (titre, contenu, tags)..."
             style={{
-              width: '100%',
-              padding: '10px 14px',
+              flex: 1,
+              minWidth: 180,
+              padding: '10px 12px',
               background: 'rgba(255,255,255,0.05)',
               border: '1px solid var(--border)',
-              borderRadius: 6,
+              borderRadius: 8,
               fontSize: 13,
-              color: 'white'
+              color: 'var(--text)'
             }}
           />
-        </div>
-
-        {/* Filtres et tri */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: 8,
-          marginBottom: 12
-        }}>
-          <select
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-            style={{
-              padding: '8px 10px',
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-              fontSize: 12,
-              color: 'white',
-              cursor: 'pointer'
-            }}
-          >
-            <option value="all">📅 Toutes les dates</option>
-            <option value="today">Aujourd'hui</option>
-            <option value="week">Cette semaine</option>
-            <option value="month">Ce mois</option>
-            <option value="year">Cette année</option>
-          </select>
-
-          <select
-            value={templateFilter}
-            onChange={(e) => setTemplateFilter(e.target.value)}
-            style={{
-              padding: '8px 10px',
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-              fontSize: 12,
-              color: 'white',
-              cursor: 'pointer'
-            }}
-          >
-            <option value="all">📄 Tous les templates</option>
-            <option value="my">✍️ Mes traductions</option>
-            <option value="partner">🤝 Partenaires</option>
-          </select>
-
-          <select
-            value={translatorFilter}
-            onChange={(e) => setTranslatorFilter(e.target.value)}
-            style={{
-              padding: '8px 10px',
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-              fontSize: 12,
-              color: 'white',
-              cursor: 'pointer',
-              opacity: uniqueTranslators.length === 0 ? 0.5 : 1
-            }}
-            disabled={uniqueTranslators.length === 0}
-          >
-            <option value="all">👤 Tous les traducteurs</option>
-            {uniqueTranslators.map(translator => (
-              <option key={translator} value={translator}>{translator}</option>
-            ))}
-          </select>
-
           <select
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
+            onChange={(e) => setSortBy(e.target.value as 'date-desc' | 'date-asc')}
             style={{
-              padding: '8px 10px',
+              padding: '10px 12px',
               background: 'rgba(255,255,255,0.05)',
               border: '1px solid var(--border)',
-              borderRadius: 6,
-              fontSize: 12,
-              color: 'white',
+              borderRadius: 8,
+              fontSize: 13,
+              color: 'var(--text)',
               cursor: 'pointer'
             }}
           >
-            <option value="date-desc">📆 Plus récent</option>
-            <option value="date-asc">📆 Plus ancien</option>
-            <option value="title-asc">🔤 Titre A → Z</option>
-            <option value="title-desc">🔤 Titre Z → A</option>
+            <option value="date-desc">Plus récent</option>
+            <option value="date-asc">Plus ancien</option>
           </select>
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={resetFilters}
+              style={{
+                padding: '10px 14px',
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                fontSize: 13,
+                color: 'var(--muted)',
+                cursor: 'pointer'
+              }}
+            >
+              Réinitialiser les filtres
+            </button>
+          )}
         </div>
-
-        {/* Pagination */}
-        {filteredAndSortedPosts.length > 0 && (
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 12,
-            padding: '8px 12px',
-            background: 'rgba(255,255,255,0.03)',
-            borderRadius: 6,
-            fontSize: 12
-          }}>
-            <div style={{ color: 'var(--muted)', fontWeight: 600 }}>
-              {filteredAndSortedPosts.length} résultat{filteredAndSortedPosts.length > 1 ? 's' : ''}
-              {(searchQuery || dateFilter !== 'all' || templateFilter !== 'all' || translatorFilter !== 'all')
-                ? ` sur ${publishedPosts.length}`
-                : ''}
-            </div>
-
-            {totalPages > 1 && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  style={{
-                    fontSize: 11,
-                    padding: '4px 10px',
-                    background: currentPage === 1 ? 'rgba(255,255,255,0.03)' : 'var(--panel)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 4,
-                    cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
-                    opacity: currentPage === 1 ? 0.5 : 1
-                  }}
-                >
-                  ← Préc.
-                </button>
-                <span style={{ color: 'var(--text)', fontSize: 11, fontWeight: 600, minWidth: 60, textAlign: 'center' }}>
-                  Page {currentPage} / {totalPages}
-                </span>
-                <button
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  style={{
-                    fontSize: 11,
-                    padding: '4px 10px',
-                    background: currentPage === totalPages ? 'rgba(255,255,255,0.03)' : 'var(--panel)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 4,
-                    cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
-                    opacity: currentPage === totalPages ? 0.5 : 1
-                  }}
-                >
-                  Suiv. →
-                </button>
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Liste scrollable en grille 2 colonnes */}
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
@@ -472,163 +295,126 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
             <div style={{
               color: 'var(--muted)',
               fontStyle: 'italic',
-              padding: 40,
+              padding: 32,
               textAlign: 'center',
               background: 'rgba(255,255,255,0.03)',
-              borderRadius: 8
+              borderRadius: 10
             }}>
-              {searchQuery || dateFilter !== 'all' || templateFilter !== 'all' || translatorFilter !== 'all' ? (
-                <>
-                  Aucune publication ne correspond aux critères.
-                  <div style={{ fontSize: 12, marginTop: 8, opacity: 0.7 }}>
-                    Essayez de modifier vos filtres.
-                  </div>
-                </>
-              ) : (
-                <>
-                  Aucune publication dans l'historique.
-                  <div style={{ fontSize: 12, marginTop: 8, opacity: 0.7 }}>
-                    Les publications seront sauvegardées ici après envoi.
-                  </div>
-                </>
-              )}
+              {searchQuery.trim() ? 'Aucune publication ne correspond à la recherche.' : 'Aucune publication dans l\'historique.'}
             </div>
           ) : (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, 1fr)',
-              gap: 10,
-              paddingRight: 8
-            }}>
-              {paginatedPosts.map((post) => (
-                <div
-                  key={post.id}
-                  style={{
-                    border: '1px solid var(--border)',
-                    borderRadius: 8,
-                    padding: 12,
-                    background: 'rgba(255,255,255,0.02)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 10,
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
-                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.02)';
-                    e.currentTarget.style.borderColor = 'var(--border)';
-                  }}
-                >
-                  {/* Header */}
-                  <div>
-                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, lineHeight: 1.3 }}>
-                      {post.title}
-                    </div>
-                    <div style={{
-                      fontSize: 11,
-                      color: 'var(--muted)',
+            <>
+              {totalPages > 1 && (
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 10,
+                  fontSize: 12,
+                  color: 'var(--muted)'
+                }}>
+                  <span>{filteredAndSortedPosts.length} résultat{filteredAndSortedPosts.length !== 1 ? 's' : ''}</span>
+                  <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      style={{
+                        padding: '4px 10px',
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        background: 'transparent',
+                        color: 'var(--text)',
+                        cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
+                        opacity: currentPage === 1 ? 0.5 : 1
+                      }}
+                    >
+                      ← Préc.
+                    </button>
+                    <span>Page {currentPage} / {totalPages}</span>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      style={{
+                        padding: '4px 10px',
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        background: 'transparent',
+                        color: 'var(--text)',
+                        cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
+                        opacity: currentPage === totalPages ? 0.5 : 1
+                      }}
+                    >
+                      Suiv. →
+                    </button>
+                  </span>
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {paginatedPosts.map((post) => (
+                  <div
+                    key={post.id}
+                    style={{
+                      border: '1px solid var(--border)',
+                      borderRadius: 10,
+                      padding: '12px 16px',
+                      background: 'rgba(255,255,255,0.02)',
                       display: 'flex',
-                      gap: 8,
-                      flexWrap: 'wrap',
-                      alignItems: 'center'
-                    }}>
-                      <span style={{
-                        padding: '2px 8px',
-                        background: 'rgba(255,255,255,0.05)',
-                        borderRadius: 3,
-                        fontSize: 10
-                      }}>
-                        {getTemplateLabel(post.template)}
-                      </span>
-                      <span>📅 {formatDate(post.timestamp)}</span>
-                      {post.tags && (
+                      alignItems: 'center',
+                      gap: 16,
+                      flexWrap: 'wrap'
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{post.title || 'Sans titre'}</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <span>Créé le {formatDate(post.createdAt ?? post.timestamp)}</span>
+                        <span>•</span>
+                        <span>Modifié le {formatDate(post.updatedAt ?? post.timestamp)}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                      {canEditPost(post) && (
                         <>
-                          <span>•</span>
-                          <span>🏷️ {post.tags}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(post)}
+                            style={{
+                              padding: '6px 12px',
+                              background: 'var(--accent)',
+                              border: 'none',
+                              borderRadius: 6,
+                              cursor: 'pointer',
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: '#fff'
+                            }}
+                          >
+                            ✏️ Modifier
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(post.id)}
+                            style={{
+                              padding: '6px 10px',
+                              background: 'transparent',
+                              border: '1px solid var(--error, #ef4444)',
+                              color: 'var(--error, #ef4444)',
+                              borderRadius: 6,
+                              cursor: 'pointer',
+                              fontSize: 12
+                            }}
+                          >
+                            🗑️
+                          </button>
                         </>
                       )}
                     </div>
                   </div>
-
-                  {/* Content preview */}
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: 'var(--muted)',
-                      maxHeight: 50,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      lineHeight: 1.4,
-                      display: '-webkit-box',
-                      WebkitLineClamp: 3,
-                      WebkitBoxOrient: 'vertical'
-                    }}
-                  >
-                    {post.content}
-                  </div>
-
-                  {/* Actions */}
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 'auto' }}>
-                    {post.discordUrl && post.discordUrl.trim() !== '' && (
-                      <button
-                        onClick={() => handleOpen(post.discordUrl)}
-                        style={{
-                          fontSize: 11,
-                          padding: '5px 10px',
-                          background: '#5865F2',
-                          border: 'none',
-                          borderRadius: 4,
-                          cursor: 'pointer',
-                          fontWeight: 600,
-                          flex: 1,
-                          minWidth: 70
-                        }}
-                        title="Ouvrir dans Discord"
-                      >
-                        🔗 Ouvrir
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleEdit(post)}
-                      style={{
-                        fontSize: 11,
-                        padding: '5px 10px',
-                        background: 'var(--accent)',
-                        border: 'none',
-                        borderRadius: 4,
-                        cursor: 'pointer',
-                        fontWeight: 600,
-                        flex: 1,
-                        minWidth: 70
-                      }}
-                      title="Charger pour modification"
-                    >
-                      ✏️ Modifier
-                    </button>
-                    <button
-                      onClick={() => handleDelete(post.id)}
-                      style={{
-                        fontSize: 11,
-                        padding: '5px 10px',
-                        background: 'transparent',
-                        border: '1px solid var(--error)',
-                        color: 'var(--error)',
-                        borderRadius: 4,
-                        cursor: 'pointer',
-                        fontWeight: 600,
-                        minWidth: 50
-                      }}
-                      title="Supprimer de l'historique local"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
 

@@ -19,6 +19,73 @@ ANNOUNCE_CHANNEL_ID = int(os.getenv('ANNOUNCE_CHANNEL_ID'))
 FORUM_PARTNER_ID = int(os.getenv('FORUM_PARTNER_ID')) if os.getenv('FORUM_PARTNER_ID') else None
 ANNOUNCE_DELAY = 5
 
+# Supabase : source de vérité pour published_posts (réduit les appels Discord)
+_supabase_client = None
+def _get_supabase():
+    global _supabase_client
+    if _supabase_client is not None:
+        return _supabase_client
+    url = (os.getenv("SUPABASE_URL") or "").strip()
+    key = (os.getenv("SUPABASE_ANON_KEY") or "").strip()
+    if not url or not key:
+        return None
+    try:
+        from supabase import create_client
+        _supabase_client = create_client(url, key)
+        return _supabase_client
+    except Exception as e:
+        print(f"⚠️ Supabase non disponible: {e}")
+        return None
+
+
+def fetch_post_by_thread_id_sync(thread_id):
+    """Récupère la ligne published_posts par thread_id (source de vérité). Retourne None si absent."""
+    sb = _get_supabase()
+    if not sb:
+        return None
+    try:
+        r = sb.table("published_posts").select("*").eq("thread_id", str(thread_id)).order("updated_at", ascending=False).limit(1).execute()
+        if r.data and len(r.data) > 0:
+            return r.data[0]
+    except Exception as e:
+        print(f"⚠️ Supabase fetch_post_by_thread_id: {e}")
+    return None
+
+
+def _traducteur_from_content(content):
+    """Extrait le traducteur depuis le contenu (regex cohérent avec extraire_infos_post)."""
+    if not content:
+        return None
+    m = re.search(
+        r"(?:\*\*\s*)?Traducteur\s*:\s*(?:\*\*\s*)?(.+?)(?:\n|$)",
+        content,
+        re.IGNORECASE,
+    )
+    if not m:
+        return None
+    t = m.group(1).strip()
+    if t.lower() in ("(traducteur)", "(nom)", "", "n/a", "na", "aucun"):
+        return None
+    return t
+
+
+def infos_from_row(row):
+    """
+    Construit le même dict que extraire_infos_post à partir d'une ligne published_posts.
+    Cohérent avec la table : title, saved_inputs, content, translation_type, is_integrated.
+    """
+    saved = row.get("saved_inputs") or {}
+    title = (row.get("title") or "").strip()
+    content = row.get("content") or ""
+    return {
+        "titre_jeu": (saved.get("Game_name") or title or "Jeu inconnu").strip(),
+        "traducteur": _traducteur_from_content(content),
+        "version_jeu": (saved.get("Game_version") or "Non spécifiée").strip(),
+        "version_trad": (saved.get("Translate_version") or "Non spécifiée").strip(),
+        "translation_type": (row.get("translation_type") or "Non spécifié").strip(),
+        "is_integrated": bool(row.get("is_integrated", False)),
+    }
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
@@ -282,33 +349,38 @@ async def nettoyer_doublons_et_verifier_historique(channel, thread_id):
     return (deja_publie, version_jeu_precedente, version_trad_precedente, dernier_msg_supprime)
 
 
-# ✅ FONCTION MODIFIÉE : Utilisation des métadonnées structurées
+# ✅ FONCTION MODIFIÉE : Priorité Supabase (published_posts), puis fallback métadonnées Discord
 async def envoyer_annonce(thread, liste_tags_trads):
-    """Envoie l'annonce dans le canal ANNOUNCE_CHANNEL_ID"""
+    """Envoie l'annonce dans le canal ANNOUNCE_CHANNEL_ID. Lit d'abord la BDD (moins d'appels Discord)."""
     channel_annonce = bot.get_channel(ANNOUNCE_CHANNEL_ID)
     if not channel_annonce:
         return
 
     try:
-        # Récupération du message de départ
+        # Message de départ (nécessaire pour l'image en annonce)
         message = thread.starter_message
         if not message:
             await asyncio.sleep(1.5)
             message = thread.starter_message or await thread.fetch_message(thread.id)
-        
-        # ✅ NOUVEAU : Extraire les métadonnées de l'embed
-        metadata = extraire_metadata_embed(message)
-        
-        # ✅ Extraction des informations (priorité aux métadonnées)
-        infos = extraire_infos_post(message, metadata)
-        
+
+        # 1) Priorité : ligne published_posts par thread_id (source de vérité)
+        loop = asyncio.get_event_loop()
+        row = await loop.run_in_executor(None, fetch_post_by_thread_id_sync, thread.id)
+        if row:
+            infos = infos_from_row(row)
+            print(f"✅ Données annonce depuis Supabase (thread_id={thread.id})")
+        else:
+            # 2) Fallback : métadonnées embed Discord (anciens posts)
+            metadata = extraire_metadata_embed(message)
+            infos = extraire_infos_post(message, metadata)
+
         titre_jeu = infos['titre_jeu']
         traducteur = infos['traducteur']
         version_jeu = infos['version_jeu']
         version_traduction = infos['version_trad']
         translation_type = infos.get('translation_type', 'Non spécifié')
         is_integrated = infos['is_integrated']
-        
+
     except Exception as e:
         print(f"❌ Erreur lecture message starter: {e}")
         return

@@ -1,11 +1,13 @@
-import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import { defineConfig } from 'vite';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  // Charger .env depuis la racine du projet (parent de frontend/) pour VITE_SUPABASE_* et VITE_TAGS_MASTER_CODE
+  envDir: resolve(__dirname, '..'),
   plugins: [react()],
   resolve: { alias: { '@': new URL('./src', import.meta.url).pathname } },
   server: {

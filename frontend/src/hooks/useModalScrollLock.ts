@@ -1,19 +1,16 @@
 import { useEffect } from 'react';
 
 /**
- * Hook to lock body scroll when modal is open
+ * Hook pour bloquer le scroll du body quand une modale est ouverte.
+ * @param enabled - Si true (défaut), le scroll est bloqué ; si false, aucun effet.
  */
-export function useModalScrollLock() {
+export function useModalScrollLock(enabled: boolean = true) {
   useEffect(() => {
-    // Save original overflow style
+    if (!enabled) return;
     const originalOverflow = document.body.style.overflow;
-    
-    // Lock scroll
     document.body.style.overflow = 'hidden';
-    
-    // Restore on unmount
     return () => {
       document.body.style.overflow = originalOverflow;
     };
-  }, []);
+  }, [enabled]);
 }

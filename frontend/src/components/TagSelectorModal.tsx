@@ -213,11 +213,7 @@ export default function TagSelectorModal({
                         borderRadius: 6,
                         background: 'rgba(255,255,255,0.03)',
                         cursor: 'pointer',
-                        transition: 'all 0.2s',
-                        hover: {
-                          background: 'rgba(74, 158, 255, 0.1)',
-                          borderColor: '#4a9eff'
-                        }
+                        transition: 'all 0.2s'
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = 'rgba(74, 158, 255, 0.1)';

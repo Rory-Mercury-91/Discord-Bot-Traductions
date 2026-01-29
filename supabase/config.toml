@@ -1,0 +1,17 @@
+# Config minimale pour Supabase CLI (link + functions deploy)
+# project_id = ref du projet (identique à l'URL https://<project_id>.supabase.co)
+project_id = "ffsdgocbhghyermqqwlv"
+
+[api]
+enabled = true
+port = 54321
+
+[db]
+port = 54322
+
+[studio]
+enabled = true
+port = 54323
+
+[edge_runtime]
+enabled = true

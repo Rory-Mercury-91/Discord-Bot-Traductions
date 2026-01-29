@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import ApiStatusBadge from './components/ApiStatusBadge';
+import AuthModal from './components/AuthModal';
+import ConfigGateModal from './components/ConfigGateModal';
 import ConfigModal from './components/ConfigModal';
 import ContentEditor from './components/ContentEditor';
 import DiscordPreviewModal from './components/DiscordPreviewModal';
@@ -9,9 +11,11 @@ import InstructionsManagerModal from './components/InstructionsManagerModal';
 import Preview from './components/Preview';
 import StatsModal from './components/StatsModal';
 import TagsModal from './components/TagsModal';
+import TagsUnlockModal from './components/TagsUnlockModal';
 import TemplatesModal from './components/TemplatesModal';
 import { ToastProvider, useToast } from './components/ToastProvider';
 import { AppProvider, useApp } from './state/appContext';
+import { AuthProvider, useAuth } from './state/authContext';
 
 function AppContentInner() {
   const {
@@ -61,7 +65,10 @@ function AppContentInner() {
   // B. On garde tes états LOCAUX (ils sont bien ici)
   const [openTemplates, setOpenTemplates] = useState(false);
   const [openTags, setOpenTags] = useState(false);
+  const [openTagsUnlock, setOpenTagsUnlock] = useState(false);
+  const [openConfigGate, setOpenConfigGate] = useState(false);
   const [openConfig, setOpenConfig] = useState(false);
+  const [configAdminMode, setConfigAdminMode] = useState(false);
   const [openInstructions, setOpenInstructions] = useState(false);
   const [openHistory, setOpenHistory] = useState(false);
   const [openStats, setOpenStats] = useState(false);
@@ -128,11 +135,11 @@ function AppContentInner() {
         <div style={{ marginTop: 12 }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <button onClick={() => setOpenTemplates(true)}>📁 Gérer les Templates</button>
-            <button onClick={() => setOpenTags(true)}>🏷️ Gérer les Tags</button>
+            <button onClick={() => setOpenTagsUnlock(true)}>🏷️ Gérer les Tags</button>
             <button onClick={() => setOpenInstructions(true)}>📋 Gérer les Instructions</button>
             <button onClick={() => setOpenHistory(true)}>📜 Historique</button>
             <button onClick={() => setOpenStats(true)}>📈 Statistiques</button>
-            <button onClick={() => setOpenConfig(true)}>⚙️ Configuration API</button>
+            <button onClick={() => setOpenConfigGate(true)}>⚙️ Configuration API</button>
             {/* Place ApiStatusBadge juste avant le bouton "?" */}
             <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
               <ApiStatusBadge />
@@ -224,8 +231,33 @@ function AppContentInner() {
       </main>
 
       {openTemplates && <TemplatesModal onClose={() => setOpenTemplates(false)} />}
+      {openTagsUnlock && (
+        <TagsUnlockModal
+          isOpen={openTagsUnlock}
+          onClose={() => setOpenTagsUnlock(false)}
+          onUnlock={() => {
+            setOpenTagsUnlock(false);
+            setOpenTags(true);
+          }}
+        />
+      )}
       {openTags && <TagsModal onClose={() => setOpenTags(false)} />}
-      {openConfig && <ConfigModal onClose={() => setOpenConfig(false)} />}
+      {openConfigGate && (
+        <ConfigGateModal
+          onClose={() => setOpenConfigGate(false)}
+          onOpenConfig={(adminMode: boolean) => {
+            setConfigAdminMode(adminMode);
+            setOpenConfigGate(false);
+            setOpenConfig(true);
+          }}
+        />
+      )}
+      {openConfig && (
+        <ConfigModal
+          adminMode={configAdminMode}
+          onClose={() => setOpenConfig(false)}
+        />
+      )}
       {openInstructions && <InstructionsManagerModal onClose={() => setOpenInstructions(false)} />}
       {openHistory && <HistoryModal onClose={() => setOpenHistory(false)} />}
       {openStats && <StatsModal onClose={() => setOpenStats(false)} />}
@@ -243,12 +275,25 @@ function AppContentInner() {
   );
 }
 
+function AppWithAuth() {
+  const { user, profile, loading } = useAuth();
+  const needAuth = loading || !user || !profile?.discord_id?.trim() || !profile?.pseudo?.trim();
+  return (
+    <>
+      {needAuth && <AuthModal />}
+      <AppContentInner />
+    </>
+  );
+}
+
 export default function App() {
   return (
-    <AppProvider>
-      <ToastProvider>
-        <AppContentInner />
-      </ToastProvider>
-    </AppProvider>
+    <AuthProvider>
+      <AppProvider>
+        <ToastProvider>
+          <AppWithAuth />
+        </ToastProvider>
+      </AppProvider>
+    </AuthProvider>
   );
 }
