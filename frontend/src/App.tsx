@@ -7,7 +7,6 @@ import HelpCenterModal from './components/HelpCenterModal';
 import HistoryModal from './components/HistoryModal';
 import InstructionsManagerModal from './components/InstructionsManagerModal';
 import Preview from './components/Preview';
-import PublicationType from './components/PublicationType';
 import StatsModal from './components/StatsModal';
 import TagsModal from './components/TagsModal';
 import TemplatesModal from './components/TemplatesModal';
@@ -203,25 +202,23 @@ function AppContentInner() {
           }}>
             <ContentEditor />
           </div>
-          {/* Colonne droite : PublicationType en haut, Preview en bas */}
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100%',
-            overflow: 'hidden',
-            background: 'var(--bg)',
-            padding: 0
-          }}>
-            <div style={{ flex: '0 0 auto', borderBottom: '1px solid var(--border)', padding: 16 }}>
-              <PublicationType />
-            </div>
-            <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: 16 }}>
-              <Preview
-                preview={preview || ''}
-                onCopy={handleCopyPreview}
-                onOpenDiscordPreview={() => setOpenDiscordPreview(true)}
-              />
-            </div>
+          {/* Colonne droite : Preview */}
+          <div
+            data-preview-container
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100%',
+              overflow: 'hidden',
+              background: 'var(--bg)',
+              padding: 16
+            }}
+          >
+            <Preview
+              preview={preview || ''}
+              onCopy={handleCopyPreview}
+              onOpenDiscordPreview={() => setOpenDiscordPreview(true)}
+            />
           </div>
         </div>
       </main>

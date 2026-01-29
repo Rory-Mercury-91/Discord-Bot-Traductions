@@ -335,6 +335,8 @@ export default function DiscordPreviewModal({ preview, onClose, onCopy, mainImag
                       }}>{children}</p>
                     ),
                     // Listes à puces (*)
+                    // Le CSS dans index.css gère automatiquement les listes imbriquées
+                    // ReactMarkdown crée des <ul> imbriqués pour les retraits (4 espaces)
                     ul: ({ children }) => (
                       <ul style={{
                         margin: '4px 0 8px 0',
@@ -349,7 +351,8 @@ export default function DiscordPreviewModal({ preview, onClose, onCopy, mainImag
                       <li style={{
                         marginBottom: '4px',
                         lineHeight: '1.375rem',
-                        display: 'list-item'
+                        display: 'list-item',
+                        paddingLeft: '4px'
                       }}>{children}</li>
                     ),
                     // Texte en gras (**mot**)

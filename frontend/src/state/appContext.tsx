@@ -78,53 +78,60 @@ const defaultVarsConfig: VarConfig[] = [
   { name: 'Mod_link', label: 'Lien du mod', placeholder: 'https://...' }
 ];
 
-const defaultTemplates: Template[] = [
-  {
-    id: 'my',
-    name: 'Mes traductions',
-    type: 'my',
-    content: `## :flag_fr: La traduction française de [Game_name] est disponible ! :tada:
+// Template unique par défaut
+const defaultTemplate: Template = {
+  id: 'my',
+  name: 'Mes traductions',
+  type: 'my',
+  content: `## :flag_fr: La traduction française de [Game_name] est disponible ! :tada:
 
 Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. Bon jeu à tous ! :point_down:
 
-### :computer: Infos du Mod & Liens de Téléchargement
-* **Nom du jeu :** [Game_name]
-* **Version du jeu :** \`[Game_version]\`
-* **Version traduite :** \`[Translate_version]\`
-* **Type de traduction :** [Translation_Type]
-* **Mod compatible :** [is_modded_game]
-* **Lien du jeu :** [Accès au jeu original](<[Game_link]>)
-* **Lien de la Traduction :** [Téléchargez la traduction ici !](<[Translate_link]>)
-[ADDITIONAL_TRANSLATION_LINKS]
-> **Synopsis du jeu :**
-> [Overview]
-[instruction]
-### :sparkling_heart: Soutenez le Traducteur !
-Pour m'encourager et soutenir mes efforts :
-* **Soutien au Traducteur (Moi !) :** [Offrez-moi un café pour le temps passé !](https://discord.com/channels/1417811606674477139/1433930090349330493)`
-  },
-  {
-    id: 'partner',
-    name: 'Traductions partenaire',
-    type: 'partner',
-    content: `## :flag_fr: La traduction française de [Game_name] est disponible ! :tada:
+1. :computer: **Infos du Jeu**
+   * **Nom du jeu :** [Game_name]
+   * **Version du jeu :** \`[Game_version]\`
+   * **Version traduite :** \`[Translate_version]\`
+   * **Type de traduction :** [Translation_Type]
+   * **Mod compatible :** [is_modded_game]
 
-Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. Bon jeu à tous ! :point_down:
-
-### :computer: Infos du Mod & Liens de Téléchargement
-* **Nom du jeu :** [Game_name]
-* **Version du jeu :** \`[Game_version]\`
-* **Version traduite :** \`[Translate_version]\`
-* **Type de traduction :** [Translation_Type]
-* **Mod compatible :** [is_modded_game]
-* **Lien du jeu :** [Accès au jeu original](<[Game_link]>)
-* **Lien de la Traduction :** [Téléchargez la traduction ici !](<[Translate_link]>)
+2. :link: **Liens de Téléchargement**
+   * [Accès au jeu original](<[Game_link]>)
+   * [Lien du mod](<[Mod_link]>)
+   * [Téléchargez la traduction ici !](<[Translate_link]>)
 [ADDITIONAL_TRANSLATION_LINKS]
-> **Synopsis du jeu :**
+
+
+**Synopsis du jeu :**
 > [Overview]
 [instruction]`
-  }
-];
+};
+// // Template unique par défaut
+// const defaultTemplate: Template = {
+//   id: 'my',
+//   name: 'Mes traductions',
+//   type: 'my',
+//   content: `## :flag_fr: La traduction française de [Game_name] est disponible ! :tada:
+
+// Vous pouvez l'installer dès maintenant pour profiter du jeu dans notre langue. Bon jeu à tous ! :point_down:
+
+// ### :computer: Infos du Mod & Liens de Téléchargement
+// * **Nom du jeu :** [Game_name]
+// * **Version du jeu :** \`[Game_version]\`
+// * **Version traduite :** \`[Translate_version]\`
+// * **Type de traduction :** [Translation_Type]
+// * **Mod compatible :** [is_modded_game]
+// * [Accès au jeu original](<[Game_link]>)
+//   * [Téléchargez la traduction ici !](<[Translate_link]>)
+// [ADDITIONAL_TRANSLATION_LINKS]
+// > **Synopsis du jeu :**
+// > [Overview]
+// [instruction]
+// ### :sparkling_heart: Soutenez le Traducteur !
+// Pour m'encourager et soutenir mes efforts :
+// * **Soutien au Traducteur (Moi !) :** [Offrez-moi un café pour le temps passé !](https://discord.com/channels/1417811606674477139/1433930090349330493)`
+// };
+// Templates stockés comme tableau avec un seul élément (pour compatibilité avec TemplatesModal)
+const defaultTemplates: Template[] = [defaultTemplate];
 
 type AppContextValue = {
   resetAllFields: () => void;
@@ -133,8 +140,7 @@ type AppContextValue = {
   updateTemplate: (idx: number, t: Template) => void;
   deleteTemplate: (idx: number) => void;
   restoreDefaultTemplates: () => void;
-  currentTemplateIdx: number;
-  setCurrentTemplateIdx: (n: number) => void;
+  currentTemplateIdx: number; // Toujours 0 - un seul template
   allVarsConfig: VarConfig[];
   addVarConfig: (v: VarConfig) => void;
   updateVarConfig: (idx: number, v: VarConfig) => void;
@@ -249,13 +255,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   });
   // API status global
   const [apiStatus, setApiStatus] = useState<string>("unknown");
+  // Templates : tableau avec un seul élément (le template unique modifiable)
   const [templates, setTemplates] = useState<Template[]>(() => {
     try {
       const raw = localStorage.getItem('customTemplates');
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        // S'assurer qu'on a toujours un tableau avec au moins un élément
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
     } catch (e) { }
     return defaultTemplates;
   });
+
+  // currentTemplateIdx toujours à 0 puisqu'il n'y a qu'un seul template
+  const currentTemplateIdx = 0;
 
   function importFullConfig(config: any) {
     if (!config || typeof config !== 'object') {
@@ -321,6 +337,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // garantir ces clés
         if (!('is_modded_game' in next)) next['is_modded_game'] = 'false';
         if (!('Mod_link' in next)) next['Mod_link'] = '';
+        if (!('use_additional_links' in next)) next['use_additional_links'] = 'false';
 
         return next;
       });
@@ -392,13 +409,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return defaultVarsConfig;
   });
 
-  const [currentTemplateIdx, setCurrentTemplateIdx] = useState<number>(0);
-
   const [inputs, setInputs] = useState<Record<string, string>>(() => {
     const obj: Record<string, string> = {};
     allVarsConfig.forEach(v => obj[v.name] = '');
     // Initialiser is_modded_game à "false" par défaut
     obj['is_modded_game'] = 'false';
+    // Initialiser use_additional_links à "false" par défaut
+    obj['use_additional_links'] = 'false';
     obj['Mod_link'] = '';
     try {
       const raw = localStorage.getItem('savedInputs');
@@ -956,13 +973,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTemplates(prev => { const copy = [...prev]; copy[idx] = t; return copy; });
   }
   function deleteTemplate(idx: number) {
+    // Ne pas permettre la suppression du dernier template
+    if (templates.length <= 1) {
+      console.warn('Impossible de supprimer le dernier template');
+      return;
+    }
     setTemplates(prev => { const copy = [...prev]; copy.splice(idx, 1); return copy; });
-    setCurrentTemplateIdx(0);
   }
 
   function restoreDefaultTemplates() {
     setTemplates(defaultTemplates);
-    setCurrentTemplateIdx(0);
     // Sauvegarder dans localStorage
     try {
       localStorage.setItem('customTemplates', JSON.stringify(defaultTemplates));
@@ -1320,6 +1340,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setInput('instruction', '');
     setInput('is_modded_game', 'false');
     setInput('Mod_link', '');
+    setInput('use_additional_links', 'false');
     setPostTitle('');
     setPostTags('');
     setTranslationType('Automatique');
@@ -1352,19 +1373,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const isModded = (inputs as any)['is_modded_game'] === true || (inputs as any)['is_modded_game'] === 'true';
     const modLink = cleanGameLink((inputs['Mod_link'] || '').trim()); // ✅ Nettoyer le lien
 
-    let moddedText = 'Non';
-    if (isModded) {
-      moddedText = modLink ? `Oui [Lien du mod](<${modLink}>)` : 'Oui';
-    }
+    // Dans "Infos du Mod", afficher juste "Oui" ou "Non"
+    const moddedText = isModded ? 'Oui' : 'Non';
 
     // Remplace le tag [is_modded_game] dans le texte
     content = content.split('[is_modded_game]').join(moddedText);
 
-    // 2. Remplacement des variables classiques
+    // 2. Gestion de l'affichage du lien de traduction standard selon la checkbox
+    // Par défaut (non cochée) : le lien est affiché
+    // Quand cochée : le lien est masqué
+    const hideStandardTranslationLink = (inputs as any)['use_additional_links'] === true || (inputs as any)['use_additional_links'] === 'true';
+
+    // Si la checkbox est cochée, supprimer la ligne du lien de traduction standard AVANT le remplacement
+    if (hideStandardTranslationLink) {
+      // Supprimer la ligne contenant [Translate_link] dans le contexte "Lien de la Traduction"
+      content = content.replace(/^\s*\*\s*\*\*Lien de la [Tt]raduction\s*:\s*\*\*.*\[Translate_link\].*$/gm, '');
+    }
+
+    // 3. Remplacement des variables classiques
     allVarsConfig.forEach(varConfig => {
       const name = varConfig.name;
-      // On ne traite pas ces deux là ici car gérés au dessus
-      if (name === 'is_modded_game' || name === 'Mod_link') return;
+      // On ne traite pas is_modded_game ici car géré au dessus
+      if (name === 'is_modded_game') return;
+
+      // Gestion spéciale pour Mod_link : afficher seulement si mod compatible = Oui
+      if (name === 'Mod_link') {
+        const modLinkValue = cleanGameLink((inputs['Mod_link'] || '').trim());
+        if (isModded && modLinkValue) {
+          // Remplacer [Mod_link] par le lien nettoyé
+          content = content.split('[Mod_link]').join(modLinkValue);
+        } else {
+          // Si pas de mod ou pas de lien, supprimer la ligne du lien du mod
+          content = content.replace(/^\s*\*\s*\[Lien du mod\]\(<\[Mod_link\]>\).*$/gm, '');
+          // Aussi supprimer si le placeholder a déjà été remplacé
+          content = content.replace(/^\s*\*\s*\[Lien du mod\]\(<.*>\).*$/gm, '');
+        }
+        return;
+      }
 
       const val = (inputs[name] || '').trim();
       let finalVal = val;
@@ -1389,13 +1434,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       content = content.split('[' + name + ']').join(finalVal || '[' + name + ']');
     });
 
-    // 3. Remplacement de [Translation_Type]
+    // 4. Remplacement de [Translation_Type]
     const displayTranslationType = isIntegrated
       ? `${translationType} (Intégrée)`
       : translationType;
     content = content.split('[Translation_Type]').join(displayTranslationType);
 
-    // 4. Logique Smart Integrated
+    // 5. Logique Smart Integrated
     if (isIntegrated) {
       content = content.replace(/^.*\[Translate_link\].*$/gm, '');
       content = content.replace(/^.*\*\s*\*\*Lien de la [Tt]raduction\s*:\s*\*\*.*$/gm, '');
@@ -1405,48 +1450,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Nettoyage final du tag instruction
     content = content.split('[instruction]').join('');
 
-    // 5. Remplacement/Insertion des liens additionnels de traduction
-    const additionalLinksText = additionalTranslationLinks
-      .filter(link => link.label.trim() && link.link.trim())
-      .map(link => {
-        const cleanedLink = cleanGameLink(link.link.trim());
-        return `* **${link.label.trim()} :** [Lien](<${cleanedLink}>)`;
-      })
-      .join('\n');
+    // Remplacement du caractère invisible (zero-width space)
+    content = content.split('[INVISIBLE_CHAR]').join('\u200B');
 
-    if (additionalLinksText) {
+    // 6. Insertion des liens additionnels de traduction (toujours affichés s'ils sont remplis)
+    const hasAdditionalLinks = additionalTranslationLinks.some(link => link.label.trim() && link.link.trim());
+
+    if (hasAdditionalLinks) {
+      // Générer les liens additionnels avec indentation (3 espaces + * pour sous-liste)
+      // Format : "   * [Téléchargez la traduction ${label} ici !](<${link}>)"
+      // Même format que les autres liens dans la section "Liens de Téléchargement"
+      const additionalLinksText = additionalTranslationLinks
+        .filter(link => link.label.trim() && link.link.trim())
+        .map(link => {
+          const cleanedLink = cleanGameLink(link.link.trim());
+          return `   * [Téléchargez la traduction ${link.label.trim()} ici !](<${cleanedLink}>)`;
+        })
+        .join('\n');
+
       // Si le template contient [ADDITIONAL_TRANSLATION_LINKS], l'utiliser comme point d'insertion
       if (content.includes('[ADDITIONAL_TRANSLATION_LINKS]')) {
         content = content.split('[ADDITIONAL_TRANSLATION_LINKS]').join(additionalLinksText + '\n');
       } else {
-        // Sinon, insérer automatiquement après la ligne contenant Translate_link
-        // Chercher la ligne avec Translate_link et insérer après
+        // Chercher où insérer les liens additionnels dans la section "Liens de Téléchargement"
         const lines = content.split('\n');
-        const translateLinkIndex = lines.findIndex(line =>
-          line.includes('[Translate_link]') || line.includes('Translate_link')
+        // Chercher la ligne "Lien du mod" ou "Téléchargez la traduction" pour insérer après
+        let insertionIndex = lines.findIndex(line =>
+          line.includes('[Mod_link]') ||
+          line.toLowerCase().includes('téléchargez la traduction')
         );
 
-        if (translateLinkIndex !== -1) {
-          // Insérer les liens additionnels après la ligne du lien de traduction
-          lines.splice(translateLinkIndex + 1, 0, additionalLinksText);
-          content = lines.join('\n');
-        } else {
-          // Si on ne trouve pas Translate_link, chercher "Lien de la Traduction" ou similaire
-          const translationLabelIndex = lines.findIndex(line =>
-            line.toLowerCase().includes('lien de la traduction') ||
-            line.toLowerCase().includes('lien de la trad')
+        // Si on ne trouve pas, chercher après "Accès au jeu original"
+        if (insertionIndex === -1) {
+          insertionIndex = lines.findIndex(line =>
+            line.toLowerCase().includes('accès au jeu original')
           );
+        }
 
-          if (translationLabelIndex !== -1) {
-            lines.splice(translationLabelIndex + 1, 0, additionalLinksText);
-            content = lines.join('\n');
-          }
+        if (insertionIndex !== -1) {
+          // Insérer les liens additionnels après la ligne trouvée
+          lines.splice(insertionIndex + 1, 0, additionalLinksText);
+          content = lines.join('\n');
         }
       }
     } else {
       // Si pas de liens additionnels, supprimer le placeholder s'il existe
       content = content.split('[ADDITIONAL_TRANSLATION_LINKS]').join('');
     }
+
+    // Nettoyer les lignes vides multiples
+    content = content.replace(/\n\n\n+/g, '\n\n');
 
     // Ne pas ajouter le lien dans le preview - il sera ajouté uniquement lors de la publication
     // L'image sera affichée séparément via le composant PreviewImage
@@ -1465,7 +1518,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     deleteTemplate,
     restoreDefaultTemplates,
     currentTemplateIdx,
-    setCurrentTemplateIdx,
     allVarsConfig,
     addVarConfig,
     updateVarConfig,
@@ -1597,27 +1649,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // Restaurer le template utilisé
-      if (post.templateId) {
-        const templateIdx = templates.findIndex(t => t.id === post.templateId);
-        if (templateIdx !== -1) {
-          setCurrentTemplateIdx(templateIdx);
-        } else {
-          const templateIdxByType = templates.findIndex(t => t.type === post.template);
-          if (templateIdxByType !== -1) setCurrentTemplateIdx(templateIdxByType);
-        }
-      } else {
-        const templateIdx = templates.findIndex(t => t.type === post.template);
-        if (templateIdx !== -1) setCurrentTemplateIdx(templateIdx);
-      }
+      // Plus besoin de restaurer le template - un seul template maintenant
     },
     loadPostForDuplication: (post: PublishedPost) => {
       setEditingPostId(null);
       setEditingPostData(null);
       setPostTitle(post.title);
       setPostTags(post.tags);
-      const templateIdx = templates.findIndex(t => t.type === post.template);
-      if (templateIdx !== -1) setCurrentTemplateIdx(templateIdx);
+      // Plus besoin de restaurer le template - un seul template maintenant
 
       // Restaurer les liens additionnels si disponibles
       if (post.savedAdditionalTranslationLinks) {

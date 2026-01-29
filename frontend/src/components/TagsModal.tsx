@@ -7,14 +7,14 @@ import ConfirmModal from './ConfirmModal';
 import { useToast } from './ToastProvider';
 
 export default function TagsModal({ onClose }: { onClose?: () => void }) {
-  const { savedTags, addSavedTag, deleteSavedTag, templates } = useApp();
+  const { savedTags, addSavedTag, deleteSavedTag } = useApp();
   const { showToast } = useToast();
 
   useEscapeKey(() => onClose?.(), true);
   useModalScrollLock();
   const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm();
 
-  const [activeTab, setActiveTab] = useState<'my' | 'partner'>('partner');
+  const [activeTab, setActiveTab] = useState<'generic' | 'translator'>('generic');
   const [showAddModal, setShowAddModal] = useState(false);
   const [form, setForm] = useState({ name: '', id: '', isTranslator: false });
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
@@ -22,18 +22,16 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
   const [searchGeneric, setSearchGeneric] = useState('');
   const [searchTranslator, setSearchTranslator] = useState('');
 
-  // Filtrer les tags selon l'onglet actif
-  const currentTemplate = activeTab === 'my' ? 'my' : 'partner';
-  const filteredTags = savedTags.filter(t => t.template === currentTemplate);
+  // Plus de filtrage par template - tous les tags sont disponibles
 
   // Fonction pour retirer les emojis au début d'un texte
   const removeLeadingEmojis = (text: string): string => {
     return text.replace(/^[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F000}-\u{1F02F}\u{1F0A0}-\u{1F0FF}\u{1F100}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\s]+/gu, '').trim();
   };
 
-  // Séparer les tags génériques et traducteurs
-  const genericTags = filteredTags.filter(t => !t.isTranslator);
-  const translatorTags = filteredTags.filter(t => t.isTranslator);
+  // Séparer les tags génériques et traducteurs (tous les tags, sans filtrage par template)
+  const genericTags = savedTags.filter(t => !t.isTranslator);
+  const translatorTags = savedTags.filter(t => t.isTranslator);
 
   // Filtrer avec recherche (en ignorant les emojis)
   const filterBySearch = (tags: typeof savedTags, searchTerm: string) => {
@@ -49,31 +47,18 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
   const filteredGenericTags = filterBySearch(genericTags, searchGeneric);
   const filteredTranslatorTags = filterBySearch(translatorTags, searchTranslator);
 
-  // Grouper et trier
-  const groupTags = (tags: typeof savedTags) => {
-    const grouped = tags.reduce((acc, tag, originalIdx) => {
-      const templateName = templates.find(tp => tp.id === tag.template)?.name || tag.template || 'Sans salon';
-      if (!acc[templateName]) {
-        acc[templateName] = [];
-      }
-      acc[templateName].push({ ...tag, originalIdx: savedTags.indexOf(tag) });
-      return acc;
-    }, {} as Record<string, Array<typeof savedTags[0] & { originalIdx: number }>>);
-
-    // Trier A-Z sans emojis
-    Object.keys(grouped).forEach(key => {
-      grouped[key].sort((a, b) => {
+  // Trier les tags (plus de groupement par template)
+  const sortTags = (tags: typeof savedTags) => {
+    return tags.map((tag, idx) => ({ ...tag, originalIdx: savedTags.indexOf(tag) }))
+      .sort((a, b) => {
         const nameA = removeLeadingEmojis(a.name);
         const nameB = removeLeadingEmojis(b.name);
         return nameA.localeCompare(nameB);
       });
-    });
-
-    return grouped;
   };
 
-  const groupedGenericTags = groupTags(filteredGenericTags);
-  const groupedTranslatorTags = groupTags(filteredTranslatorTags);
+  const sortedGenericTags = sortTags(filteredGenericTags);
+  const sortedTranslatorTags = sortTags(filteredTranslatorTags);
 
   function openAddModal() {
     setForm({ name: '', id: '', isTranslator: false });
@@ -113,7 +98,7 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
     const tag = {
       name: form.name,
       id: form.id,
-      template: currentTemplate,
+      template: 'my', // Toujours 'my' maintenant - un seul salon
       isTranslator: form.isTranslator
     };
 
@@ -143,8 +128,8 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
     showToast('Tag supprimé', 'success');
   }
 
-  const renderTagGrid = (groupedTags: ReturnType<typeof groupTags>) => {
-    if (Object.keys(groupedTags).length === 0) {
+  const renderTagGrid = (sortedTags: Array<typeof savedTags[0] & { originalIdx: number }>) => {
+    if (sortedTags.length === 0) {
       return (
         <div style={{
           color: 'var(--muted)',
@@ -159,80 +144,78 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
       );
     }
 
-    return Object.entries(groupedTags).map(([templateName, tags]) => (
-      <div key={templateName} style={{ marginBottom: 24 }}>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-          gap: 8
-        }}>
-          {tags.map((t) => (
-            <div key={t.originalIdx} style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              border: '1px solid var(--border)',
-              borderRadius: 6,
-              padding: 12,
-              background: 'transparent',
-              transition: 'background 0.2s'
-            }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <strong
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(t.id || t.name);
-                      setCopiedIdx(t.originalIdx);
-                      setTimeout(() => setCopiedIdx(null), 2000);
-                      showToast('ID du tag copié', 'success', 2000);
-                    } catch (e) {
-                      showToast('Erreur lors de la copie', 'error');
-                    }
-                  }}
-                  style={{
-                    cursor: 'pointer',
-                    color: copiedIdx === t.originalIdx ? '#4ade80' : '#4a9eff',
-                    transition: 'color 0.3s',
-                    display: 'block',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}
-                  title={`Cliquer pour copier l'ID: ${t.id}`}
-                >
-                  {t.name} {copiedIdx === t.originalIdx && <span style={{ fontSize: 11 }}>✓</span>}
-                </strong>
-                <div style={{
-                  color: 'var(--muted)',
-                  fontSize: 11,
+    return (
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+        gap: 8
+      }}>
+        {sortedTags.map((t) => (
+          <div key={t.originalIdx} style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            padding: 12,
+            background: 'transparent',
+            transition: 'background 0.2s'
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <strong
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(t.id || t.name);
+                    setCopiedIdx(t.originalIdx);
+                    setTimeout(() => setCopiedIdx(null), 2000);
+                    showToast('ID du tag copié', 'success', 2000);
+                  } catch (e) {
+                    showToast('Erreur lors de la copie', 'error');
+                  }
+                }}
+                style={{
+                  cursor: 'pointer',
+                  color: copiedIdx === t.originalIdx ? '#4ade80' : '#4a9eff',
+                  transition: 'color 0.3s',
+                  display: 'block',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap'
-                }}>
-                  ID: {t.id}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 8, marginLeft: 8 }}>
-                <button
-                  onClick={() => startEdit(t.originalIdx)}
-                  title="Éditer"
-                  style={{ padding: '4px 8px', fontSize: 14 }}
-                >
-                  ✏️
-                </button>
-                <button
-                  onClick={() => handleDelete(t.originalIdx)}
-                  title="Supprimer"
-                  style={{ padding: '4px 8px', fontSize: 14 }}
-                >
-                  🗑️
-                </button>
+                }}
+                title={`Cliquer pour copier l'ID: ${t.id}`}
+              >
+                {t.name} {copiedIdx === t.originalIdx && <span style={{ fontSize: 11 }}>✓</span>}
+              </strong>
+              <div style={{
+                color: 'var(--muted)',
+                fontSize: 11,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }}>
+                ID: {t.id}
               </div>
             </div>
-          ))}
-        </div>
+            <div style={{ display: 'flex', gap: 8, marginLeft: 8 }}>
+              <button
+                onClick={() => startEdit(t.originalIdx)}
+                title="Éditer"
+                style={{ padding: '4px 8px', fontSize: 14 }}
+              >
+                ✏️
+              </button>
+              <button
+                onClick={() => handleDelete(t.originalIdx)}
+                title="Supprimer"
+                style={{ padding: '4px 8px', fontSize: 14 }}
+              >
+                🗑️
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
-    ));
+    );
   };
 
   return (
@@ -255,34 +238,34 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
             {/* Onglets avec compteurs */}
             <div style={{ display: 'flex', gap: 8 }}>
               <button
-                onClick={() => setActiveTab('partner')}
+                onClick={() => setActiveTab('generic')}
                 style={{
-                  background: activeTab === 'partner' ? 'var(--panel)' : 'transparent',
+                  background: activeTab === 'generic' ? 'var(--panel)' : 'transparent',
                   border: 'none',
-                  borderBottom: activeTab === 'partner' ? '2px solid #4a9eff' : '2px solid transparent',
+                  borderBottom: activeTab === 'generic' ? '2px solid #4a9eff' : '2px solid transparent',
                   padding: '8px 16px',
                   cursor: 'pointer',
-                  fontWeight: activeTab === 'partner' ? 'bold' : 'normal',
-                  color: activeTab === 'partner' ? '#4a9eff' : 'var(--text)',
+                  fontWeight: activeTab === 'generic' ? 'bold' : 'normal',
+                  color: activeTab === 'generic' ? '#4a9eff' : 'var(--text)',
                   marginBottom: '-2px'
                 }}
               >
-                📚 Mes traductions ({savedTags.filter(t => t.template === 'partner').length})
+                🏷️ Tags génériques ({genericTags.length})
               </button>
               <button
-                onClick={() => setActiveTab('my')}
+                onClick={() => setActiveTab('translator')}
                 style={{
-                  background: activeTab === 'my' ? 'var(--panel)' : 'transparent',
+                  background: activeTab === 'translator' ? 'var(--panel)' : 'transparent',
                   border: 'none',
-                  borderBottom: activeTab === 'my' ? '2px solid #4a9eff' : '2px solid transparent',
+                  borderBottom: activeTab === 'translator' ? '2px solid #4a9eff' : '2px solid transparent',
                   padding: '8px 16px',
                   cursor: 'pointer',
-                  fontWeight: activeTab === 'my' ? 'bold' : 'normal',
-                  color: activeTab === 'my' ? '#4a9eff' : 'var(--text)',
+                  fontWeight: activeTab === 'translator' ? 'bold' : 'normal',
+                  color: activeTab === 'translator' ? '#4a9eff' : 'var(--text)',
                   marginBottom: '-2px'
                 }}
               >
-                🌟 Traductions Rory ({savedTags.filter(t => t.template === 'my').length})
+                👤 Tags traducteurs ({translatorTags.length})
               </button>
             </div>
           </div>
@@ -297,69 +280,10 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
             gap: 16
           }}>
             {/* SECTION TAGS GÉNÉRIQUES */}
-            <div style={{
-              flex: 1,
-              minHeight: activeTab === 'partner' ? '251px' : '528px', // 3 lignes × (80px carte + 8px gap) = 264px
-              maxHeight: activeTab === 'partner' ? '251px' : '528px', // Force exactement 3 lignes
-              display: 'flex',
-              flexDirection: 'column'
-            }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: 12,
-                gap: 16
-              }}>
-                <h4 style={{
-                  margin: 0,
-                  fontSize: 16,
-                  color: 'var(--text)',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8
-                }}>
-                  🏷️ Tags génériques
-                </h4>
-                <input
-                  type="text"
-                  placeholder="🔍 Rechercher..."
-                  value={searchGeneric}
-                  onChange={e => setSearchGeneric(e.target.value)}
-                  style={{
-                    width: '250px',
-                    padding: '6px 12px',
-                    fontSize: 13
-                  }}
-                />
-              </div>
+            {activeTab === 'generic' && (
               <div style={{
                 flex: 1,
-                overflowY: 'auto',
                 minHeight: 0,
-                paddingRight: 8
-              }} className="styled-scrollbar">
-                {renderTagGrid(groupedGenericTags)}
-              </div>
-            </div>
-
-
-            {/* LIGNE SÉPARATRICE - Visible uniquement pour "Mes traductions" */}
-            {activeTab === 'partner' && (
-              <div style={{
-                height: 2,
-                background: 'linear-gradient(to right, transparent, var(--border), transparent)',
-                margin: '8px 0'
-              }} />
-            )}
-
-            {/* SECTION TAGS TRADUCTEURS - Visible uniquement pour "Mes traductions" */}
-            {activeTab === 'partner' && (
-              <div style={{
-                flex: 1,
-                minHeight: activeTab === 'partner' ? '251px' : '528px', // 3 lignes × (80px carte + 8px gap) = 264px
-                maxHeight: activeTab === 'partner' ? '251px' : '528px', // Force exactement 3 lignes
                 display: 'flex',
                 flexDirection: 'column'
               }}>
@@ -379,7 +303,56 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
                     alignItems: 'center',
                     gap: 8
                   }}>
-                    👤 Traducteurs
+                    🏷️ Tags génériques
+                  </h4>
+                  <input
+                    type="text"
+                    placeholder="🔍 Rechercher..."
+                    value={searchGeneric}
+                    onChange={e => setSearchGeneric(e.target.value)}
+                    style={{
+                      width: '250px',
+                      padding: '6px 12px',
+                      fontSize: 13
+                    }}
+                  />
+                </div>
+                <div style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  minHeight: 0,
+                  paddingRight: 8
+                }} className="styled-scrollbar">
+                  {renderTagGrid(sortedGenericTags)}
+                </div>
+              </div>
+            )}
+
+            {/* SECTION TAGS TRADUCTEURS */}
+            {activeTab === 'translator' && (
+              <div style={{
+                flex: 1,
+                minHeight: 0,
+                display: 'flex',
+                flexDirection: 'column'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 12,
+                  gap: 16
+                }}>
+                  <h4 style={{
+                    margin: 0,
+                    fontSize: 16,
+                    color: 'var(--text)',
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8
+                  }}>
+                    👤 Tags traducteurs
                   </h4>
                   <input
                     type="text"
@@ -399,7 +372,7 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
                   minHeight: 0,
                   paddingRight: 8
                 }} className="styled-scrollbar">
-                  {renderTagGrid(groupedTranslatorTags)}
+                  {renderTagGrid(sortedTranslatorTags)}
                 </div>
               </div>
             )}
@@ -450,10 +423,10 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
               fontSize: 13
             }}>
               <strong>
-                {activeTab === 'partner' ? '📚 Mes traductions' : '🌟 Traductions Rory'}
+                {activeTab === 'generic' ? '🏷️ Tag générique' : '👤 Tag traducteur'}
               </strong>
               <div style={{ color: 'var(--muted)', marginTop: 4 }}>
-                Le tag sera automatiquement associé à ce salon
+                Le tag sera ajouté dans la catégorie correspondante
               </div>
             </div>
 
@@ -483,32 +456,30 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
                 />
               </div>
 
-              {/* Checkbox Traducteur - Visible uniquement pour "Mes traductions" */}
-              {activeTab === 'partner' && (
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '8px 12px',
-                  background: 'rgba(74, 158, 255, 0.05)',
-                  borderRadius: 6,
-                  border: '1px solid rgba(74, 158, 255, 0.2)'
-                }}>
-                  <input
-                    type="checkbox"
-                    id="isTranslator"
-                    checked={form.isTranslator}
-                    onChange={e => setForm({ ...form, isTranslator: e.target.checked })}
-                    style={{ cursor: 'pointer' }}
-                  />
-                  <label
-                    htmlFor="isTranslator"
-                    style={{ cursor: 'pointer', fontSize: 14, fontWeight: 500 }}
-                  >
-                    👤 Traducteur
-                  </label>
-                </div>
-              )}
+              {/* Checkbox Traducteur */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 12px',
+                background: 'rgba(74, 158, 255, 0.05)',
+                borderRadius: 6,
+                border: '1px solid rgba(74, 158, 255, 0.2)'
+              }}>
+                <input
+                  type="checkbox"
+                  id="isTranslator"
+                  checked={form.isTranslator}
+                  onChange={e => setForm({ ...form, isTranslator: e.target.checked })}
+                  style={{ cursor: 'pointer' }}
+                />
+                <label
+                  htmlFor="isTranslator"
+                  style={{ cursor: 'pointer', fontSize: 14, fontWeight: 500 }}
+                >
+                  👤 Tag traducteur (sinon tag générique)
+                </label>
+              </div>
 
               <div style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic' }}>
                 L'ID Discord du tag est lié au salon Forum spécifique

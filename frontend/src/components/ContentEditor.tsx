@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import DiscordIcon from '../assets/discord-icon.svg';
 import { useConfirm } from '../hooks/useConfirm';
 import { useUndoRedo } from '../hooks/useUndoRedo';
@@ -7,6 +6,7 @@ import { tauriAPI } from '../lib/tauri-api';
 import { useApp } from '../state/appContext';
 import ConfirmModal from './ConfirmModal';
 import ImageThumbnail from './ImageThumbnail';
+import TagSelectorModal from './TagSelectorModal';
 import { useToast } from './ToastProvider';
 // Si tu n'as pas de composant "Button" personnalisé, on utilisera des balises <button> normales
 export default function ContentEditor() {
@@ -28,11 +28,8 @@ export default function ContentEditor() {
     templates,
     currentTemplateIdx,
     uploadedImages,
-    addImages,
-    addImageFromPath,
     addImageFromUrl,
     removeImage,
-    setMainImage,
     editingPostId,
     setEditingPostId,
     translationType,
@@ -59,12 +56,12 @@ export default function ContentEditor() {
   const rateLimitRemaining = rateLimitCooldown ? Math.ceil((rateLimitCooldown - Date.now()) / 1000) : 0;
 
   // 3️⃣ États locaux
-  const [selectedTagId, setSelectedTagId] = useState<string>('');
-  const [tagSearchQuery, setTagSearchQuery] = useState<string>('');
-  const [showTagSuggestions, setShowTagSuggestions] = useState(false);
+  const [showTagSelector, setShowTagSelector] = useState(false);
+  const [tagSelectorPosition, setTagSelectorPosition] = useState<{ top: number; left: number; width: number } | undefined>();
+  const tagButtonRef = useRef<HTMLButtonElement | null>(null);
   const [instructionSearchQuery, setInstructionSearchQuery] = useState<string>('');
   const [showInstructionSuggestions, setShowInstructionSuggestions] = useState(false);
-  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const [imageUrlInput, setImageUrlInput] = useState<string>('');
   const overviewRef = useRef<HTMLTextAreaElement | null>(null);
 
   // 4️⃣ ENFIN : useEffect
@@ -128,21 +125,44 @@ export default function ContentEditor() {
     });
   }, [allVarsConfig, currentTemplateId]);
 
-  const visibleTags = useMemo(() => {
-    return savedTags.filter(t => {
-      if (!t.template) return true;
-      return t.template === currentTemplateId;
-    });
-  }, [savedTags, currentTemplateId]);
+  // Calculer les IDs des tags sélectionnés
+  const selectedTagIds = useMemo(() => {
+    return postTags ? postTags.split(',').map(s => s.trim()).filter(Boolean) : [];
+  }, [postTags]);
 
-  const filteredTags = useMemo(() => {
-    if (!tagSearchQuery.trim()) return visibleTags;
-    const query = tagSearchQuery.toLowerCase();
-    return visibleTags.filter(t =>
-      t.name.toLowerCase().includes(query) ||
-      (t.id && t.id.toLowerCase().includes(query))
-    );
-  }, [visibleTags, tagSearchQuery]);
+  // Fonction pour ouvrir la modale de sélection des tags
+  const handleOpenTagSelector = () => {
+    // Trouver l'élément preview pour obtenir sa position exacte
+    const previewElement = document.querySelector('[data-preview-container]') as HTMLElement;
+
+    if (previewElement) {
+      const previewRect = previewElement.getBoundingClientRect();
+      // Positionner la modale juste au-dessus du preview, alignée à gauche du preview
+      setTagSelectorPosition({
+        top: previewRect.top - 10, // Juste au-dessus du preview
+        left: previewRect.left + 16,
+        width: Math.min(previewRect.width - 32, 500)
+      });
+    } else {
+      // Fallback : utiliser les valeurs par défaut basées sur le layout
+      const previewLeft = window.innerWidth * 0.65;
+      const previewWidth = window.innerWidth * 0.35;
+      setTagSelectorPosition({
+        top: 120,
+        left: previewLeft + 16,
+        width: Math.min(previewWidth - 32, 500)
+      });
+    }
+    setShowTagSelector(true);
+  };
+
+  // Fonction pour sélectionner un tag
+  const handleSelectTag = (tagId: string) => {
+    const currentTags = postTags ? postTags.split(',').map(s => s.trim()).filter(Boolean) : [];
+    if (!currentTags.includes(tagId)) {
+      setPostTags([...currentTags, tagId].join(','));
+    }
+  };
 
 
   const filteredInstructions = useMemo(() => {
@@ -151,11 +171,117 @@ export default function ContentEditor() {
     return Object.keys(savedInstructions).filter(name => name.toLowerCase().includes(query));
   }, [savedInstructions, instructionSearchQuery]);
 
+  // Composant pour le label avec checkbox et prévisualisation du lien
+  function LinkFieldLabelWithCheckbox({
+    label,
+    linkName,
+    linkConfigs,
+    checked,
+    onCheckboxChange,
+    onLinkClick
+  }: {
+    label: string;
+    linkName: 'Game_link' | 'Translate_link' | 'Mod_link';
+    linkConfigs: Record<string, { source: string; value: string }>;
+    checked: boolean;
+    onCheckboxChange: (checked: boolean) => void;
+    onLinkClick: (url: string) => Promise<void>;
+  }) {
+    const config = linkConfigs[linkName];
+    const finalUrl = config.source === 'F95'
+      ? `https://f95zone.to/threads/${config.value || '...'}/`
+      : config.source === 'Lewd'
+        ? `https://lewdcorner.com/threads/${config.value || '...'}/`
+        : config.value || '...';
+
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'flex-start', width: '100%', minHeight: 32 }}>
+        <label style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>
+          {label}
+        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
+          {/* Prévisualisation du lien final */}
+          {finalUrl && !finalUrl.includes('...') ? (
+            <div
+              onClick={() => onLinkClick(finalUrl)}
+              style={{
+                fontSize: 11,
+                color: '#5865F2',
+                fontFamily: 'monospace',
+                padding: '2px 8px',
+                background: 'rgba(88, 101, 242, 0.1)',
+                borderRadius: 4,
+                maxWidth: '200px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                cursor: 'pointer',
+                display: 'inline-block',
+                transition: 'all 0.2s',
+                flexShrink: 1
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(88, 101, 242, 0.2)';
+                e.currentTarget.style.textDecoration = 'underline';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(88, 101, 242, 0.1)';
+                e.currentTarget.style.textDecoration = 'none';
+              }}
+              title="Cliquer pour ouvrir dans le navigateur externe"
+            >
+              🔗 {finalUrl}
+            </div>
+          ) : (
+            <div style={{
+              fontSize: 11,
+              color: '#5865F2',
+              fontFamily: 'monospace',
+              padding: '2px 8px',
+              background: 'rgba(88, 101, 242, 0.1)',
+              borderRadius: 4,
+              maxWidth: '200px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              flexShrink: 1
+            }}>
+              🔗 {finalUrl}
+            </div>
+          )}
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              cursor: 'pointer',
+              fontSize: 12,
+              color: 'var(--text)',
+              fontWeight: 700,
+              background: 'rgba(255, 255, 255, 0.05)',
+              padding: '3px 8px',
+              borderRadius: 4,
+              whiteSpace: 'nowrap',
+              flexShrink: 0
+            }}>
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={e => onCheckboxChange(e.target.checked)}
+              style={{ width: 16, height: 16, cursor: 'pointer' }}
+            />
+            <span>Masquer le lien</span>
+          </label>
+        </div>
+      </div>
+    );
+  }
+
   function LinkField({
     label,
     linkName,
     placeholder,
-    disabled,
+    disabled = false,
     showLabel = true,
     customLabelContent
   }: {
@@ -170,13 +296,26 @@ export default function ContentEditor() {
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       let val = e.target.value;
-      if (config.source !== 'Autre') {
+
+      // Détection automatique du type (F95/Lewd) si une URL complète est collée
+      const lowerVal = val.toLowerCase();
+      let detectedSource: 'F95' | 'Lewd' | 'Autre' = config.source;
+
+      if (lowerVal.includes('f95zone.to')) {
+        detectedSource = 'F95';
+      } else if (lowerVal.includes('lewdcorner.com')) {
+        detectedSource = 'Lewd';
+      }
+
+      // Extraction de l'ID du thread si c'est une URL F95 ou Lewd
+      if (detectedSource !== 'Autre') {
         const threadIdMatch = val.match(/threads\/.*\.(\d+)\/?/);
         if (threadIdMatch && threadIdMatch[1]) {
           val = threadIdMatch[1];
         }
       }
-      setLinkConfig(linkName, config.source, val);
+
+      setLinkConfig(linkName, detectedSource, val);
     };
 
     const finalUrl = config.source === 'F95'
@@ -186,14 +325,17 @@ export default function ContentEditor() {
         : config.value || '...';
 
     return (
-      <div style={{ marginBottom: '20px' }}>
+      <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', width: '100%' }}>
         {/* LIGNE 1 : Label/Custom content et Prévisualisation du lien final */}
         {(showLabel || customLabelContent) && (
           <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 8
+            display: 'grid',
+            gridTemplateColumns: '1fr auto',
+            gap: 8,
+            alignItems: 'flex-start',
+            marginBottom: 8,
+            minHeight: 32,
+            width: '100%'
           }}>
             {customLabelContent ? customLabelContent : (
               <>
@@ -202,15 +344,44 @@ export default function ContentEditor() {
                 </label>
 
                 {/* Prévisualisation du lien final */}
-                {finalUrl && !finalUrl.includes('...') ? (
-                  <div
-                    onClick={async () => {
-                      const result = await tauriAPI.openUrl(finalUrl);
-                      if (!result.ok) {
-                        console.error('Erreur ouverture URL:', result.error);
-                      }
-                    }}
-                    style={{
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+                  {finalUrl && !finalUrl.includes('...') ? (
+                    <div
+                      onClick={async () => {
+                        const result = await tauriAPI.openUrl(finalUrl);
+                        if (!result.ok) {
+                          console.error('Erreur ouverture URL:', result.error);
+                        }
+                      }}
+                      style={{
+                        fontSize: 11,
+                        color: '#5865F2',
+                        fontFamily: 'monospace',
+                        padding: '2px 8px',
+                        background: 'rgba(88, 101, 242, 0.1)',
+                        borderRadius: 4,
+                        maxWidth: '300px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        cursor: 'pointer',
+                        display: 'inline-block',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(88, 101, 242, 0.2)';
+                        e.currentTarget.style.textDecoration = 'underline';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(88, 101, 242, 0.1)';
+                        e.currentTarget.style.textDecoration = 'none';
+                      }}
+                      title="Cliquer pour ouvrir dans le navigateur externe"
+                    >
+                      🔗 {finalUrl}
+                    </div>
+                  ) : (
+                    <div style={{
                       fontSize: 11,
                       color: '#5865F2',
                       fontFamily: 'monospace',
@@ -220,46 +391,19 @@ export default function ContentEditor() {
                       maxWidth: '300px',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      cursor: 'pointer',
-                      display: 'inline-block',
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(88, 101, 242, 0.2)';
-                      e.currentTarget.style.textDecoration = 'underline';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(88, 101, 242, 0.1)';
-                      e.currentTarget.style.textDecoration = 'none';
-                    }}
-                    title="Cliquer pour ouvrir dans le navigateur externe"
-                  >
-                    🔗 {finalUrl}
-                  </div>
-                ) : (
-                  <div style={{
-                    fontSize: 11,
-                    color: '#5865F2',
-                    fontFamily: 'monospace',
-                    padding: '2px 8px',
-                    background: 'rgba(88, 101, 242, 0.1)',
-                    borderRadius: 4,
-                    maxWidth: '300px',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    🔗 {finalUrl}
-                  </div>
-                )}
+                      whiteSpace: 'nowrap'
+                    }}>
+                      🔗 {finalUrl}
+                    </div>
+                  )}
+                </div>
               </>
             )}
           </div>
         )}
 
         {/* LIGNE 2 : Les contrôles (Dropdown + Input) */}
-        <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: 8, alignItems: 'start', width: '100%' }}>
           <select
             value={config.source}
             onChange={(e) => setLinkConfig(linkName, e.target.value as any, config.value)}
@@ -288,7 +432,7 @@ export default function ContentEditor() {
             placeholder={config.source === 'Autre' ? placeholder : 'Collez l\'ID ou l\'URL complète'}
             disabled={disabled}
             style={{
-              height: '38px',
+              height: '40px',
               borderRadius: 6,
               padding: '0 12px',
               background: 'rgba(255,255,255,0.03)',
@@ -302,69 +446,6 @@ export default function ContentEditor() {
     );
   }
 
-  // ============================================
-  // DRAG & DROP SYSTEM - Global sur toute l'app
-  // ============================================
-  const [isDragging, setIsDragging] = useState(false);
-
-  useEffect(() => {
-    const handleDragOver = (e: globalThis.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.dataTransfer) {
-        e.dataTransfer.dropEffect = 'copy';
-      }
-    };
-
-    const handleDragEnter = (e: globalThis.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.dataTransfer?.types.includes('Files')) {
-        setIsDragging(true);
-      }
-    };
-
-    const handleDragLeave = (e: globalThis.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!e.relatedTarget || (e.relatedTarget as Node).nodeName === 'HTML') {
-        setIsDragging(false);
-      }
-    };
-
-    const handleDrop = (e: globalThis.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragging(false);
-      if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-        // Une seule image : supprimer l'ancienne si elle existe, puis ajouter la nouvelle
-        if (uploadedImages.length > 0) {
-          removeImage(0);
-        }
-        const firstFile = e.dataTransfer.files[0];
-        const filePath = (firstFile as any).path;
-        if (filePath) {
-          addImageFromPath(filePath);
-        } else {
-          addImages([firstFile]);
-        }
-      }
-    };
-
-    window.addEventListener('dragover', handleDragOver);
-    window.addEventListener('dragenter', handleDragEnter);
-    window.addEventListener('dragleave', handleDragLeave);
-    window.addEventListener('drop', handleDrop);
-
-    return () => {
-      window.removeEventListener('dragover', handleDragOver);
-      window.removeEventListener('dragenter', handleDragEnter);
-      window.removeEventListener('dragleave', handleDragLeave);
-      window.removeEventListener('drop', handleDrop);
-    };
-  }, [addImages, addImageFromPath, removeImage, uploadedImages]);
-
-  // Fonction pour importer les données du scraper (F95/LC)
   // Fonction pour importer les données du scraper (F95/LC)
   const handlePasteImport = async () => {
     try {
@@ -418,7 +499,6 @@ export default function ContentEditor() {
     }
   };
 
-
   // Fonction pour synchroniser les versions
   const syncVersion = () => {
     const gameVer = inputs['Game_version'] || '';
@@ -427,37 +507,6 @@ export default function ContentEditor() {
 
   return (
     <div style={{ position: 'relative', height: '100%', minHeight: 0, overflow: 'auto', boxSizing: 'border-box', width: '100%', maxWidth: '100%' }}>
-      {/* Overlay drag & drop global - inchangé */}
-      {isDragging && createPortal(
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(79, 70, 229, 0.15)',
-          border: '3px dashed #5865F2',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 99999,
-          pointerEvents: 'none',
-          backdropFilter: 'blur(2px)'
-        }}>
-          <div style={{
-            textAlign: 'center',
-            background: '#5865F2',
-            padding: '24px 48px',
-            borderRadius: 12,
-            color: 'white',
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
-          }}>
-            <div style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>📸 Déposez votre image ici</div>
-            <div style={{ fontSize: 13, opacity: 0.9 }}>L'image remplacera l'image actuelle si elle existe</div>
-          </div>
-        </div>,
-        document.body
-      )}
 
       {/* Badge mode édition - inchangé */}
       {isEditMode && (
@@ -499,259 +548,127 @@ export default function ContentEditor() {
 
       <div style={{ display: 'grid', gap: 16, width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}>
 
-        {/* LIGNES 2-3 : Grid 3 colonnes sur 2 lignes - Titre/Tags/Média + Nom du jeu */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr', gap: 12, width: '100%', maxWidth: '100%' }}>
+        {/* Layout: Ligne 1 (Titre + Tags) | Ligne 2 (Nom du jeu + Lien image) | Colonne droite (Image sur 2 lignes) */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 200px', gridTemplateRows: 'auto auto', gap: 12, width: '100%', maxWidth: '100%' }}>
 
-          {/* Col 1 : Titre du post + Nom du jeu */}
-          <div style={{ display: 'grid', gap: 12 }}>
-            <div>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>
-                Titre du post
-              </label>
-              <input
-                readOnly
-                value={postTitle}
-                style={{
-                  width: '100%',
-                  height: '40px',
-                  border: '1px solid var(--border)',
-                  borderRadius: 6,
-                  padding: '0 12px',
-                  background: 'rgba(255,255,255,0.03)',
-                  cursor: 'default'
-                }}
-              />
-            </div>
-            <div>
-              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>
-                Nom du jeu
-              </label>
-              <input
-                value={inputs['Game_name'] || ''}
-                onChange={e => setInput('Game_name', e.target.value)}
-                style={{ width: '100%', height: '40px', borderRadius: 6, padding: '0 12px' }}
-                placeholder="Nom du jeu"
-              />
-            </div>
+          {/* LIGNE 1 - Col 1 : Titre du post */}
+          <div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>
+              Titre du post
+            </label>
+            <input
+              readOnly
+              value={postTitle}
+              style={{
+                width: '100%',
+                height: '40px',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                padding: '0 12px',
+                background: 'rgba(255,255,255,0.03)',
+                cursor: 'default'
+              }}
+            />
           </div>
 
-          {/* Col 2 : Tags */}
-          <div style={{ position: 'relative' }}>
+          {/* LIGNE 1 - Col 2 : Tags */}
+          <div>
             <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>
               Tags
             </label>
-            <div style={{ position: 'relative' }}>
-              <div
-                className="suggestions-dropdown"
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                ref={tagButtonRef}
+                type="button"
+                onClick={handleOpenTagSelector}
                 style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  right: 0,
-                  zIndex: 1001,
-                  maxHeight: '200px',
-                  overflowY: 'auto',
-                  border: '1px solid var(--border)',
+                  padding: '8px 16px',
                   borderRadius: 6,
-                  background: 'var(--bg)',
-                  marginTop: 4,
-                  display: showTagSuggestions && visibleTags.length > 0 ? 'block' : 'none'
+                  border: '1px solid var(--border)',
+                  background: 'var(--panel)',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  fontSize: 13,
+                  fontWeight: 500,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(74, 158, 255, 0.1)';
+                  e.currentTarget.style.borderColor = '#4a9eff';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'var(--panel)';
+                  e.currentTarget.style.borderColor = 'var(--border)';
                 }}
               >
-                {visibleTags.map((t, idx) => {
-                  const tagId = (t.id || t.name);
-                  const isSelected = postTags ? postTags.split(',').map(s => s.trim()).includes(tagId) : false;
-                  return (
-                    <div
-                      key={idx}
-                      className="suggestion-item"
-                      onClick={() => {
-                        if (!isSelected) {
-                          const currentTags = postTags ? postTags.split(',').map(s => s.trim()).filter(Boolean) : [];
-                          setPostTags([...currentTags, tagId].join(','));
-                        }
-                        setShowTagSuggestions(false);
-                        setTagSearchQuery('');
-                      }}
-                      style={{
-                        opacity: isSelected ? 0.5 : 1,
-                        cursor: isSelected ? 'not-allowed' : 'pointer'
-                      }}
-                    >
-                      <div style={{ fontWeight: 600 }}>{t.name}</div>
-                      {t.id && <div style={{ fontSize: 11, opacity: 0.7 }}>{t.id}</div>}
-                      {isSelected && <div style={{ fontSize: 10, opacity: 0.7 }}>✓ Déjà ajouté</div>}
-                    </div>
-                  );
-                })}
-              </div>
-              <input
-                type="text"
-                value={tagSearchQuery}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setTagSearchQuery(v);
-                  setShowTagSuggestions(true);
-                }}
-                onFocus={() => setShowTagSuggestions(true)}
-                placeholder="Rechercher un tag..."
-                style={{
-                  width: '100%',
-                  height: '40px',
-                  borderRadius: 6,
-                  padding: '0 12px',
-                  border: '1px solid var(--border)'
-                }}
-              />
-            </div>
+                ➕ Ajouter
+              </button>
 
-            {/* Tags actifs affichés */}
-            {postTags && postTags.trim() && (
-              <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 6,
-                marginTop: 8
-              }}>
-                {postTags.split(',').map(s => s.trim()).filter(Boolean).map((tagId, idx) => {
-                  const tag = savedTags.find(t => (t.id || t.name) === tagId);
-                  return (
-                    <div
-                      key={idx}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '6px 14px',
-                        borderRadius: 999,
-                        background: 'rgba(99, 102, 241, 0.14)',
-                        border: '1px solid rgba(99, 102, 241, 0.35)',
-                        fontSize: 13,
-                        lineHeight: 1.2,
-                        fontWeight: 600
-                      }}
-                    >
-                      <span style={{ color: 'var(--text)' }}>{tag?.name || tagId}</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const newTags = postTags
-                            .split(',')
-                            .map(s => s.trim())
-                            .filter(t => t && t !== tagId);
-                          setPostTags(newTags.join(','));
-                        }}
-                        title="Retirer"
+              {/* Tags actifs affichés */}
+              {selectedTagIds.length > 0 && (
+                <div style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 6,
+                  alignItems: 'center'
+                }}>
+                  {selectedTagIds.map((tagId) => {
+                    const tag = savedTags.find(t => (t.id || t.name) === tagId);
+                    return (
+                      <div
+                        key={tagId}
                         style={{
-                          border: 'none',
-                          background: 'transparent',
-                          color: 'var(--muted)',
-                          cursor: 'pointer',
-                          padding: 0,
-                          lineHeight: 1,
-                          fontSize: 14,
                           display: 'inline-flex',
-                          alignItems: 'center'
+                          alignItems: 'center',
+                          gap: 8,
+                          padding: '6px 14px',
+                          borderRadius: 999,
+                          background: 'rgba(99, 102, 241, 0.14)',
+                          border: '1px solid rgba(99, 102, 241, 0.35)',
+                          fontSize: 13,
+                          lineHeight: 1.2,
+                          fontWeight: 600
                         }}
                       >
-                        ✕
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                        <span style={{ color: 'var(--text)' }}>{tag?.name || tagId}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newTags = selectedTagIds.filter(t => t !== tagId);
+                            setPostTags(newTags.join(','));
+                          }}
+                          title="Retirer"
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            color: 'var(--muted)',
+                            cursor: 'pointer',
+                            padding: 0,
+                            lineHeight: 1,
+                            fontSize: 14,
+                            display: 'inline-flex',
+                            alignItems: 'center'
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Col 3 : Média */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+          {/* LIGNE 1-2 - Col 3 : Miniature de l'image (rowspan 2) - À DROITE */}
+          <div style={{ gridColumn: 3, gridRow: '1 / 3', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start' }}>
             <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>
-              Média
+              Image
             </label>
-            {uploadedImages.length === 0 ? (
-              <>
-                {/* Zone de dépôt de fichier */}
-                <div
-                  onClick={() => imageInputRef.current?.click()}
-                  style={{
-                    width: '120px',
-                    minHeight: '100px',
-                    margin: '0 auto 8px auto',
-                    border: '2px dashed var(--border)',
-                    borderRadius: 6,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    background: 'rgba(255,255,255,0.02)',
-                    transition: 'all 0.2s',
-                    color: 'var(--muted)',
-                    padding: '12px',
-                    gap: '8px'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--accent)';
-                    e.currentTarget.style.background = 'rgba(99, 102, 241, 0.05)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--border)';
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.02)';
-                  }}
-                >
-                  <div style={{ fontSize: 28 }}>🖼️</div>
-                  <div style={{ fontSize: 10, fontWeight: 600, textAlign: 'center' }}>
-                    Glisser ou cliquer
-                  </div>
-                </div>
-
-                {/* Champ URL */}
-                <div style={{ width: '100%', fontSize: 11, color: 'var(--muted)', textAlign: 'center', marginBottom: 4 }}>
-                  ou
-                </div>
-                <input
-                  type="text"
-                  placeholder="URL de l'image (https://...)"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      const url = (e.target as HTMLInputElement).value.trim();
-                      if (url) {
-                        addImageFromUrl(url);
-                        (e.target as HTMLInputElement).value = '';
-                      }
-                    }
-                  }}
-                  style={{
-                    width: '100%',
-                    height: 32,
-                    borderRadius: 6,
-                    padding: '0 10px',
-                    fontSize: 12,
-                    marginBottom: 4
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    const input = e.currentTarget.previousElementSibling as HTMLInputElement;
-                    const url = input.value.trim();
-                    if (url) {
-                      addImageFromUrl(url);
-                      input.value = '';
-                    }
-                  }}
-                  style={{
-                    width: '100%',
-                    height: 28,
-                    fontSize: 11,
-                    padding: '4px 8px',
-                    borderRadius: 4
-                  }}
-                >
-                  Ajouter depuis URL
-                </button>
-              </>
-            ) : (
+            {uploadedImages.length > 0 ? (
               <ImageThumbnail
                 imagePath={uploadedImages[0].path || uploadedImages[0].url || ''}
                 isMain={true}
@@ -761,33 +678,106 @@ export default function ContentEditor() {
                   const ok = await confirm({ title: 'Supprimer', message: 'Supprimer cette image ?', type: 'danger' });
                   if (ok) removeImage(0);
                 }}
-                onChange={() => {
-                  imageInputRef.current?.click();
+                onChange={() => { }}
+              />
+            ) : (
+              <div style={{
+                width: '100%',
+                minHeight: '120px',
+                border: '2px dashed var(--border)',
+                borderRadius: 6,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'rgba(255,255,255,0.02)',
+                color: 'var(--muted)',
+                padding: '12px',
+                gap: '8px'
+              }}>
+                <div style={{ fontSize: 32 }}>🖼️</div>
+                <div style={{ fontSize: 11, textAlign: 'center' }}>Aucune image</div>
+              </div>
+            )}
+          </div>
+
+          {/* LIGNE 2 - Col 1 : Nom du jeu */}
+          <div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>
+              Nom du jeu
+            </label>
+            <input
+              value={inputs['Game_name'] || ''}
+              onChange={e => setInput('Game_name', e.target.value)}
+              style={{
+                width: '100%',
+                height: '40px',
+                borderRadius: 6,
+                padding: '0 12px',
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid var(--border)',
+                color: 'var(--text)'
+              }}
+              placeholder="Nom du jeu"
+            />
+          </div>
+
+          {/* LIGNE 2 - Col 2 : Lien de l'image */}
+          <div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>
+              Lien de l'image
+            </label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                value={imageUrlInput}
+                onChange={(e) => setImageUrlInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const url = imageUrlInput.trim();
+                    if (url) {
+                      addImageFromUrl(url);
+                      setImageUrlInput('');
+                    }
+                  }
+                }}
+                placeholder="URL de l'image (https://...)"
+                style={{
+                  flex: 1,
+                  height: '40px',
+                  borderRadius: 6,
+                  padding: '0 12px',
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)'
                 }}
               />
-            )}
-
-            <input
-              ref={imageInputRef}
-              type="file"
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={async (e) => {
-                if (e.target.files && e.target.files.length > 0) {
-                  if (uploadedImages.length > 0) {
-                    removeImage(0);
+              <button
+                type="button"
+                onClick={() => {
+                  const url = imageUrlInput.trim();
+                  if (url) {
+                    addImageFromUrl(url);
+                    setImageUrlInput('');
                   }
-                  const file = e.target.files[0];
-                  const filePath = (file as any).path;
-                  if (filePath) {
-                    await addImageFromPath(filePath);
-                  } else {
-                    await addImages([file]);
-                  }
-                  e.target.value = '';
-                }
-              }}
-            />
+                }}
+                disabled={!imageUrlInput.trim()}
+                style={{
+                  height: '40px',
+                  padding: '0 16px',
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: imageUrlInput.trim() ? 'pointer' : 'not-allowed',
+                  opacity: imageUrlInput.trim() ? 1 : 0.5,
+                  background: imageUrlInput.trim() ? 'var(--accent)' : 'rgba(255,255,255,0.05)',
+                  border: '1px solid var(--border)',
+                  color: 'white'
+                }}
+              >
+                Ajouter
+              </button>
+            </div>
           </div>
         </div>
 
@@ -800,7 +790,15 @@ export default function ContentEditor() {
             <input
               value={inputs['Game_version'] || ''}
               onChange={e => setInput('Game_version', e.target.value)}
-              style={{ width: '100%', height: '40px', borderRadius: 6, padding: '0 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', color: 'white' }}
+              style={{
+                width: '100%',
+                height: '40px',
+                borderRadius: 6,
+                padding: '0 12px',
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid var(--border)',
+                color: 'var(--text)'
+              }}
               placeholder="v1.0.4"
             />
           </div>
@@ -835,14 +833,22 @@ export default function ContentEditor() {
             <input
               value={inputs['Translate_version'] || ''}
               onChange={e => setInput('Translate_version', e.target.value)}
-              style={{ width: '100%', height: '40px', borderRadius: 6, padding: '0 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', color: 'white' }}
+              style={{
+                width: '100%',
+                height: '40px',
+                borderRadius: 6,
+                padding: '0 12px',
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid var(--border)',
+                color: 'var(--text)'
+              }}
               placeholder="v1.0"
             />
           </div>
         </div> {/* FIN LIGNE 5 */}
 
         {/* LIGNE 6 : Lien du jeu et Lien de la trad */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, alignItems: 'start' }}>
           <LinkField
             label="Lien du jeu"
             linkName="Game_link"
@@ -853,141 +859,161 @@ export default function ContentEditor() {
             label={isIntegrated ? "Lien de la trad (Fusionné)" : "Lien de la trad"}
             linkName="Translate_link"
             placeholder="https://..."
+            disabled={inputs['use_additional_links'] === 'true'}
+            customLabelContent={
+              <LinkFieldLabelWithCheckbox
+                label={isIntegrated ? "Lien de la trad (Fusionné)" : "Lien de la trad"}
+                linkName="Translate_link"
+                linkConfigs={linkConfigs}
+                checked={inputs['use_additional_links'] === 'true'}
+                onCheckboxChange={(checked) => setInput('use_additional_links', checked ? 'true' : 'false')}
+                onLinkClick={async (url) => {
+                  const result = await tauriAPI.openUrl(url);
+                  if (!result.ok) {
+                    console.error('Erreur ouverture URL:', result.error);
+                  }
+                }}
+              />
+            }
           />
         </div>
 
-        {/* LIGNE 6.5 : Liens additionnels de traduction */}
-        <div style={{ marginTop: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <label style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>
-              Liens additionnels (Saisons, Épisodes spéciaux, etc.)
-            </label>
-            <button
-              type="button"
-              onClick={addAdditionalTranslationLink}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                height: 32,
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                cursor: 'pointer',
-                background: 'transparent',
-                color: 'var(--text)',
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(99, 102, 241, 0.1)';
-                e.currentTarget.style.borderColor = 'var(--accent)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.borderColor = 'var(--border)';
-              }}
-            >
-              ➕ Ajouter un lien additionnel
-            </button>
-          </div>
-
-          {additionalTranslationLinks.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {additionalTranslationLinks.map((link, index) => (
-                <div
-                  key={index}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr auto',
-                    gap: 8,
-                    alignItems: 'center',
-                    padding: 12,
-                    background: 'rgba(255,255,255,0.03)',
-                    borderRadius: 6,
-                    border: '1px solid var(--border)'
-                  }}
-                >
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 }}>
-                      Label (ex: Saison 1, Épisode Noël)
-                    </label>
-                    <input
-                      type="text"
-                      value={link.label}
-                      onChange={(e) => updateAdditionalTranslationLink(index, { ...link, label: e.target.value })}
-                      placeholder="Saison 1"
-                      style={{
-                        width: '100%',
-                        height: 36,
-                        borderRadius: 6,
-                        padding: '0 10px',
-                        fontSize: 13
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginBottom: 4, fontWeight: 600 }}>
-                      Lien
-                    </label>
-                    <input
-                      type="text"
-                      value={link.link}
-                      onChange={(e) => updateAdditionalTranslationLink(index, { ...link, link: e.target.value })}
-                      placeholder="https://..."
-                      style={{
-                        width: '100%',
-                        height: 36,
-                        borderRadius: 6,
-                        padding: '0 10px',
-                        fontSize: 13
-                      }}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => deleteAdditionalTranslationLink(index)}
-                    style={{
-                      padding: '8px',
-                      height: 36,
-                      width: 36,
-                      border: '1px solid var(--border)',
-                      borderRadius: 6,
-                      cursor: 'pointer',
-                      background: 'transparent',
-                      color: 'var(--error)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 16
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
-                      e.currentTarget.style.borderColor = 'var(--error)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.borderColor = 'var(--border)';
-                    }}
-                    title="Supprimer ce lien"
-                  >
-                    🗑️
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+        {/* LIGNE 6.5 : Header Liens additionnels */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <label style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>
+            Liens additionnels (Saisons, Chapitres, Épisodes spéciaux, etc.)
+          </label>
+          <button
+            type="button"
+            onClick={addAdditionalTranslationLink}
+            style={{
+              padding: '6px 12px',
+              fontSize: 13,
+              height: 32,
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              cursor: 'pointer',
+              background: 'transparent',
+              color: 'var(--text)',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(99, 102, 241, 0.1)';
+              e.currentTarget.style.borderColor = 'var(--accent)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.borderColor = 'var(--border)';
+            }}
+          >
+            ➕ Ajouter un lien additionnel
+          </button>
         </div>
 
+        {/* LIGNE 6.6+ : Liens additionnels individuels */}
+        {additionalTranslationLinks.map((link, index) => (
+          <div
+            key={index}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr auto',
+              gap: 12,
+              alignItems: 'end',
+              marginBottom: 0
+            }}
+          >
+            <div>
+              {index === 0 && (
+                <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>
+                  Label
+                </label>
+              )}
+              {index > 0 && <div style={{ height: 0 }} />}
+              <input
+                type="text"
+                value={link.label}
+                onChange={(e) => updateAdditionalTranslationLink(index, { ...link, label: e.target.value })}
+                placeholder="Saison 1"
+                style={{
+                  width: '100%',
+                  height: '40px',
+                  borderRadius: 6,
+                  padding: '0 12px',
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)'
+                }}
+              />
+            </div>
+            <div>
+              {index === 0 && (
+                <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>
+                  Lien
+                </label>
+              )}
+              {index > 0 && <div style={{ height: 0 }} />}
+              <input
+                type="text"
+                value={link.link}
+                onChange={(e) => updateAdditionalTranslationLink(index, { ...link, link: e.target.value })}
+                placeholder="https://..."
+                style={{
+                  width: '100%',
+                  height: '40px',
+                  borderRadius: 6,
+                  padding: '0 12px'
+                }}
+              />
+            </div>
+            <div>
+              {index === 0 && <div style={{ height: 26 }} />}
+              {index > 0 && <div style={{ height: 0 }} />}
+              <button
+                type="button"
+                onClick={() => deleteAdditionalTranslationLink(index)}
+                style={{
+                  padding: '8px',
+                  height: '40px',
+                  width: '40px',
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  background: 'transparent',
+                  color: 'var(--error)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 16
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                  e.currentTarget.style.borderColor = 'var(--error)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.borderColor = 'var(--border)';
+                }}
+                title="Supprimer ce lien"
+              >
+                🗑️
+              </button>
+            </div>
+          </div>
+        ))}
+
         {/* LIGNE 7 : Type de traduction et Lien du mod */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, alignItems: 'start' }}>
           <div>
             <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
+              display: 'grid',
+              gridTemplateColumns: '1fr auto',
+              gap: 8,
               alignItems: 'center',
               marginBottom: 8,
-              height: '22px'  // ⬅️ Hauteur fixe pour aligner avec l'autre colonne
+              minHeight: 32
             }}>
               <label style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>
                 Type de traduction
@@ -1055,11 +1081,12 @@ export default function ContentEditor() {
               disabled={inputs['is_modded_game'] !== 'true'}
               customLabelContent={
                 <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto',
+                  gap: 8,
                   alignItems: 'center',
                   width: '100%',
-                  height: '22px'  // ⬅️ Même hauteur que la ligne de gauche
+                  minHeight: 32
                 }}>
                   <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>
                     Lien du mod
@@ -1170,7 +1197,15 @@ export default function ContentEditor() {
                 <input
                   value={inputs[v.name] || ''}
                   onChange={e => setInput(v.name, e.target.value)}
-                  style={{ width: '100%', height: '40px', borderRadius: 6, padding: '0 12px' }}
+                  style={{
+                    width: '100%',
+                    height: '40px',
+                    borderRadius: 6,
+                    padding: '0 12px',
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text)'
+                  }}
                   placeholder={v.placeholder || ''}
                 />
               </div>
@@ -1227,7 +1262,10 @@ export default function ContentEditor() {
                   width: '100%',
                   height: '40px',
                   borderRadius: 6,
-                  padding: '0 12px'
+                  padding: '0 12px',
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text)'
                 }}
               />
               {showInstructionSuggestions && filteredInstructions.length > 0 && (
@@ -1432,15 +1470,23 @@ export default function ContentEditor() {
         </div> {/* FIN LIGNE 10 */}
 
         {/* Overlay global pour fermer les suggestions */}
-        {(showTagSuggestions || showInstructionSuggestions) && (
+        {showInstructionSuggestions && (
           <div
             onClick={() => {
-              setShowTagSuggestions(false);
               setShowInstructionSuggestions(false);
             }}
             style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}
           />
         )}
+
+        {/* Modale de sélection des tags */}
+        <TagSelectorModal
+          isOpen={showTagSelector}
+          onClose={() => setShowTagSelector(false)}
+          onSelectTag={handleSelectTag}
+          selectedTagIds={selectedTagIds}
+          position={tagSelectorPosition}
+        />
 
         <ConfirmModal
           isOpen={confirmState.isOpen}

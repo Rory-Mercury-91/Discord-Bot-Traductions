@@ -13,9 +13,8 @@ export default function StatsModal({ onClose }: StatsModalProps) {
 
   const { publishedPosts, savedTags } = useApp();
   const [periodFilter, setPeriodFilter] = useState('all'); // all, 7d, 30d, 6m
-  const [typeFilter, setTypeFilter] = useState('all'); // all, my, partner
 
-  // Filtrer les posts selon la période
+  // Filtrer les posts selon la période uniquement
   const filteredPosts = useMemo(() => {
     let filtered = [...publishedPosts];
 
@@ -38,18 +37,11 @@ export default function StatsModal({ onClose }: StatsModalProps) {
       });
     }
 
-    // Filtre par type
-    if (typeFilter !== 'all') {
-      filtered = filtered.filter(post => post.template === typeFilter);
-    }
-
     return filtered;
-  }, [publishedPosts, periodFilter, typeFilter]);
+  }, [publishedPosts, periodFilter]);
 
   // Calculer les statistiques
   const stats = useMemo(() => {
-    const myTranslations = filteredPosts.filter(p => p.template === 'my').length;
-    const partners = filteredPosts.filter(p => p.template === 'partner').length;
     const total = filteredPosts.length;
 
     // Traducteurs les plus fréquents - Basé sur les tags avec isTranslator: true
@@ -94,21 +86,18 @@ export default function StatsModal({ onClose }: StatsModalProps) {
       });
 
     return {
-      myTranslations,
-      partners,
       total,
       topTranslators,
       monthlyData
     };
-  }, [filteredPosts]);
+  }, [filteredPosts, savedTags]);
 
   // Export CSV
   const exportCSV = () => {
-    const headers = ['Date', 'Titre', 'Template', 'Tags', 'URL Discord'];
+    const headers = ['Date', 'Titre', 'Tags', 'URL Discord'];
     const rows = filteredPosts.map(post => [
       new Date(post.timestamp).toLocaleDateString('fr-FR'),
       post.title,
-      post.template === 'my' ? 'Mes traductions' : 'Partenaires',
       post.tags,
       post.discordUrl
     ]);
@@ -126,12 +115,10 @@ export default function StatsModal({ onClose }: StatsModalProps) {
     const data = {
       exportDate: new Date().toISOString(),
       period: periodFilter,
-      typeFilter: typeFilter,
       stats: stats,
       posts: filteredPosts.map(post => ({
         date: new Date(post.timestamp).toISOString(),
         title: post.title,
-        template: post.template,
         tags: post.tags,
         discordUrl: post.discordUrl
       }))
@@ -187,28 +174,6 @@ export default function StatsModal({ onClose }: StatsModalProps) {
             </select>
           </div>
 
-          <div>
-            <label style={{ fontSize: 13, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>📄 Type</label>
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '8px 12px',
-                background: 'rgba(255,255,255,0.05)',
-                border: '1px solid var(--border)',
-                borderRadius: 6,
-                fontSize: 13,
-                color: 'white',
-                cursor: 'pointer'
-              }}
-            >
-              <option value="all">Tous les types</option>
-              <option value="my">Mes traductions</option>
-              <option value="partner">Partenaires</option>
-            </select>
-          </div>
-
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
             <button
               onClick={exportCSV}
@@ -244,7 +209,7 @@ export default function StatsModal({ onClose }: StatsModalProps) {
             </div>
           ) : (
             <>
-              {/* Cartes de métriques principales */}
+              {/* Carte de métrique principale */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
                 <div style={{
                   padding: 20,
@@ -255,32 +220,6 @@ export default function StatsModal({ onClose }: StatsModalProps) {
                   <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>📚 Total</div>
                   <div style={{ fontSize: 36, fontWeight: 700, color: 'rgb(59, 130, 246)' }}>{stats.total}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>publications</div>
-                </div>
-
-                <div style={{
-                  padding: 20,
-                  background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(22, 163, 74, 0.05))',
-                  border: '1px solid rgba(34, 197, 94, 0.2)',
-                  borderRadius: 12
-                }}>
-                  <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>✍️ Mes traductions</div>
-                  <div style={{ fontSize: 36, fontWeight: 700, color: 'rgb(34, 197, 94)' }}>{stats.myTranslations}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                    {stats.total > 0 ? `${Math.round((stats.myTranslations / stats.total) * 100)}%` : '0%'}
-                  </div>
-                </div>
-
-                <div style={{
-                  padding: 20,
-                  background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(147, 51, 234, 0.05))',
-                  border: '1px solid rgba(168, 85, 247, 0.2)',
-                  borderRadius: 12
-                }}>
-                  <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>🤝 Partenaires</div>
-                  <div style={{ fontSize: 36, fontWeight: 700, color: 'rgb(168, 85, 247)' }}>{stats.partners}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                    {stats.total > 0 ? `${Math.round((stats.partners / stats.total) * 100)}%` : '0%'}
-                  </div>
                 </div>
               </div>
 

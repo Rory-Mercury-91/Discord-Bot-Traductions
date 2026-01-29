@@ -2,21 +2,21 @@ import { useEffect, useRef, useState } from 'react';
 import { useConfirm } from '../hooks/useConfirm';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useModalScrollLock } from '../hooks/useModalScrollLock';
-import { tauriAPI } from '../lib/tauri-api';
-import { Template, useApp } from '../state/appContext';
+import { useApp } from '../state/appContext';
 import ConfirmModal from './ConfirmModal';
 import MarkdownHelpModal from './MarkdownHelpModal';
 import { useToast } from './ToastProvider';
 
 export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
-  const { templates, addTemplate, updateTemplate, deleteTemplate, restoreDefaultTemplates, allVarsConfig, addVarConfig, updateVarConfig, deleteVarConfig } = useApp();
+  const { templates, updateTemplate, restoreDefaultTemplates, allVarsConfig, addVarConfig, updateVarConfig, deleteVarConfig } = useApp();
   const { showToast } = useToast();
   const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm();
 
   useEscapeKey(() => onClose?.(), true);
   useModalScrollLock();
 
-  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  // Toujours éditer le template unique (index 0)
+  const editingIdx = 0;
   const [form, setForm] = useState({ name: '', content: '' });
   const [isDraft, setIsDraft] = useState(false);
   const [draftCreatedAt, setDraftCreatedAt] = useState<number | null>(null);
@@ -26,12 +26,24 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
   const [showVarsSection, setShowVarsSection] = useState(false);
   const [copiedVar, setCopiedVar] = useState<string | null>(null);
   const [editingVarIdx, setEditingVarIdx] = useState<number | null>(null);
-  const [varForm, setVarForm] = useState({ name: '', label: '', type: 'text' as 'text' | 'textarea' | 'select', templates: [] as string[] });
+  const [varForm, setVarForm] = useState({ name: '', label: '', type: 'text' as 'text' | 'textarea' | 'select' });
   const [showMarkdownHelp, setShowMarkdownHelp] = useState(false);
   const contentRef = useRef<HTMLTextAreaElement>(null);
   const autosaveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // [Conserver tous les useEffect et fonctions existants sans modification]
+  // Charger automatiquement le template unique au chargement
+  useEffect(() => {
+    if (templates.length > 0) {
+      const t = templates[0];
+      setForm({ name: t.name, content: t.content });
+      setIsDraft(false);
+      setDraftCreatedAt(t.createdAt || null);
+      setDraftModifiedAt(t.modifiedAt || null);
+      setLastSavedAt(t.lastSavedAt || null);
+      setHasUnsavedChanges(false);
+    }
+  }, []);
+
   // Restauration automatique du brouillon au chargement
   useEffect(() => {
     try {
@@ -51,7 +63,6 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
             setDraftCreatedAt(draft.createdAt);
             setDraftModifiedAt(draft.modifiedAt);
             setLastSavedAt(draft.lastSavedAt);
-            setEditingIdx(null);
             showToast('Brouillon restauré', 'info');
           } else {
             localStorage.removeItem('template_draft');
@@ -103,28 +114,22 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [form.name, form.content, editingIdx]);
 
-  function startEdit(idx: number) {
-    setEditingIdx(idx);
-    const t = templates[idx];
-    setForm({ name: t.name, content: t.content });
-    setIsDraft(t.isDraft || false);
-    setDraftCreatedAt(t.createdAt || null);
-    setDraftModifiedAt(t.modifiedAt || null);
-    setLastSavedAt(t.lastSavedAt || null);
-    setHasUnsavedChanges(false);
-  }
-
-  function isDefaultTemplate(template: Template | null): boolean {
-    return template !== null && (template.id === 'mes' || template.id === 'partenaire');
-  }
-
   function cancelEdit() {
-    setEditingIdx(null);
-    setForm({ name: '', content: '' });
-    setIsDraft(false);
-    setDraftCreatedAt(null);
-    setDraftModifiedAt(null);
-    setLastSavedAt(null);
+    // Recharger le template depuis templates[0]
+    if (templates.length > 0) {
+      const t = templates[0];
+      setForm({ name: t.name, content: t.content });
+      setIsDraft(false);
+      setDraftCreatedAt(t.createdAt || null);
+      setDraftModifiedAt(t.modifiedAt || null);
+      setLastSavedAt(t.lastSavedAt || null);
+    } else {
+      setForm({ name: '', content: '' });
+      setIsDraft(false);
+      setDraftCreatedAt(null);
+      setDraftModifiedAt(null);
+      setLastSavedAt(null);
+    }
     setHasUnsavedChanges(false);
     setShowVarsSection(false);
     cancelVarEdit();
@@ -162,42 +167,28 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
       showToast('Le nom est requis', 'warning');
       return;
     }
+    if (templates.length === 0) {
+      showToast('Aucun template à modifier', 'error');
+      return;
+    }
     const now = Date.now();
-    const currentTemplate = editingIdx !== null ? templates[editingIdx] : null;
-    const isDefaultTemplate = currentTemplate && (currentTemplate.id === 'mes' || currentTemplate.id === 'partenaire');
+    const currentTemplate = templates[0];
     const payload = {
-      id: isDefaultTemplate ? currentTemplate.id : form.name.toLowerCase().replace(/\s+/g, '_'),
+      id: currentTemplate.id || 'my',
       name: form.name,
-      type: isDefaultTemplate ? currentTemplate.type : 'Autres',
+      type: currentTemplate.type || 'my',
       content: form.content,
       isDraft: false,
-      createdAt: draftCreatedAt || now,
+      createdAt: draftCreatedAt || currentTemplate.createdAt || now,
       modifiedAt: now,
       lastSavedAt: undefined
     };
-    if (editingIdx !== null) {
-      updateTemplate(editingIdx, payload);
-    } else {
-      addTemplate(payload);
-    }
+    updateTemplate(0, payload);
     try {
       localStorage.removeItem('template_draft');
     } catch (e) { }
     cancelEdit();
-    showToast(editingIdx !== null ? 'Template modifié' : 'Template ajouté', 'success');
-  }
-
-  async function handleDelete(idx: number) {
-    const ok = await confirm({
-      title: 'Supprimer le template',
-      message: 'Voulez-vous vraiment supprimer ce template ?',
-      confirmText: 'Supprimer',
-      type: 'danger'
-    });
-    if (!ok) return;
-    deleteTemplate(idx);
-    if (editingIdx === idx) cancelEdit();
-    showToast('Template supprimé', 'success');
+    showToast('Template modifié', 'success');
   }
 
   async function copyVarToClipboard(varName: string) {
@@ -217,14 +208,13 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
     setVarForm({
       name: v.name,
       label: v.label,
-      type: v.type || 'text',
-      templates: v.templates || []
+      type: v.type || 'text'
     });
     setEditingVarIdx(idx);
   }
 
   function cancelVarEdit() {
-    setVarForm({ name: '', label: '', type: 'text', templates: [] });
+    setVarForm({ name: '', label: '', type: 'text' });
     setEditingVarIdx(null);
   }
 
@@ -242,7 +232,7 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
       name: varForm.name,
       label: varForm.label,
       type: varForm.type,
-      templates: varForm.templates.length > 0 ? varForm.templates : undefined,
+      templates: undefined, // Plus de filtrage par template - disponible pour tous
       isCustom: true
     };
     if (editingVarIdx !== null) {
@@ -267,76 +257,12 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
     showToast('Variable supprimée', 'success');
   }
 
-  function toggleVarTemplate(templateId: string) {
-    setVarForm(prev => {
-      const templates = prev.templates.includes(templateId)
-        ? prev.templates.filter(id => id !== templateId)
-        : [...prev.templates, templateId];
-      return { ...prev, templates };
-    });
-  }
+  // Fonction toggleVarTemplate supprimée - plus de sélection de templates pour les variables
 
-  async function exportTemplate(idx: number) {
-    const t = templates[idx];
-    try {
-      const res = await tauriAPI.exportTemplateToFile(t);
-      if (res.ok) {
-        showToast('Template exporté avec succès', 'success');
-      } else if (!res.canceled) {
-        showToast('Erreur lors de l\'export', 'error');
-      }
-    } catch (e) {
-      showToast('Erreur lors de l\'export', 'error');
-    }
-  }
+  // Fonctions exportTemplate et importTemplate supprimées - un seul template maintenant
 
-  async function importTemplate() {
-    try {
-      const res = await tauriAPI.importTemplateFromFile();
-      if (res.canceled) return;
-      if (!res.ok || !res.config) {
-        showToast('Erreur lors de l\'import', 'error');
-        return;
-      }
-      const parsed = res.config;
-      if (!parsed.name || !parsed.content) {
-        showToast('Format de template invalide (nom et contenu requis)', 'error');
-        return;
-      }
-      const existingIdx = templates.findIndex(t => t.name === parsed.name);
-      if (existingIdx !== -1) {
-        const ok = await confirm({
-          title: 'Template existant',
-          message: `Un template avec le nom "${parsed.name}" existe déjà. Voulez-vous le remplacer ?`,
-          confirmText: 'Remplacer',
-          type: 'warning'
-        });
-        if (!ok) return;
-        updateTemplate(existingIdx, {
-          id: parsed.id || parsed.name.toLowerCase().replace(/\s+/g, '_'),
-          name: parsed.name,
-          type: parsed.type || 'Autres',
-          content: parsed.content
-        });
-        showToast('Template remplacé', 'success');
-      } else {
-        addTemplate({
-          id: parsed.id || parsed.name.toLowerCase().replace(/\s+/g, '_'),
-          name: parsed.name,
-          type: parsed.type || 'Autres',
-          content: parsed.content
-        });
-        showToast('Template importé', 'success');
-      }
-    } catch (e) {
-      showToast('Erreur lors de l\'import : format JSON invalide', 'error');
-    }
-  }
-
-  const currentTemplateId = editingIdx !== null ? templates[editingIdx]?.id : null;
-  const visibleVars = currentTemplateId
-    ? allVarsConfig.filter(v => !v.templates || v.templates.length === 0 || v.templates.includes(currentTemplateId))
-    : allVarsConfig;
+  // Template unique - toutes les variables sont visibles
+  const visibleVars = allVarsConfig;
   const customVars = allVarsConfig.map((v, idx) => ({ v, idx })).filter(({ v }) => v.isCustom);
 
   function formatTimeSince(timestamp: number): string {
@@ -391,105 +317,16 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
             >
               🔄 Restaurer
             </button>
-            <button
-              onClick={importTemplate}
-              style={{
-                fontSize: 12,
-                padding: '6px 12px',
-                background: 'var(--info)'
-              }}
-              title="Importer un template"
-            >
-              📥 Importer
-            </button>
+            {/* Bouton Importer retiré - un seul template maintenant */}
           </div>
         </div>
 
-        <div style={{ display: 'grid', gap: 16, flex: 1, minHeight: 0 }}>
-          {/* Liste des templates - SCROLLABLE */}
-          <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <h4 style={{ margin: '0 0 12px 0' }}>Templates sauvegardés ({templates.length})</h4>
-            {templates.length === 0 ? (
-              <div style={{ color: 'var(--muted)', fontStyle: 'italic', padding: 12, textAlign: 'center' }}>
-                Aucun template sauvegardé. Utilisez le formulaire ci-dessous pour en ajouter.
-              </div>
-            ) : (
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, 1fr)',
-                gap: 8,
-                overflowY: 'auto',
-                paddingRight: 8
-              }}>
-                {templates.map((t, idx) => (
-                  <div key={idx} style={{
-                    display: 'grid',
-                    gridTemplateColumns: editingIdx === idx ? '1fr' : '1fr auto auto auto',
-                    gap: 8,
-                    alignItems: 'center',
-                    border: '1px solid var(--border)',
-                    borderRadius: 6,
-                    padding: 8,
-                    background: editingIdx === idx ? 'rgba(74, 158, 255, 0.1)' : 'transparent',
-                    transition: 'all 0.2s'
-                  }}>
-                    {editingIdx === idx ? (
-                      <div style={{ display: 'grid', gap: 4 }}>
-                        <div style={{ color: '#4a9eff', fontSize: 12, fontWeight: 600 }}>✏️ En édition</div>
-                        <strong>{t.name}</strong>
-                        <div style={{ color: 'var(--muted)', fontSize: 11 }}>
-                          {t.type || 'Autres'}
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div>
-                          <strong style={{ display: 'block', marginBottom: 4 }}>{t.name}</strong>
-                          <div style={{
-                            color: 'var(--muted)',
-                            fontSize: 11,
-                            padding: '2px 6px',
-                            background: 'rgba(255,255,255,0.05)',
-                            borderRadius: 3,
-                            display: 'inline-block'
-                          }}>
-                            {t.type || 'Autres'}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => exportTemplate(idx)}
-                          title="Exporter"
-                          style={{ fontSize: 12, padding: '4px 8px' }}
-                        >
-                          📤
-                        </button>
-                        <button
-                          onClick={() => startEdit(idx)}
-                          title="Éditer"
-                          style={{ fontSize: 12, padding: '4px 8px' }}
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          onClick={() => handleDelete(idx)}
-                          title="Supprimer"
-                          style={{ fontSize: 12, padding: '4px 8px' }}
-                        >
-                          🗑️
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Formulaire d'ajout/édition */}
-          <div style={{ borderTop: '2px solid var(--border)', paddingTop: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, flex: 1, minHeight: 0 }}>
+          {/* Formulaire d'édition du template unique */}
+          <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h4 style={{ margin: 0 }}>
-                {editingIdx !== null ? '✏️ Modifier le template' : '➕ Ajouter un template'}
+                ✏️ Modifier le template
               </h4>
 
               {/* Badge Brouillon */}
@@ -541,22 +378,7 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
                     style={{ width: '100%' }}
                   />
                 </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
-                    Type {editingIdx !== null && isDefaultTemplate(templates[editingIdx]) && '⚠️'}
-                  </label>
-                  <input
-                    value={editingIdx !== null ? (templates[editingIdx]?.type || 'Autres') : 'Autres'}
-                    readOnly
-                    style={{
-                      width: '100%',
-                      backgroundColor: 'rgba(255,255,255,0.03)',
-                      color: 'var(--muted)',
-                      fontStyle: 'italic',
-                      cursor: 'not-allowed'
-                    }}
-                  />
-                </div>
+                {/* Type retiré - un seul template maintenant */}
               </div>
 
               <div>
@@ -608,7 +430,7 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
               </div>
 
               {/* Variables disponibles */}
-              {editingIdx !== null && visibleVars.length > 0 && (
+              {visibleVars.length > 0 && (
                 <div style={{
                   padding: 12,
                   backgroundColor: 'rgba(74, 158, 255, 0.08)',
@@ -654,7 +476,7 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
               )}
 
               {/* Variables personnalisées - Section repliable */}
-              {editingIdx !== null && (
+              {(
                 <div style={{
                   border: '1px solid var(--border)',
                   borderRadius: 6,
@@ -796,48 +618,7 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
                             </div>
                           </div>
 
-                          <div>
-                            <label style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
-                              Templates associés (vide = tous)
-                            </label>
-                            <div style={{
-                              display: 'flex',
-                              flexWrap: 'wrap',
-                              gap: 6,
-                              maxHeight: 80,
-                              overflowY: 'auto',
-                              padding: 6,
-                              background: 'rgba(0,0,0,0.2)',
-                              borderRadius: 4,
-                              border: '1px solid rgba(255,255,255,0.1)'
-                            }}>
-                              {templates.map(t => (
-                                <label
-                                  key={t.id}
-                                  style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    fontSize: 11,
-                                    cursor: 'pointer',
-                                    padding: '4px 8px',
-                                    background: varForm.templates.includes(t.id || t.name)
-                                      ? 'rgba(74, 158, 255, 0.2)'
-                                      : 'transparent',
-                                    borderRadius: 3,
-                                    transition: 'background 0.2s'
-                                  }}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={varForm.templates.includes(t.id || t.name)}
-                                    onChange={() => toggleVarTemplate(t.id || t.name)}
-                                  />
-                                  {t.name}
-                                </label>
-                              ))}
-                            </div>
-                          </div>
+                          {/* Sélection des templates retirée - un seul template maintenant */}
 
                           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 4 }}>
                             {editingVarIdx !== null && (
@@ -864,11 +645,9 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
                 paddingTop: 12,
                 borderTop: '1px solid var(--border)'
               }}>
-                {editingIdx !== null && (
-                  <button onClick={cancelEdit} style={{ padding: '8px 16px' }}>
-                    ❌ Annuler
-                  </button>
-                )}
+                <button onClick={cancelEdit} style={{ padding: '8px 16px' }}>
+                  ❌ Annuler
+                </button>
                 <button
                   onClick={saveTemplate}
                   style={{
@@ -877,7 +656,7 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
                     fontWeight: 600
                   }}
                 >
-                  {editingIdx !== null ? '✅ Enregistrer' : '➕ Ajouter'}
+                  ✅ Enregistrer
                 </button>
                 <button onClick={onClose} style={{ padding: '8px 16px' }}>
                   🚪 Fermer

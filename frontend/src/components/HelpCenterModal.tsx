@@ -222,23 +222,12 @@ function TagsHelp() {
             borderRadius: 6
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 18 }}>📚</span>
-              <strong style={{ color: '#4a9eff' }}>Mes traductions</strong>
+              <span style={{ fontSize: 18 }}>🏷️</span>
+              <strong style={{ color: '#4a9eff' }}>Tags génériques</strong>
             </div>
-            <p style={{ fontSize: 13, margin: '0 0 10px 0', color: 'var(--muted)' }}>
-              Vos tags personnels pour vos propres traductions. Vous pouvez créer des tags génériques et des tags traducteurs.
+            <p style={{ fontSize: 13, margin: 0, color: 'var(--muted)' }}>
+              Tags utilisés pour catégoriser vos publications (statut, type, etc.). Ces tags sont disponibles pour toutes vos traductions.
             </p>
-            {/* Note importante pour Discord */}
-            <div style={{
-              fontSize: 12,
-              padding: '8px 10px',
-              background: 'rgba(74, 158, 255, 0.1)',
-              borderRadius: 4,
-              borderLeft: '3px solid #4a9eff',
-              color: '#bddbff'
-            }}>
-              <strong>⚠️ Important :</strong> Les tags doivent d'abord exister sur <strong>Discord</strong>. C'est ce qui permet à l'application de récupérer leur ID unique.
-            </div>
           </div>
 
           <div style={{
@@ -248,11 +237,11 @@ function TagsHelp() {
             borderRadius: 6
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 18 }}>🌟</span>
-              <strong style={{ color: '#4a9eff' }}>Traductions Rory</strong>
+              <span style={{ fontSize: 18 }}>👤</span>
+              <strong style={{ color: '#4a9eff' }}>Tags traducteurs</strong>
             </div>
             <p style={{ fontSize: 13, margin: 0, color: 'var(--muted)' }}>
-              Tags réservés au développeur. Seuls les tags génériques sont disponibles (pas de tags traducteurs car vous publiez seul).
+              Tags spécifiques pour identifier les traducteurs. Ces tags sont utilisés pour les statistiques et permettent de suivre les contributions de chaque traducteur.
             </p>
           </div>
         </div>
@@ -373,23 +362,9 @@ function TagsHelp() {
               fontSize: 12,
               color: 'var(--text)'
             }}>
-              📌 <strong>Note :</strong> Dans l'onglet "Mes traductions", vous pouvez cocher <strong>"👤 Traducteur"</strong> pour classer un tag comme traducteur. Cette option n'est pas disponible dans "Traductions Rory".
+              📌 <strong>Note :</strong> Lors de la création d'un tag, vous pouvez cocher <strong>"👤 Tag traducteur"</strong> pour le classer comme tag traducteur. Sinon, il sera automatiquement classé comme tag générique.
             </div>
           </div>
-        </div>
-
-        {/* Astuce en pleine largeur en dessous */}
-        <div style={{
-          marginTop: 20,
-          padding: 12,
-          background: 'rgba(255, 193, 7, 0.1)',
-          border: '1px solid rgba(255, 193, 7, 0.3)',
-          borderRadius: 6,
-          fontSize: 12,
-          color: 'var(--text)'
-        }}>
-          💡 <strong>Astuce :</strong> L'ID Discord se trouve dans les paramètres du tag sur Discord.
-          Il est automatiquement associé au salon correspondant.
         </div>
       </section>
 
@@ -469,17 +444,159 @@ function TagsHelp() {
           🎯 Utiliser un tag dans une publication
         </h4>
 
-        <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 12 }}>
+        <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 16 }}>
           Une fois vos tags créés, vous pouvez les ajouter à vos publications :
         </div>
 
-        <ol style={{ margin: 0, paddingLeft: 20, fontSize: 14, lineHeight: 1.8 }}>
-          <li>Dans l'éditeur de contenu, trouvez le champ <strong>"Tags"</strong></li>
-          <li>Cliquez dans le champ de recherche</li>
-          <li>Sélectionnez un ou plusieurs tags dans la liste</li>
-          <li>Les tags apparaîtront sous forme de badges bleus</li>
-          <li>Cliquez sur <strong>✕</strong> pour retirer un tag</li>
-        </ol>
+        <div style={{ display: 'grid', gap: 16 }}>
+          {/* Étape 1 : Ouvrir la modale */}
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: 'var(--text)' }}>
+              1️⃣ Cliquez sur le bouton "➕ Ajouter"
+            </div>
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '8px 14px',
+              background: '#8b5cf6',
+              color: 'white',
+              borderRadius: 6,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'not-allowed',
+              boxShadow: '0 2px 8px rgba(139, 92, 246, 0.4)'
+            }}>
+              <span>➕</span>
+              <span>Ajouter</span>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
+              Ce bouton se trouve dans le champ <strong>"Tags"</strong> de l'éditeur de contenu.
+            </div>
+          </div>
+
+          {/* Étape 2 : Sélectionner dans la modale */}
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: 'var(--text)' }}>
+              2️⃣ Sélectionnez un tag dans la modale
+            </div>
+            <div style={{
+              background: 'var(--panel)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: 12,
+              fontSize: 13
+            }}>
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+                  La modale affiche deux sections :
+                </div>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <div style={{
+                    padding: '8px 10px',
+                    background: 'rgba(74, 158, 255, 0.1)',
+                    borderRadius: 4,
+                    borderLeft: '3px solid #4a9eff'
+                  }}>
+                    <strong style={{ color: '#4a9eff' }}>🏷️ Tags génériques</strong> - Tags de catégorisation
+                  </div>
+                  <div style={{
+                    padding: '8px 10px',
+                    background: 'rgba(74, 158, 255, 0.1)',
+                    borderRadius: 4,
+                    borderLeft: '3px solid #4a9eff'
+                  }}>
+                    <strong style={{ color: '#4a9eff' }}>👤 Tags traducteurs</strong> - Tags pour identifier les traducteurs
+                  </div>
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                Cliquez sur un tag pour l'ajouter à votre publication. Il disparaîtra de la liste et apparaîtra dans le formulaire.
+              </div>
+            </div>
+          </div>
+
+          {/* Étape 3 : Gérer les tags ajoutés */}
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: 'var(--text)' }}>
+              3️⃣ Gérer les tags ajoutés
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 8 }}>
+              Les tags ajoutés apparaissent sous forme de badges dans le champ "Tags" :
+            </div>
+            <div style={{
+              display: 'flex',
+              gap: 6,
+              flexWrap: 'wrap',
+              marginBottom: 8
+            }}>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 10px',
+                background: 'rgba(74, 158, 255, 0.15)',
+                border: '1px solid rgba(74, 158, 255, 0.3)',
+                borderRadius: 4,
+                fontSize: 12
+              }}>
+                <span>✅ Terminé</span>
+                <button style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  padding: 0,
+                  width: 16,
+                  height: 16,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>✕</button>
+              </div>
+              <div style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 10px',
+                background: 'rgba(74, 158, 255, 0.15)',
+                border: '1px solid rgba(74, 158, 255, 0.3)',
+                borderRadius: 4,
+                fontSize: 12
+              }}>
+                <span>👤 TraducteurXYZ</span>
+                <button style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--text)',
+                  cursor: 'pointer',
+                  fontSize: 14,
+                  padding: 0,
+                  width: 16,
+                  height: 16,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}>✕</button>
+              </div>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+              Cliquez sur le bouton <strong>✕</strong> d'un badge pour retirer le tag. Il réapparaîtra dans la modale lors de la prochaine ouverture.
+            </div>
+          </div>
+
+          {/* Fermeture de la modale */}
+          <div style={{
+            padding: 12,
+            background: 'rgba(74, 158, 255, 0.1)',
+            border: '1px solid rgba(74, 158, 255, 0.3)',
+            borderRadius: 6,
+            fontSize: 12
+          }}>
+            💡 <strong>Astuce :</strong> Vous pouvez fermer la modale en appuyant sur <strong>Échap</strong>, en cliquant sur le bouton <strong>🚪 Fermer</strong>, ou en cliquant en dehors de la modale.
+          </div>
+        </div>
 
         <div style={{
           marginTop: 16,
@@ -491,29 +608,6 @@ function TagsHelp() {
         }}>
           💡 <strong>Conseil :</strong> Créez des tags pour organiser vos traductions par statut
           (Terminé, En cours, Abandonné), type (Automatique, Manuelle), ou traducteur.
-        </div>
-      </section>
-
-      {/* Copier l'ID d'un tag */}
-      <section>
-        <h4 style={{ margin: '0 0 12px 0', fontSize: 16, color: 'var(--accent)' }}>
-          📋 Copier l'ID d'un tag
-        </h4>
-
-        <div style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 12 }}>
-          Pour copier rapidement l'ID d'un tag, cliquez sur le <strong>nom du tag</strong> (en bleu).
-          L'ID sera copié dans votre presse-papier et une notification apparaîtra.
-        </div>
-
-        <div style={{
-          padding: 12,
-          background: 'rgba(74, 222, 128, 0.1)',
-          border: '1px solid rgba(74, 222, 128, 0.3)',
-          borderRadius: 6,
-          fontSize: 13
-        }}>
-          ✅ <strong>Pratique :</strong> Utile pour partager l'ID avec d'autres utilisateurs ou
-          pour le noter ailleurs.
         </div>
       </section>
     </div>
