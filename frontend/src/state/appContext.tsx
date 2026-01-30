@@ -705,9 +705,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setPublishedPosts(prev => prev.map(post => post.id === id ? { ...post, ...withUpdatedAt } : post));
     const sb = getSupabase();
     if (sb) {
+      // Fusionner avec l'état actuel pour avoir un post complet ; les updates passés priment (ex: après édition)
       const existing = publishedPosts.find(p => p.id === id);
-      if (!existing) return;
-      const merged: PublishedPost = { ...existing, ...withUpdatedAt } as PublishedPost;
+      const merged: PublishedPost = { ...existing, ...withUpdatedAt, id } as PublishedPost;
       const row = postToRow(merged);
       const res = await sb.from('published_posts').upsert(row, { onConflict: 'id' });
       if (res.error) console.warn('⚠️ Supabase update post:', (res.error as { message?: string })?.message);
@@ -1147,7 +1147,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             discordUrl: threadUrl || editingPostData.discordUrl,
             forumId: typeof forumId === 'number' ? forumId : parseInt(String(forumId)) || 0
           };
-          await updatePublishedPost(editingPostId, updatedPost);
+          // Post fusionné = même contenu que Discord pour que Supabase et le contrôle de version restent cohérents
+          const mergedPost = { ...editingPostData, ...updatedPost };
+          await updatePublishedPost(editingPostId, mergedPost);
           setEditingPostId(null);
           setEditingPostData(null);
           console.log('✅ Post mis à jour dans l\'historique et Supabase:', updatedPost);

@@ -188,6 +188,8 @@ _RE_GAME_LINK_PLAIN = re.compile(
 
 # Extraction version depuis titre F95
 _RE_BRACKETS = re.compile(r"\[(?P<val>[^\]]+)\]")
+# Version dans le nom du thread Discord (ex: "Growing Problems [v0.12]")
+_RE_VERSION_IN_THREAD_NAME = re.compile(r"\[v?(?P<ver>[^\]]+)\]\s*$", re.IGNORECASE)
 
 # ==================== STOCKAGE ANTI-DOUBLON ====================
 # Structure: {thread_id: {"f95_version": "Ch.7", "timestamp": datetime}}
@@ -335,6 +337,14 @@ def _normalize_version(version: str) -> str:
     normalized = re.sub(r'\s+', ' ', normalized)
     return normalized.strip()
 
+
+def _extract_version_from_thread_name(thread_name: str) -> Optional[str]:
+    """Extrait la version depuis le nom du thread Discord (ex: 'Growing Problems [v0.12]' -> 'v0.12')."""
+    if not (thread_name or isinstance(thread_name, str)):
+        return None
+    m = _RE_VERSION_IN_THREAD_NAME.search(thread_name.strip())
+    return m.group("ver").strip() if m else None
+
 async def _fetch_f95_title(session: aiohttp.ClientSession, url: str) -> Optional[str]:
     """Télécharge la page F95 et extrait le titre H1"""
     try:
@@ -412,6 +422,14 @@ async def _extract_post_data(thread: discord.Thread) -> Tuple[Optional[str], Opt
     if row:
         saved = _parse_saved_inputs(row)
         game_version = (saved.get("Game_version") or "").strip()
+        # Le nom du thread Discord est mis à jour par forum_post_update ; priorité à cette version (état live)
+        version_from_thread_name = _extract_version_from_thread_name(getattr(thread, "name", "") or "")
+        if version_from_thread_name:
+            game_version = _normalize_version(version_from_thread_name)
+            logger.info(f"📌 Version post pour {thread.name}: {game_version} (depuis nom du thread)")
+        elif game_version:
+            game_version = _normalize_version(game_version)
+            logger.info(f"📌 Version post pour {thread.name}: {game_version}")
         content = (row.get("content") or "") or ""
         game_link = None
         m_link_md = _RE_GAME_LINK_MD.search(content)
@@ -420,8 +438,6 @@ async def _extract_post_data(thread: discord.Thread) -> Tuple[Optional[str], Opt
             game_link = m_link_md.group("url").strip()
         elif m_link_plain:
             game_link = m_link_plain.group("url").strip()
-        if game_version:
-            game_version = _normalize_version(game_version)
         if game_link or game_version:
             logger.info(f"✅ Données post depuis Supabase (thread_id={thread.id})")
             return game_link, game_version
@@ -1317,7 +1333,20 @@ async def _create_forum_post(session, forum_id, title, content, tags_raw, images
         return False, {"status": status, "discord": data}
 
     thread_id = data.get("id")
-    message_id = (data.get("message") or {}).get("id") or data.get("message_id")
+    # Discord peut renvoyer le message starter dans "message" ou last_message_id (channel object)
+    message_id = (data.get("message") or {}).get("id") or data.get("message_id") or data.get("last_message_id")
+    if not message_id and thread_id:
+        # Fallback : récupérer l'id du message de départ en listant les messages du thread
+        try:
+            messages = await _discord_list_messages(session, str(thread_id), limit=5)
+            if messages:
+                # Les messages sont du plus récent au plus ancien ; le dernier est le message de départ
+                message_id = (messages[-1] or {}).get("id")
+        except Exception as e:
+            logger.warning(f"⚠️ Impossible de récupérer le message de départ (thread {thread_id}): {e}")
+    # Garantir des chaînes pour le frontend (suppression, historique)
+    thread_id = str(thread_id) if thread_id is not None else None
+    message_id = str(message_id) if message_id is not None else None
 
     # Publier les métadonnées dans un 2e message puis SUPPRESS_EMBEDS sur ce 2e message
     # Structure: Message 1 = contenu + image, Message 2 = métadonnées
@@ -1655,7 +1684,8 @@ async def forum_post_delete(request):
         body = {}
     thread_id = (body.get("threadId") or body.get("thread_id") or "").strip()
     if not thread_id:
-        return _with_cors(request, web.json_response({"ok": False, "error": "threadId requis"}, status=400))
+        # Pas de thread Discord : succès sans appeler Discord (suppression historique/base uniquement)
+        return _with_cors(request, web.json_response({"ok": True, "skipped_discord": True}))
     async with aiohttp.ClientSession() as session:
         deleted, status = await _discord_delete_channel(session, thread_id)
     if not deleted:

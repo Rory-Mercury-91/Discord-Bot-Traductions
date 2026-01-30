@@ -144,11 +144,7 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
       type: 'danger'
     });
     if (!ok) return;
-    if (!post.threadId) {
-      showToast('Aucun thread Discord associé ; suppression de l\'historique uniquement.', 'warning');
-      deletePublishedPost(post.id);
-      return;
-    }
+    const threadId = String((post as { threadId?: string; thread_id?: string }).threadId ?? (post as { thread_id?: string }).thread_id ?? '').trim();
     const baseUrl = (localStorage.getItem('apiBase') || '').replace(/\/+$/, '');
     const apiKey = localStorage.getItem('apiKey') || '';
     if (!baseUrl || !apiKey) {
@@ -159,7 +155,7 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
       const res = await fetch(`${baseUrl}/api/forum-post/delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
-        body: JSON.stringify({ threadId: post.threadId })
+        body: JSON.stringify({ threadId })
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -173,7 +169,11 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
         return;
       }
       deletePublishedPost(post.id);
-      showToast('Publication supprimée définitivement (historique, base et Discord)', 'success');
+      if (data?.skipped_discord) {
+        showToast('Aucun thread Discord associé ; entrée retirée de l\'historique et de la base.', 'success');
+      } else {
+        showToast('Publication supprimée définitivement (historique, base et Discord)', 'success');
+      }
     } catch (e: any) {
       showToast('Erreur réseau : ' + (e?.message || 'inconnue'), 'error');
     }
