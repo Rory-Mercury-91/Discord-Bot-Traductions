@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import ErrorModal from '../components/ErrorModal';
 import { getSupabase } from '../lib/supabase';
 import { tauriAPI } from '../lib/tauri-api';
@@ -62,7 +62,6 @@ export type PublishedPost = {
   title: string;
   content: string;
   tags: string;
-  template: string;
   imagePath?: string;
   translationType?: string;
   isIntegrated?: boolean;
@@ -71,7 +70,7 @@ export type PublishedPost = {
   discordUrl: string;
   forumId: number;
 
-  // ✅ Ajout des données complètes de restauration
+  // Données pour ré-édition complète
   savedInputs?: Record<string, string>;
   savedLinkConfigs?: {
     Game_link: LinkConfig;
@@ -81,7 +80,6 @@ export type PublishedPost = {
   savedAdditionalTranslationLinks?: AdditionalTranslationLink[];
   /** Liens additionnels mod (affichés si mod compatible) */
   savedAdditionalModLinks?: AdditionalTranslationLink[];
-  templateId?: string;
   /** ID Discord de l'auteur du post (pour droits d'édition) */
   authorDiscordId?: string;
 };
@@ -577,7 +575,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       owners[k] = supabaseOwners[k];
     }
 
-    return { merged, owners };
+    // Ordre stable des clés (alphabétique) pour éviter que les instructions "switchent" de position
+    const sortedMerged = Object.fromEntries(Object.entries(merged).sort((a, b) => a[0].localeCompare(b[0])));
+    const sortedOwners = Object.fromEntries(Object.entries(owners).sort((a, b) => a[0].localeCompare(b[0])));
+    return { merged: sortedMerged, owners: sortedOwners };
   }
 
   // Translation type and integration state
@@ -858,7 +859,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       title: p.title ?? '',
       content: p.content ?? '',
       tags: p.tags ?? '',
-      template: p.template ?? 'my',
       image_path: p.imagePath ?? null,
       translation_type: p.translationType ?? null,
       is_integrated: p.isIntegrated ?? false,
@@ -871,7 +871,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       saved_link_configs: p.savedLinkConfigs ?? null,
       saved_additional_translation_links: Array.isArray(p.savedAdditionalTranslationLinks) ? p.savedAdditionalTranslationLinks : (p.savedAdditionalTranslationLinks ?? null),
       saved_additional_mod_links: Array.isArray(p.savedAdditionalModLinks) ? p.savedAdditionalModLinks : (p.savedAdditionalModLinks ?? null),
-      template_id: p.templateId ?? null,
       created_at: new Date(createdTs).toISOString(),
       updated_at: new Date(updatedTs).toISOString()
     };
@@ -894,7 +893,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       title: String(r.title ?? ''),
       content: String(r.content ?? ''),
       tags: String(r.tags ?? ''),
-      template: String(r.template ?? 'my'),
       imagePath: r.image_path != null ? String(r.image_path) : undefined,
       translationType: r.translation_type != null ? String(r.translation_type) : undefined,
       isIntegrated: Boolean(r.is_integrated),
@@ -906,7 +904,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       savedLinkConfigs: savedLinkConfigs ?? undefined,
       savedAdditionalTranslationLinks: Array.isArray(savedAdditionalTranslationLinks) ? savedAdditionalTranslationLinks : undefined,
       savedAdditionalModLinks: Array.isArray(savedAdditionalModLinks) ? savedAdditionalModLinks : undefined,
-      templateId: r.template_id != null ? String(r.template_id) : undefined,
       authorDiscordId: r.author_discord_id != null ? String(r.author_discord_id) : undefined
     };
   }
@@ -1147,7 +1144,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           title,
           content: finalContent,
           tags: tagsToSend,
-          template: templateType,
           imagePath: imagePathVal,
           translationType,
           isIntegrated,
@@ -1155,7 +1151,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           savedLinkConfigs: JSON.parse(JSON.stringify(linkConfigs)),
           savedAdditionalTranslationLinks: JSON.parse(JSON.stringify(additionalTranslationLinks)),
           savedAdditionalModLinks: JSON.parse(JSON.stringify(additionalModLinks)),
-          templateId: templates[currentTemplateIdx]?.id,
           threadId: editingPostData.threadId,
           messageId: editingPostData.messageId,
           discordUrl: editingPostData.discordUrl || '',
@@ -1171,7 +1166,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           title,
           content: finalContent,
           tags: tagsToSend,
-          template: templateType,
           imagePath: imagePathVal,
           translationType,
           isIntegrated,
@@ -1179,7 +1173,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           savedLinkConfigs: JSON.parse(JSON.stringify(linkConfigs)),
           savedAdditionalTranslationLinks: JSON.parse(JSON.stringify(additionalTranslationLinks)),
           savedAdditionalModLinks: JSON.parse(JSON.stringify(additionalModLinks)),
-          templateId: templates[currentTemplateIdx]?.id,
           threadId: '',
           messageId: '',
           discordUrl: '',
@@ -1258,7 +1251,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             title,
             content,
             tags: tagsToSend,
-            template: templateType,
             imagePath: uploadedImages.find(i => i.isMain)?.path || uploadedImages.find(i => i.isMain)?.url,
             translationType,
             isIntegrated,
@@ -1266,7 +1258,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             savedLinkConfigs: JSON.parse(JSON.stringify(linkConfigs)),
             savedAdditionalTranslationLinks: JSON.parse(JSON.stringify(additionalTranslationLinks)),
             savedAdditionalModLinks: JSON.parse(JSON.stringify(additionalModLinks)),
-            templateId: templates[currentTemplateIdx]?.id,
             threadId: String(threadId),
             messageId: String(messageId),
             discordUrl: threadUrl || editingPostData.discordUrl,
@@ -1289,7 +1280,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             title,
             content,
             tags: tagsToSend,
-            template: templateType,
             imagePath: uploadedImages.find(i => i.isMain)?.path || uploadedImages.find(i => i.isMain)?.url,
             translationType,
             isIntegrated,
@@ -1297,7 +1287,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             savedLinkConfigs: JSON.parse(JSON.stringify(linkConfigs)),
             savedAdditionalTranslationLinks: JSON.parse(JSON.stringify(additionalTranslationLinks)),
             savedAdditionalModLinks: JSON.parse(JSON.stringify(additionalModLinks)),
-            templateId: templates[currentTemplateIdx]?.id,
             threadId: String(threadId),
             messageId: String(messageId),
             discordUrl: threadUrl,
@@ -1499,8 +1488,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 localInstructions,
                 localOwners
               );
-              setSavedInstructions(merged);
-              setInstructionOwners(owners);
+              // Ne pas déclencher de re-render si les données sont identiques (évite les "switches")
+              const instrEq = (a: Record<string, string>, b: Record<string, string>) =>
+                Object.keys(a).length === Object.keys(b).length &&
+                Object.keys(a).every(k => b[k] === a[k]);
+              setSavedInstructions(prev => instrEq(prev, merged) ? prev : merged);
+              setInstructionOwners(prev => instrEq(prev, owners) ? prev : owners);
             });
         }
       )
@@ -1568,51 +1561,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     localStorage.setItem('instructionOwners', JSON.stringify(instructionOwners));
   }, [instructionOwners]);
-
-  // Synchronisation automatique des instructions vers Supabase (comme les tags)
-  // Se déclenche à chaque modification de savedInstructions ou instructionOwners
-  const instructionsSyncedRef = useRef(false);
-  useEffect(() => {
-    // Skip le premier rendu (chargement initial depuis localStorage/Supabase)
-    if (!instructionsSyncedRef.current) {
-      instructionsSyncedRef.current = true;
-      return;
-    }
-
-    const sb = getSupabase();
-    if (!sb) return;
-
-    // Synchroniser seulement les instructions de l'utilisateur courant
-    (async () => {
-      try {
-        const { data: { session } } = await sb.auth.getSession();
-        const userId = session?.user?.id;
-        if (!userId) return;
-
-        // Collecter uniquement les instructions de l'utilisateur courant
-        const myInstructions: Record<string, string> = {};
-        for (const [k, v] of Object.entries(savedInstructions)) {
-          // Instruction sans owner connu = instruction locale de l'utilisateur courant
-          // Instruction avec owner = userId = instruction de l'utilisateur courant
-          if (!instructionOwners[k] || instructionOwners[k] === userId) {
-            myInstructions[k] = v;
-          }
-        }
-
-        const { error } = await sb
-          .from('saved_instructions')
-          .upsert(
-            { owner_id: userId, value: myInstructions, updated_at: new Date().toISOString() },
-            { onConflict: 'owner_id' }
-          );
-        if (error) {
-          console.warn('⚠️ Auto-sync instructions:', (error as { message?: string })?.message);
-        }
-      } catch (e) {
-        console.warn('⚠️ Auto-sync instructions exception:', e);
-      }
-    })();
-  }, [savedInstructions, instructionOwners]);
 
   useEffect(() => {
     localStorage.setItem('uploadedImages', JSON.stringify(uploadedImages));
@@ -1872,16 +1820,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Instructions saved
+  // Instructions : sync direct vers Supabase (comme les tags), contrôle par autorisation RLS
+  async function _syncMyInstructionsToSupabase(
+    instructions: Record<string, string>,
+    owners: Record<string, string>,
+    userId: string
+  ): Promise<void> {
+    const sb = getSupabase();
+    if (!sb) return;
+    const myInstructions: Record<string, string> = {};
+    for (const [k, v] of Object.entries(instructions)) {
+      if (!owners[k] || owners[k] === userId) myInstructions[k] = v;
+    }
+    await sb.from('saved_instructions').upsert(
+      { owner_id: userId, value: myInstructions, updated_at: new Date().toISOString() },
+      { onConflict: 'owner_id' }
+    );
+  }
+
   function saveInstruction(name: string, text: string) {
-    setSavedInstructions(prev => ({ ...prev, [name]: text }));
+    const newInstructions = { ...savedInstructions, [name]: text };
+    setSavedInstructions(newInstructions);
     getSupabase()?.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user?.id) setInstructionOwners(prev => ({ ...prev, [name]: session.user.id }));
+      if (session?.user?.id) {
+        const newOwners = { ...instructionOwners, [name]: session.user.id };
+        setInstructionOwners(newOwners);
+        _syncMyInstructionsToSupabase(newInstructions, newOwners, session.user.id).catch(() => { });
+      }
     });
   }
   function deleteInstruction(name: string) {
-    setSavedInstructions(prev => { const copy = { ...prev }; delete copy[name]; return copy; });
-    setInstructionOwners(prev => { const copy = { ...prev }; delete copy[name]; return copy; });
+    const newInstructions = { ...savedInstructions }; delete newInstructions[name];
+    const newOwners = { ...instructionOwners }; delete newOwners[name];
+    setSavedInstructions(newInstructions);
+    setInstructionOwners(newOwners);
+    getSupabase()?.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.id) {
+        _syncMyInstructionsToSupabase(newInstructions, newOwners, session.user.id).catch(() => { });
+      }
+    });
   }
 
   async function syncInstructionsToSupabase(): Promise<{ ok: boolean; error?: string }> {

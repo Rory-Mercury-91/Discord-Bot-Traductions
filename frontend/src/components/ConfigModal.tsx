@@ -41,8 +41,6 @@ export default function ConfigModal({ onClose, adminMode = false }: ConfigModalP
     clearAllAppData,
     syncTagsToSupabase,
     fetchTagsFromSupabase,
-    syncInstructionsToSupabase,
-    fetchInstructionsFromSupabase,
     syncTemplatesToSupabase,
     fetchTemplatesFromSupabase
   } = useApp();
@@ -550,17 +548,7 @@ export default function ConfigModal({ onClose, adminMode = false }: ConfigModalP
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                   <span style={{ fontSize: 13, fontWeight: 600, minWidth: 90 }}>Instructions</span>
-                  <span style={{ fontSize: 11, color: 'var(--success)', background: 'rgba(46,204,113,0.15)', padding: '4px 8px', borderRadius: 6 }}>🔄 Auto-sync</span>
-                  <button type="button" onClick={async () => {
-                    const { ok, error } = await syncInstructionsToSupabase();
-                    if (ok) showToast('Instructions synchronisées', 'success');
-                    else showToast('Erreur : ' + (error ?? 'inconnue'), 'error');
-                  }} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--muted)', cursor: 'pointer', fontSize: 12 }}>
-                    🔃 Forcer sync
-                  </button>
-                  <button type="button" onClick={async () => { await fetchInstructionsFromSupabase(); showToast('Instructions récupérées', 'success'); }} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--muted)', cursor: 'pointer', fontSize: 12 }}>
-                    📥 Recharger
-                  </button>
+                  <span style={{ fontSize: 11, color: 'var(--success)', background: 'rgba(46,204,113,0.15)', padding: '4px 8px', borderRadius: 6 }}>🔄 Sync direct (Autoriser/Révoquer)</span>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                   <span style={{ fontSize: 13, fontWeight: 600, minWidth: 90 }}>Templates</span>

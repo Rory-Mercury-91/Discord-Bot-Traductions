@@ -70,7 +70,8 @@ export default function InstructionsManagerModal({ onClose }: { onClose?: () => 
     showToast('Instruction supprimée', 'success');
   }
 
-  const instructionEntries = Object.entries(savedInstructions);
+  // Ordre stable (alphabétique) pour éviter que les instructions "switchent" de position
+  const instructionEntries = Object.entries(savedInstructions).sort((a, b) => a[0].localeCompare(b[0]));
 
   return (
     <div className="modal">
