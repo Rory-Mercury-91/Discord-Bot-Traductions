@@ -70,9 +70,24 @@ def _fetch_post_by_thread_id_sync(thread_id) -> Optional[Dict]:
     return None
 
 
+def _parse_saved_inputs(row: Dict) -> Dict:
+    """Retourne saved_inputs comme dict (parse si Supabase renvoie une chaîne json)."""
+    raw = row.get("saved_inputs")
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw) if raw.strip() else {}
+        except Exception:
+            return {}
+    return {}
+
+
 def _metadata_from_row(row: Dict, new_game_version: Optional[str] = None) -> Optional[str]:
     """Construit metadata_b64 à partir d'une ligne published_posts (saved_inputs + colonnes)."""
-    saved = row.get("saved_inputs") or {}
+    saved = _parse_saved_inputs(row)
     version = new_game_version if new_game_version is not None else (saved.get("Game_version") or "")
     metadata = {
         "game_name": (saved.get("Game_name") or row.get("title") or "").strip(),
@@ -98,6 +113,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== CONFIGURATION ====================
+# Un seul salon "my" : FORUM = salon qui reçoit les posts, MAJ_NOTIFICATION = salon des alertes version
 class Config:
     def __init__(self):
         # API REST
@@ -107,11 +123,12 @@ class Config:
         self.PORT = int(os.getenv("PORT", "8080"))
         self.DISCORD_API_BASE = os.getenv("DISCORD_API_BASE", "https://api-proxy-koyeb.a-fergani91.workers.dev")
         
-        # Forums à contrôler
-        self.FORUM_MY_ID = int(os.getenv("FORUM_CHANNEL_ID", "0")) if os.getenv("FORUM_CHANNEL_ID") else 0
-        self.FORUM_PARTNER_ID = int(os.getenv("FORUM_PARTNER_ID", "0")) if os.getenv("FORUM_PARTNER_ID") else 0
+        # Salon unique "my" : forum qui reçoit les posts (publication + contrôle versions)
+        self.FORUM_MY_ID = int(os.getenv("PUBLISHER_FORUM_MY_ID", "0")) if os.getenv("PUBLISHER_FORUM_MY_ID") else 0
+        if not self.FORUM_MY_ID and os.getenv("FORUM_CHANNEL_ID"):
+            self.FORUM_MY_ID = int(os.getenv("FORUM_CHANNEL_ID", "0"))
         
-        # Notification
+        # Salon qui reçoit les notifications de mise à jour de version
         self.MAJ_NOTIFICATION_CHANNEL_ID = int(os.getenv("MAJ_NOTIFICATION_CHANNEL_ID", "0")) if os.getenv("MAJ_NOTIFICATION_CHANNEL_ID") else 0
         
         # Planification
@@ -121,9 +138,8 @@ class Config:
         self.CLEANUP_EMPTY_MESSAGES_MINUTE = int(os.getenv("CLEANUP_EMPTY_MESSAGES_MINUTE", "0"))
         
         self.configured = bool(
-            self.DISCORD_PUBLISHER_TOKEN and 
-            self.FORUM_MY_ID and 
-            self.FORUM_PARTNER_ID and
+            self.DISCORD_PUBLISHER_TOKEN and
+            self.FORUM_MY_ID and
             self.MAJ_NOTIFICATION_CHANNEL_ID
         )
     
@@ -132,10 +148,7 @@ class Config:
             self.DISCORD_PUBLISHER_TOKEN = config_data['discordPublisherToken']
         if 'publisherForumMyId' in config_data and config_data['publisherForumMyId']:
             self.FORUM_MY_ID = int(config_data['publisherForumMyId'])
-        if 'publisherForumPartnerId' in config_data and config_data['publisherForumPartnerId']:
-            self.FORUM_PARTNER_ID = int(config_data['publisherForumPartnerId'])
-        
-        self.configured = bool(self.DISCORD_PUBLISHER_TOKEN and self.FORUM_MY_ID and self.FORUM_PARTNER_ID)
+        self.configured = bool(self.DISCORD_PUBLISHER_TOKEN and self.FORUM_MY_ID and self.MAJ_NOTIFICATION_CHANNEL_ID)
         logger.info(f"✅ Configuration mise à jour (configured: {self.configured})")
 
 config = Config()
@@ -395,7 +408,7 @@ async def _extract_post_data(thread: discord.Thread) -> Tuple[Optional[str], Opt
     loop = asyncio.get_event_loop()
     row = await loop.run_in_executor(None, _fetch_post_by_thread_id_sync, thread.id)
     if row:
-        saved = row.get("saved_inputs") or {}
+        saved = _parse_saved_inputs(row)
         game_version = (saved.get("Game_version") or "").strip()
         content = (row.get("content") or "") or ""
         game_link = None
@@ -578,223 +591,124 @@ async def _update_post_version(thread: discord.Thread, new_version: str) -> bool
 
 # ==================== ALERTES VERSIONS ====================
 class VersionAlert:
-    """Représente une alerte de version"""
-    def __init__(self, thread_name: str, thread_url: str, f95_version: Optional[str], 
-                 post_version: Optional[str], forum_type: str, updated: bool):
+    """Représente une alerte de version (salon my uniquement)"""
+    def __init__(self, thread_name: str, thread_url: str, f95_version: Optional[str],
+                 post_version: Optional[str], updated: bool):
         self.thread_name = thread_name
         self.thread_url = thread_url
         self.f95_version = f95_version
         self.post_version = post_version
-        self.forum_type = forum_type  # "My" ou "Partner"
-        self.updated = updated  # True si modification effectuée
+        self.updated = updated
 
 async def _group_and_send_alerts(channel: discord.TextChannel, alerts: List[VersionAlert]):
-    """Regroupe et envoie les alertes par catégorie (max 10 par message)"""
+    """Envoie les alertes (max 10 par message)"""
     if not alerts:
         return
-    
-    # Groupement par type (My/Partner)
-    groups = {
-        "My": [],
-        "Partner": []
-    }
-    
-    for alert in alerts:
-        groups[alert.forum_type].append(alert)
-    
-    # Envoi par catégorie
-    for forum_type, alert_list in groups.items():
-        if not alert_list:
-            continue
-        
-        forum_name = "Mes traductions" if forum_type == "My" else "Traductions partenaire"
-        title = f"🚨 **Mises à jour détectées : {forum_name}** ({len(alert_list)} jeux)"
-        
-        # Découpage par paquets de 10
-        for i in range(0, len(alert_list), 10):
-            batch = alert_list[i:i+10]
-            
-            msg_parts = [title, ""]
-            for alert in batch:
-                if alert.f95_version:
-                    # Version détectée sur F95
-                    msg_parts.append(
-                        f"**{alert.thread_name}**\n"
-                        f"├ Version F95 : `{alert.f95_version}`\n"
-                        f"├ Version du poste : `{alert.post_version or 'Non renseignée'}`\n"
-                        f"├ Version modifiée : {'OUI ✅' if alert.updated else 'NON ❌'}\n"
-                        f"└ Lien : {alert.thread_url}\n"
-                    )
-                else:
-                    # Version non détectable sur F95
-                    msg_parts.append(
-                        f"**{alert.thread_name}**\n"
-                        f"├ Version F95 : Non détectable ⚠️\n"
-                        f"├ Version du poste : `{alert.post_version or 'Non renseignée'}`\n"
-                        f"├ Version modifiée : NON\n"
-                        f"└ Lien : {alert.thread_url}\n"
-                    )
-            
-            await channel.send("\n".join(msg_parts))
-            await asyncio.sleep(1.5)  # Anti-rate limit
+    title = f"🚨 **Mises à jour détectées** ({len(alerts)} jeux)"
+    for i in range(0, len(alerts), 10):
+        batch = alerts[i:i+10]
+        msg_parts = [title, ""]
+        for alert in batch:
+            if alert.f95_version:
+                msg_parts.append(
+                    f"**{alert.thread_name}**\n"
+                    f"├ Version F95 : `{alert.f95_version}`\n"
+                    f"├ Version du poste : `{alert.post_version or 'Non renseignée'}`\n"
+                    f"├ Version modifiée : {'OUI ✅' if alert.updated else 'NON ❌'}\n"
+                    f"└ Lien : {alert.thread_url}\n"
+                )
+            else:
+                msg_parts.append(
+                    f"**{alert.thread_name}**\n"
+                    f"├ Version F95 : Non détectable ⚠️\n"
+                    f"├ Version du poste : `{alert.post_version or 'Non renseignée'}`\n"
+                    f"├ Version modifiée : NON\n"
+                    f"└ Lien : {alert.thread_url}\n"
+                )
+        await channel.send("\n".join(msg_parts))
+        await asyncio.sleep(1.5)
 
 # ==================== CONTRÔLE VERSIONS F95 ====================
-async def run_version_check_once(forum_filter: Optional[str] = None):
-    """
-    Effectue le contrôle des versions F95
-    forum_filter: None (tous), "my", ou "partner"
-    """
-    logger.info(f"🔎 Démarrage contrôle versions F95 (filtre: {forum_filter or 'tous'})")
-    
+async def run_version_check_once():
+    """Effectue le contrôle des versions F95 sur le salon my uniquement."""
+    logger.info("🔎 Démarrage contrôle versions F95 (salon my)")
     channel_notif = bot.get_channel(config.MAJ_NOTIFICATION_CHANNEL_ID)
     if not channel_notif:
         logger.error("❌ Salon notifications MAJ introuvable")
         return
-    
-    # Déterminer quels forums vérifier
-    forum_configs = []
-    if forum_filter is None or forum_filter == "my":
-        if config.FORUM_MY_ID:
-            forum_configs.append((config.FORUM_MY_ID, "My"))
-    if forum_filter is None or forum_filter == "partner":
-        if config.FORUM_PARTNER_ID:
-            forum_configs.append((config.FORUM_PARTNER_ID, "Partner"))
-    
-    if not forum_configs:
-        logger.warning("⚠️ Aucun forum configuré pour le check version")
+    if not config.FORUM_MY_ID:
+        logger.warning("⚠️ PUBLISHER_FORUM_MY_ID non configuré")
         return
-    
-    # Nettoyer les anciennes notifications
     _clean_old_notifications()
-    
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
     }
-    
-    all_alerts = []
-    
+    all_alerts: List[VersionAlert] = []
+    forum = bot.get_channel(config.FORUM_MY_ID)
+    if not forum:
+        logger.warning(f"⚠️ Forum {config.FORUM_MY_ID} introuvable")
+        return
+    threads = await _collect_all_forum_threads(forum)
+    logger.info(f"🔎 Check version F95: {len(threads)} threads (actifs + archivés)")
     async with aiohttp.ClientSession(headers=headers) as session:
-        for forum_id, forum_type in forum_configs:
-            forum = bot.get_channel(forum_id)
-            if not forum:
-                logger.warning(f"⚠️ Forum {forum_id} introuvable")
+        for thread in threads:
+            await asyncio.sleep(0.6 + random.random() * 0.6)
+            game_link, post_version = await _extract_post_data(thread)
+            if not game_link or not post_version:
+                logger.info(f"⏭️  Thread ignoré (données manquantes): {thread.name}")
                 continue
-            
-            threads = await _collect_all_forum_threads(forum)
-            logger.info(f"🔎 Check version F95 [{forum_type}]: {len(threads)} threads (actifs + archivés)")
-            
-            for thread in threads:
-                # Jitter anti-rate limit
-                await asyncio.sleep(0.6 + random.random() * 0.6)
-                
-                # Extraire données du post
-                game_link, post_version = await _extract_post_data(thread)
-                
-                if not game_link or not post_version:
-                    logger.info(f"⏭️  Thread ignoré (données manquantes): {thread.name}")
-                    continue
-                
-                # Filtrer LewdCorner
-                if "lewdcorner.com" in game_link.lower():
-                    logger.info(f"⏭️  Thread ignoré (LewdCorner): {thread.name}")
-                    continue
-                
-                # Vérifier que c'est bien F95Zone
-                if "f95zone.to" not in game_link.lower():
-                    logger.info(f"⏭️  Thread ignoré (non-F95Zone): {thread.name}")
-                    continue
-                
-                # Fetch titre F95
-                logger.info(f"🌐 Fetch F95 pour {thread.name}: {game_link}")
-                title_text = await _fetch_f95_title(session, game_link)
-                f95_version = _extract_version_from_f95_title(title_text or "")
-                
-                if f95_version:
-                    f95_version = _normalize_version(f95_version)
-                
-                # Cas 1: Version non détectée sur F95
-                if not f95_version:
-                    if not _is_already_notified(thread.id, "NO_VERSION"):
-                        logger.warning(f"⚠️ Version F95 non détectable pour: {thread.name}")
-                        all_alerts.append(VersionAlert(
-                            thread.name, thread.jump_url, None, 
-                            post_version, forum_type, False
-                        ))
-                        _mark_as_notified(thread.id, "NO_VERSION")
-                    continue
-                
-                # Cas 2: Versions différentes
-                if f95_version.strip() != post_version.strip():
-                    if not _is_already_notified(thread.id, f95_version):
-                        logger.info(f"🔄 Différence détectée pour {thread.name}: F95={f95_version} vs Post={post_version}")
-                        
-                        # Tenter la modification automatique
-                        update_success = await _update_post_version(thread, f95_version)
-                        
-                        all_alerts.append(VersionAlert(
-                            thread.name, thread.jump_url, f95_version,
-                            post_version, forum_type, update_success
-                        ))
-                        _mark_as_notified(thread.id, f95_version)
-                else:
-                    # Version identique - log uniquement
-                    logger.info(f"✅ Version OK [{forum_type}]: {thread.name} ({post_version})")
-    
-    # Envoi groupé des alertes
+            if "lewdcorner.com" in game_link.lower():
+                logger.info(f"⏭️  Thread ignoré (LewdCorner): {thread.name}")
+                continue
+            if "f95zone.to" not in game_link.lower():
+                logger.info(f"⏭️  Thread ignoré (non-F95Zone): {thread.name}")
+                continue
+            logger.info(f"🌐 Fetch F95 pour {thread.name}: {game_link}")
+            title_text = await _fetch_f95_title(session, game_link)
+            f95_version = _extract_version_from_f95_title(title_text or "")
+            if f95_version:
+                f95_version = _normalize_version(f95_version)
+            if not f95_version:
+                if not _is_already_notified(thread.id, "NO_VERSION"):
+                    logger.warning(f"⚠️ Version F95 non détectable pour: {thread.name}")
+                    all_alerts.append(VersionAlert(thread.name, thread.jump_url, None, post_version, False))
+                    _mark_as_notified(thread.id, "NO_VERSION")
+                continue
+            if f95_version.strip() != post_version.strip():
+                if not _is_already_notified(thread.id, f95_version):
+                    logger.info(f"🔄 Différence détectée pour {thread.name}: F95={f95_version} vs Post={post_version}")
+                    update_success = await _update_post_version(thread, f95_version)
+                    all_alerts.append(VersionAlert(thread.name, thread.jump_url, f95_version, post_version, update_success))
+                    _mark_as_notified(thread.id, f95_version)
+            else:
+                logger.info(f"✅ Version OK: {thread.name} ({post_version})")
     await _group_and_send_alerts(channel_notif, all_alerts)
     logger.info(f"📊 Contrôle terminé : {len(all_alerts)} alertes envoyées")
 
 # ==================== NETTOYAGE MESSAGES VIDES ====================
 async def run_cleanup_empty_messages_once():
-    """
-    Parcourt les forums configurés et supprime les messages vides dans chaque thread.
-    Ne supprime jamais le message de départ ni les messages contenant les métadonnées.
-    Traite les forums séquentiellement (My d'abord, puis Partner) avec des délais pour éviter le rate limit.
-    """
-    logger.info("🧹 Démarrage nettoyage quotidien des messages vides")
-    forum_configs = []
-    if config.FORUM_MY_ID:
-        forum_configs.append((config.FORUM_MY_ID, "My"))
-    if config.FORUM_PARTNER_ID:
-        forum_configs.append((config.FORUM_PARTNER_ID, "Partner"))
-    if not forum_configs:
-        logger.warning("⚠️ Aucun forum configuré pour le nettoyage")
+    """Supprime les messages vides dans les threads du salon my (sauf message de départ et métadonnées)."""
+    logger.info("🧹 Démarrage nettoyage quotidien des messages vides (salon my)")
+    if not config.FORUM_MY_ID:
+        logger.warning("⚠️ PUBLISHER_FORUM_MY_ID non configuré")
         return
-    
+    forum = bot.get_channel(config.FORUM_MY_ID)
+    if not forum:
+        logger.warning(f"⚠️ Forum {config.FORUM_MY_ID} introuvable")
+        return
+    threads = await _collect_all_forum_threads(forum)
+    logger.info(f"🧹 Nettoyage: {len(threads)} threads à traiter")
     total_deleted = 0
     async with aiohttp.ClientSession() as session:
-        for idx, (forum_id, forum_type) in enumerate(forum_configs):
-            # Délai entre les forums (sauf pour le premier)
-            if idx > 0:
-                logger.info(f"⏸️  Pause de 5 secondes avant le forum suivant...")
-                await asyncio.sleep(5.0)
-            
-            forum = bot.get_channel(forum_id)
-            if not forum:
-                logger.warning(f"⚠️ Forum {forum_id} introuvable")
-                continue
-            
-            threads = await _collect_all_forum_threads(forum)
-            logger.info(f"🧹 Nettoyage [{forum_type}]: {len(threads)} threads à traiter")
-            
-            forum_deleted = 0
-            for thread_idx, thread in enumerate(threads, 1):
-                # Délai entre chaque thread (1-2 secondes)
-                await asyncio.sleep(1.0 + random.random())
-                
-                n = await _clean_empty_messages_in_thread(session, str(thread.id))
-                forum_deleted += n
-                total_deleted += n
-                
-                # Log de progression tous les 10 threads
-                if thread_idx % 10 == 0:
-                    logger.info(f"📊 Progression [{forum_type}]: {thread_idx}/{len(threads)} threads traités, {forum_deleted} messages supprimés")
-            
-            logger.info(f"✅ Forum [{forum_type}] terminé : {forum_deleted} message(s) vide(s) supprimé(s)")
-    
-    logger.info(f"✅ Nettoyage complet terminé : {total_deleted} message(s) vide(s) supprimé(s) au total")
+        for thread_idx, thread in enumerate(threads, 1):
+            await asyncio.sleep(1.0 + random.random())
+            n = await _clean_empty_messages_in_thread(session, str(thread.id))
+            total_deleted += n
+            if thread_idx % 10 == 0:
+                logger.info(f"📊 Progression: {thread_idx}/{len(threads)} threads traités")
+    logger.info(f"✅ Nettoyage terminé : {total_deleted} message(s) vide(s) supprimé(s)")
 
 # ==================== TÂCHE QUOTIDIENNE ====================
 @tasks.loop(time=datetime.time(hour=config.VERSION_CHECK_HOUR, minute=config.VERSION_CHECK_MINUTE, tzinfo=ZoneInfo("Europe/Paris")))
@@ -836,69 +750,33 @@ async def check_help(interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
     except Exception:
         pass
-
     if not _user_can_run_checks(interaction):
         await interaction.followup.send("⛔ Permission insuffisante.", ephemeral=True)
         return
-
     help_text = (
-        "**🧰 Commandes disponibles (Bot Publisher - Contrôle Versions)**\n\n"
-        "**/check_versions** — Lance le contrôle complet des versions F95 (My + Partner).\n"
-        "**/check_mytrads** — Lance le contrôle uniquement sur le forum 'Mes traductions'.\n"
-        "**/check_partnertrads** — Lance le contrôle uniquement sur le forum 'Traductions partenaire'.\n"
+        "**🧰 Commandes disponibles (Bot Publisher - Salon my)**\n\n"
+        "**/check_versions** — Lance le contrôle des versions F95 sur le salon my.\n"
         "**/cleanup_empty_messages** — Supprime les messages vides dans les threads (sauf métadonnées).\n"
         "**/force_sync** — Force la synchronisation des commandes slash.\n\n"
-        "**ℹ️ Fonctionnement automatique**\n"
+        "**ℹ️ Automatique**\n"
         f"Contrôle des versions : tous les jours à {config.VERSION_CHECK_HOUR:02d}:{config.VERSION_CHECK_MINUTE:02d} (Europe/Paris).\n"
         f"Nettoyage des messages vides : tous les jours à {config.CLEANUP_EMPTY_MESSAGES_HOUR:02d}:{config.CLEANUP_EMPTY_MESSAGES_MINUTE:02d} (Europe/Paris).\n"
-        "Système anti-doublon actif (30 jours) pour éviter les notifications répétées."
+        "Système anti-doublon actif (30 jours)."
     )
-
     await interaction.followup.send(help_text, ephemeral=True)
 
-@bot.tree.command(name="check_versions", description="Contrôle les versions F95 (My + Partner)")
+@bot.tree.command(name="check_versions", description="Contrôle les versions F95 (salon my)")
 async def check_versions(interaction: discord.Interaction):
-    """Lance le contrôle complet immédiatement"""
+    """Lance le contrôle des versions sur le salon my."""
     if not _user_can_run_checks(interaction):
         await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
         return
-
     await interaction.response.send_message("⏳ Contrôle des versions F95 en cours…", ephemeral=True)
     try:
         await run_version_check_once()
         await interaction.followup.send("✅ Contrôle terminé.", ephemeral=True)
     except Exception as e:
         logger.error(f"❌ Erreur commande check_versions: {e}")
-        await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
-
-@bot.tree.command(name="check_mytrads", description="Contrôle uniquement les 'Mes traductions'")
-async def check_mytrads(interaction: discord.Interaction):
-    """Lance le contrôle My uniquement"""
-    if not _user_can_run_checks(interaction):
-        await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
-        return
-
-    await interaction.response.send_message("⏳ Contrôle 'Mes traductions' en cours…", ephemeral=True)
-    try:
-        await run_version_check_once(forum_filter="my")
-        await interaction.followup.send("✅ Contrôle 'Mes traductions' terminé.", ephemeral=True)
-    except Exception as e:
-        logger.error(f"❌ Erreur commande check_mytrads: {e}")
-        await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
-
-@bot.tree.command(name="check_partnertrads", description="Contrôle uniquement les 'Traductions partenaire'")
-async def check_partnertrads(interaction: discord.Interaction):
-    """Lance le contrôle Partner uniquement"""
-    if not _user_can_run_checks(interaction):
-        await interaction.response.send_message("⛔ Permission insuffisante.", ephemeral=True)
-        return
-
-    await interaction.response.send_message("⏳ Contrôle 'Traductions partenaire' en cours…", ephemeral=True)
-    try:
-        await run_version_check_once(forum_filter="partner")
-        await interaction.followup.send("✅ Contrôle 'Traductions partenaire' terminé.", ephemeral=True)
-    except Exception as e:
-        logger.error(f"❌ Erreur commande check_partnertrads: {e}")
         await interaction.followup.send(f"❌ Erreur: {e}", ephemeral=True)
 
 @bot.tree.command(name="cleanup_empty_messages", description="Supprime les messages vides dans les threads (sauf métadonnées)")
@@ -1129,7 +1007,7 @@ async def on_ready():
     # Sync commandes slash
     try:
         await bot.tree.sync()
-        logger.info("✅ Commandes slash synchronisées (/check_versions, /check_mytrads, /check_partnertrads, /cleanup_empty_messages, /check_help)")
+        logger.info("✅ Commandes slash synchronisées (/check_versions, /cleanup_empty_messages, /check_help)")
     except Exception as e:
         logger.error(f"⚠️ Sync commandes slash échouée: {e}")
     
@@ -1359,9 +1237,6 @@ async def _discord_suppress_embeds(session, channel_id: str, message_id: str) ->
         logger.warning(f"⚠️ Exception SUPPRESS_EMBEDS: {e}")
         return False
 
-def _pick_forum_id(template):
-    return config.FORUM_PARTNER_ID if template == "partner" else config.FORUM_MY_ID
-
 async def _resolve_applied_tag_ids(session, forum_id, tags_raw):
     wanted = [t.strip() for t in (tags_raw or "").replace(';', ',').replace('|', ',').split(',') if t.strip()]
     if not wanted: return []
@@ -1486,14 +1361,14 @@ async def configure(request):
         return _with_cors(request, web.json_response({"ok": False, "error": str(e)}, status=400))
 
 async def forum_post(request):
-    """Handler modifié pour accepter les métadonnées"""
+    """Handler pour publier un post dans le salon my uniquement."""
     api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
-    if api_key != config.PUBLISHER_API_KEY: 
+    if api_key != config.PUBLISHER_API_KEY:
         return _with_cors(request, web.json_response({"ok": False, "error": "Invalid API key"}, status=401))
-    
-    title, content, tags, template, images, metadata_b64 = "", "", "", "my", [], None
+    if not config.FORUM_MY_ID:
+        return _with_cors(request, web.json_response({"ok": False, "error": "PUBLISHER_FORUM_MY_ID non configuré"}, status=500))
+    title, content, tags, metadata_b64 = "", "", "", None
     reader = await request.multipart()
-    
     async for part in reader:
         if part.name == "title":
             title = (await part.text()).strip()
@@ -1501,19 +1376,9 @@ async def forum_post(request):
             content = (await part.text()).strip()
         elif part.name == "tags":
             tags = (await part.text()).strip()
-        elif part.name == "template":
-            template = (await part.text()).strip()
         elif part.name == "metadata":
             metadata_b64 = (await part.text()).strip()
-        # Plus besoin de traiter les images comme attachments, elles sont dans le contenu (liens masqués)
-        # elif part.name and part.name.startswith("image_") and part.filename:
-        #     images.append({
-        #         "bytes": await part.read(decode=False),
-        #         "filename": part.filename,
-        #         "content_type": part.headers.get("Content-Type", "image/png")
-        #     })
-
-    forum_id = _pick_forum_id(template)
+    forum_id = config.FORUM_MY_ID
     
     async with aiohttp.ClientSession() as session:
         # Plus besoin d'envoyer les images comme attachments, elles sont dans le contenu
@@ -1522,14 +1387,13 @@ async def forum_post(request):
     if not ok:
         return _with_cors(request, web.json_response({"ok": False, "details": result}, status=500))
     
-    # Ajouter à l'historique
     history_manager.add_post({
         "id": f"post_{int(time.time())}",
         "timestamp": int(time.time() * 1000),
         "title": title,
         "content": content,
         "tags": tags,
-        "template": template,
+        "template": "my",
         "thread_id": result["thread_id"],
         "message_id": result["message_id"],
         "discord_url": result["thread_url"],
@@ -1539,14 +1403,14 @@ async def forum_post(request):
     return _with_cors(request, web.json_response({"ok": True, **result}))
 
 async def forum_post_update(request):
-    """Handler modifié pour la mise à jour avec métadonnées"""
+    """Handler pour mettre à jour un post (salon my uniquement)."""
     api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
     if api_key != config.PUBLISHER_API_KEY:
         return _with_cors(request, web.json_response({"ok": False, "error": "Invalid API key"}, status=401))
-
-    title, content, tags, template, images, thread_id, message_id, metadata_b64 = "", "", "", "my", [], None, None, None
+    if not config.FORUM_MY_ID:
+        return _with_cors(request, web.json_response({"ok": False, "error": "PUBLISHER_FORUM_MY_ID non configuré"}, status=500))
+    title, content, tags, thread_id, message_id, metadata_b64 = "", "", "", None, None, None
     reader = await request.multipart()
-
     async for part in reader:
         if part.name == "title":
             title = (await part.text()).strip()
@@ -1554,21 +1418,12 @@ async def forum_post_update(request):
             content = (await part.text()).strip()
         elif part.name == "tags":
             tags = (await part.text()).strip()
-        elif part.name == "template":
-            template = (await part.text()).strip()
         elif part.name == "threadId":
             thread_id = (await part.text()).strip()
         elif part.name == "messageId":
             message_id = (await part.text()).strip()
         elif part.name == "metadata":
             metadata_b64 = (await part.text()).strip()
-        # Plus besoin de traiter les images comme attachments, elles sont dans le contenu (liens masqués)
-        # elif part.name and part.name.startswith("image_") and part.filename:
-        #     images.append({
-        #         "bytes": await part.read(decode=False),
-        #         "filename": part.filename,
-        #         "content_type": part.headers.get("Content-Type", "image/png")
-        #     })
 
     if not thread_id or not message_id:
         return _with_cors(request, web.json_response({"ok": False, "error": "threadId and messageId required"}, status=400))
@@ -1653,7 +1508,7 @@ async def forum_post_update(request):
                 logger.warning(f"⚠️ Exception update/création metadata message: {e}")
 
         # Mettre à jour le titre et les tags du thread
-        applied_tag_ids = await _resolve_applied_tag_ids(session, _pick_forum_id(template), tags)
+        applied_tag_ids = await _resolve_applied_tag_ids(session, config.FORUM_MY_ID, tags)
         status, data = await _discord_patch_json(session, f"/channels/{thread_id}", {
             "name": title,
             "applied_tags": applied_tag_ids
@@ -1671,7 +1526,7 @@ async def forum_post_update(request):
         "thread_id": thread_id,
         "updated": True,
         "message_id": message_id,
-        "template": template
+        "template": "my"
     })
 
     return _with_cors(request, web.json_response({"ok": True, "updated": True, "thread_id": thread_id}))

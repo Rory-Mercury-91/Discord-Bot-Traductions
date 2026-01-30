@@ -57,7 +57,7 @@ export default function ContentEditor() {
   const { linkConfigs, setLinkConfig, /* autres... */ } = useApp();
   // 2️⃣ ENSUITE : Calculer les valeurs dérivées
   const currentTemplate = templates[currentTemplateIdx]; // ✅ UNE SEULE FOIS
-  const canPublish = (currentTemplate?.type === 'my' || currentTemplate?.type === 'partner') &&
+  const canPublish = currentTemplate?.type === 'my' &&
     rateLimitCooldown === null;
   const isEditMode = editingPostId !== null;
   const rateLimitRemaining = rateLimitCooldown ? Math.ceil((rateLimitCooldown - Date.now()) / 1000) : 0;

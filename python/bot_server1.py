@@ -14,9 +14,10 @@ load_dotenv()
 
 # Configuration (inchangée)
 TOKEN = os.getenv('DISCORD_TOKEN')
+# Salon surveillé pour les nouveaux posts (forum "my")
 FORUM_CHANNEL_ID = int(os.getenv('FORUM_CHANNEL_ID'))
+# Salon de réception des annonces / mises à jour
 ANNOUNCE_CHANNEL_ID = int(os.getenv('ANNOUNCE_CHANNEL_ID'))
-FORUM_PARTNER_ID = int(os.getenv('FORUM_PARTNER_ID')) if os.getenv('FORUM_PARTNER_ID') else None
 ANNOUNCE_DELAY = 5
 
 # Supabase : source de vérité pour published_posts (réduit les appels Discord)
@@ -69,12 +70,27 @@ def _traducteur_from_content(content):
     return t
 
 
+def _parse_saved_inputs(row):
+    """Retourne saved_inputs comme dict (parse si Supabase renvoie une chaîne json)."""
+    raw = row.get("saved_inputs")
+    if raw is None:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw) if raw.strip() else {}
+        except Exception:
+            return {}
+    return {}
+
+
 def infos_from_row(row):
     """
     Construit le même dict que extraire_infos_post à partir d'une ligne published_posts.
     Cohérent avec la table : title, saved_inputs, content, translation_type, is_integrated.
     """
-    saved = row.get("saved_inputs") or {}
+    saved = _parse_saved_inputs(row)
     title = (row.get("title") or "").strip()
     content = row.get("content") or ""
     return {
@@ -633,7 +649,7 @@ async def on_ready():
 
 @bot.event
 async def on_thread_create(thread):
-    if thread.parent_id == FORUM_CHANNEL_ID or (FORUM_PARTNER_ID and thread.parent_id == FORUM_PARTNER_ID):
+    if thread.parent_id == FORUM_CHANNEL_ID:
         recent_threads[thread.id] = time.time()
         await asyncio.sleep(3 + random.random() * 2)
         thread_actuel = bot.get_channel(thread.id)
@@ -644,7 +660,7 @@ async def on_thread_create(thread):
 
 @bot.event
 async def on_thread_update(before, after):
-    if after.parent_id == FORUM_CHANNEL_ID or (FORUM_PARTNER_ID and after.parent_id == FORUM_PARTNER_ID):
+    if after.parent_id == FORUM_CHANNEL_ID:
         if after.id in recent_threads and (time.time() - recent_threads[after.id]) < 30:
             return
         trads_after = trier_tags(after.applied_tags)
@@ -653,7 +669,7 @@ async def on_thread_update(before, after):
 
 @bot.event
 async def on_message_edit(before, after):
-    if isinstance(after.channel, discord.Thread) and after.id == after.channel.id:
+    if isinstance(after.channel, discord.Thread) and after.channel.parent_id == FORUM_CHANNEL_ID and after.id == after.channel.id:
         if before.content != after.content:
             trads = trier_tags(after.channel.applied_tags)
             if trads:

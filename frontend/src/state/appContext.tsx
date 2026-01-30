@@ -217,8 +217,8 @@ type AppContextValue = {
 
   // History
   publishedPosts: PublishedPost[];
-  addPublishedPost: (p: PublishedPost) => void;
-  updatePublishedPost: (id: string, p: Partial<PublishedPost>) => void;
+  addPublishedPost: (p: PublishedPost) => Promise<void>;
+  updatePublishedPost: (id: string, p: Partial<PublishedPost>) => Promise<void>;
   deletePublishedPost: (id: string) => void;
   fetchHistoryFromAPI: () => Promise<void>;
   /** Nettoyage des données applicatives (Supabase + état local). ownerId = profil courant pour supprimer ses lignes allowed_editors. */
@@ -690,29 +690,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [publishedPosts]);
 
   // History management functions (sync Supabase si configuré)
-  const addPublishedPost = (p: PublishedPost) => {
+  const addPublishedPost = async (p: PublishedPost) => {
     setPublishedPosts(prev => [p, ...prev]);
     const sb = getSupabase();
     if (sb) {
       const row = postToRow(p);
-      sb.from('published_posts').upsert(row, { onConflict: 'id' }).then((res) => {
-        if (res.error) console.warn('⚠️ Supabase insert post:', (res.error as { message?: string })?.message);
-      });
+      const res = await sb.from('published_posts').upsert(row, { onConflict: 'id' });
+      if (res.error) console.warn('⚠️ Supabase insert post:', (res.error as { message?: string })?.message);
     }
   };
 
-  const updatePublishedPost = (id: string, updates: Partial<PublishedPost>) => {
+  const updatePublishedPost = async (id: string, updates: Partial<PublishedPost>) => {
     const withUpdatedAt = { ...updates, updatedAt: updates.updatedAt ?? Date.now() };
     setPublishedPosts(prev => prev.map(post => post.id === id ? { ...post, ...withUpdatedAt } : post));
     const sb = getSupabase();
     if (sb) {
-      const post = publishedPosts.find(p => p.id === id);
-      if (!post) return;
-      const merged = { ...post, ...updates, updatedAt: Date.now() };
-      const row = postToRow(merged as PublishedPost);
-      sb.from('published_posts').upsert(row, { onConflict: 'id' }).then((res) => {
-        if (res.error) console.warn('⚠️ Supabase update post:', (res.error as { message?: string })?.message);
-      });
+      const existing = publishedPosts.find(p => p.id === id);
+      if (!existing) return;
+      const merged: PublishedPost = { ...existing, ...withUpdatedAt } as PublishedPost;
+      const row = postToRow(merged);
+      const res = await sb.from('published_posts').upsert(row, { onConflict: 'id' });
+      if (res.error) console.warn('⚠️ Supabase update post:', (res.error as { message?: string })?.message);
     }
   };
 
@@ -759,6 +757,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  // Helper : parse les champs jsonb renvoyés par Supabase (parfois en string)
+  function parseJsonb<T>(val: unknown): T | undefined {
+    if (val == null) return undefined;
+    if (typeof val === 'string') {
+      try {
+        return JSON.parse(val) as T;
+      } catch {
+        return undefined;
+      }
+    }
+    return val as T;
+  }
+
   // Mappers PublishedPost <-> Supabase row (table published_posts = source de vérité pour bot server 1)
   function postToRow(p: PublishedPost) {
     const createdTs = p.createdAt ?? p.timestamp;
@@ -779,8 +790,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       author_discord_id: p.authorDiscordId ?? null,
       saved_inputs: p.savedInputs ?? null,
       saved_link_configs: p.savedLinkConfigs ?? null,
-      saved_additional_translation_links: p.savedAdditionalTranslationLinks ?? null,
-      saved_additional_mod_links: p.savedAdditionalModLinks ?? null,
+      saved_additional_translation_links: Array.isArray(p.savedAdditionalTranslationLinks) ? p.savedAdditionalTranslationLinks : (p.savedAdditionalTranslationLinks ?? null),
+      saved_additional_mod_links: Array.isArray(p.savedAdditionalModLinks) ? p.savedAdditionalModLinks : (p.savedAdditionalModLinks ?? null),
       template_id: p.templateId ?? null,
       created_at: new Date(createdTs).toISOString(),
       updated_at: new Date(updatedTs).toISOString()
@@ -792,6 +803,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const createdAt = createdStr ? new Date(createdStr).getTime() : Date.now();
     const updatedAt = updatedStr ? new Date(updatedStr).getTime() : createdAt;
     const ts = updatedAt;
+    const savedInputs = parseJsonb<Record<string, string>>(r.saved_inputs);
+    const savedLinkConfigs = parseJsonb<PublishedPost['savedLinkConfigs']>(r.saved_link_configs);
+    const savedAdditionalTranslationLinks = parseJsonb<AdditionalTranslationLink[]>(r.saved_additional_translation_links);
+    const savedAdditionalModLinks = parseJsonb<AdditionalTranslationLink[]>(r.saved_additional_mod_links);
     return {
       id: String(r.id),
       timestamp: ts,
@@ -808,10 +823,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       messageId: String(r.message_id ?? ''),
       discordUrl: String(r.discord_url ?? ''),
       forumId: Number(r.forum_id) || 0,
-      savedInputs: (r.saved_inputs as Record<string, string>) ?? undefined,
-      savedLinkConfigs: (r.saved_link_configs as PublishedPost['savedLinkConfigs']) ?? undefined,
-      savedAdditionalTranslationLinks: (r.saved_additional_translation_links as PublishedPost['savedAdditionalTranslationLinks']) ?? undefined,
-      savedAdditionalModLinks: (r.saved_additional_mod_links as PublishedPost['savedAdditionalModLinks']) ?? undefined,
+      savedInputs: savedInputs ?? undefined,
+      savedLinkConfigs: savedLinkConfigs ?? undefined,
+      savedAdditionalTranslationLinks: Array.isArray(savedAdditionalTranslationLinks) ? savedAdditionalTranslationLinks : undefined,
+      savedAdditionalModLinks: Array.isArray(savedAdditionalModLinks) ? savedAdditionalModLinks : undefined,
       templateId: r.template_id != null ? String(r.template_id) : undefined,
       authorDiscordId: r.author_discord_id != null ? String(r.author_discord_id) : undefined
     };
@@ -869,8 +884,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           );
         });
         if (newPostsFromKoyeb.length > 0) {
+          const mapped = newPostsFromKoyeb.map((p: any) => ({
+            id: p.id || `post_${p.timestamp || Date.now()}_koyeb`,
+            timestamp: p.timestamp || Date.now(),
+            createdAt: p.timestamp || Date.now(),
+            updatedAt: p.timestamp || Date.now(),
+            title: p.title ?? '',
+            content: p.content ?? '',
+            tags: p.tags ?? '',
+            template: p.template ?? 'my',
+            threadId: String(p.thread_id ?? p.threadId ?? ''),
+            messageId: String(p.message_id ?? p.messageId ?? ''),
+            discordUrl: p.discord_url ?? p.thread_url ?? '',
+            forumId: Number(p.forum_id ?? p.forumId ?? 0) || 0,
+            savedInputs: undefined,
+            savedLinkConfigs: undefined,
+            savedAdditionalTranslationLinks: undefined,
+            savedAdditionalModLinks: undefined,
+            imagePath: undefined,
+            translationType: undefined,
+            isIntegrated: undefined,
+            templateId: undefined,
+            authorDiscordId: undefined
+          } as PublishedPost));
           setPublishedPosts(prev => {
-            const merged = [...newPostsFromKoyeb, ...prev].sort((a, b) => b.timestamp - a.timestamp);
+            const merged = [...mapped, ...prev].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
             return merged;
           });
           console.log(`✅ ${newPostsFromKoyeb.length} nouveaux posts récupérés depuis Koyeb (backup)`);
@@ -929,12 +967,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { ok: false, error: 'missing_api_url' };
     }
 
-    if (templateType !== 'my' && templateType !== 'partner') {
-      setLastPublishResult('❌ Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés');
+    if (templateType !== 'my') {
+      setLastPublishResult('❌ Seul le template "Mes traductions" (my) peut être publié');
       showErrorModal({
         code: 'VALIDATION_ERROR',
         message: 'Type de template invalide',
-        context: 'Seuls les templates "Mes traductions" et "Traductions partenaire" peuvent être publiés',
+        context: 'Seul le template "Mes traductions" (my) peut être publié',
         httpStatus: 400
       });
       return { ok: false, error: 'invalid_template_type' };
@@ -1069,10 +1107,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const threadId = res.thread_id || res.threadId;
       const messageId = res.message_id || res.messageId;
       const threadUrl = res.thread_url || res.threadUrl || res.url || res.discordUrl || '';
-      const forumId = res.forum_id || res.forumId || (templateType === 'my' ? 1427703869844230317 : 1427703869844230318);
+      const forumId = res.forum_id || res.forumId || 0;
 
       if (threadId && messageId) {
-        if (isEditMode && editingPostId) {
+        if (isEditMode && editingPostId && editingPostData) {
           const updatedPost: Partial<PublishedPost> = {
             timestamp: Date.now(),
             title,
@@ -1087,12 +1125,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             savedAdditionalTranslationLinks: JSON.parse(JSON.stringify(additionalTranslationLinks)),
             savedAdditionalModLinks: JSON.parse(JSON.stringify(additionalModLinks)),
             templateId: templates[currentTemplateIdx]?.id,
-            discordUrl: threadUrl || editingPostData.discordUrl
+            threadId: String(threadId),
+            messageId: String(messageId),
+            discordUrl: threadUrl || editingPostData.discordUrl,
+            forumId: typeof forumId === 'number' ? forumId : parseInt(String(forumId)) || 0
           };
-          updatePublishedPost(editingPostId, updatedPost);
+          await updatePublishedPost(editingPostId, updatedPost);
           setEditingPostId(null);
           setEditingPostData(null);
-          console.log('✅ Post mis à jour dans l\'historique:', updatedPost);
+          console.log('✅ Post mis à jour dans l\'historique et Supabase:', updatedPost);
         } else {
           const now = Date.now();
           const newPost: PublishedPost = {
@@ -1118,8 +1159,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             forumId: typeof forumId === 'number' ? forumId : parseInt(String(forumId)) || 0,
             authorDiscordId: authorDiscordId ?? undefined
           };
-          addPublishedPost(newPost);
-          console.log('✅ Nouveau post ajouté à l\'historique:', newPost);
+          await addPublishedPost(newPost);
+          console.log('✅ Nouveau post ajouté à l\'historique et Supabase:', newPost);
         }
       } else {
         console.warn('⚠️ Réponse API ne contient pas thread_id/message_id');
