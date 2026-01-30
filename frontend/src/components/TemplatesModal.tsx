@@ -258,6 +258,13 @@ export default function TemplatesModal({ onClose }: { onClose?: () => void }) {
                 if (ok) {
                   restoreDefaultTemplates();
                   showToast('Templates par défaut restaurés', 'success');
+                  // Recharger le formulaire avec le template par défaut restauré
+                  setTimeout(() => {
+                    if (templates.length > 0) {
+                      const t = templates[0];
+                      setForm({ name: t.name, content: t.content });
+                    }
+                  }, 50);
                 }
               }}
               style={{
