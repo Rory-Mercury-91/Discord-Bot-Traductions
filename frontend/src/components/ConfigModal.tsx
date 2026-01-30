@@ -530,9 +530,9 @@ export default function ConfigModal({ onClose, adminMode = false }: ConfigModalP
                 gap: 16,
               }}
             >
-              <h4 style={{ margin: 0, fontSize: '1rem' }}>🔄 Envoyer / Récupérer depuis la base</h4>
+              <h4 style={{ margin: 0, fontSize: '1rem' }}>🔄 Synchronisation avec la base</h4>
               <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>
-                Après avoir modifié les tags, instructions ou templates dans leurs modales, envoyez-les ici pour les partager. À l&apos;ouverture de l&apos;app, tout est récupéré depuis la base. La config API est enregistrée avec le bouton « Enregistrer » ci-dessous ; l&apos;historique se synchronise à chaque publication.
+                Les <strong>instructions sont synchronisées automatiquement</strong> à chaque modification. Pour les tags et templates, utilisez les boutons ci-dessous. La config API est enregistrée avec le bouton « Enregistrer » ; l&apos;historique se synchronise à chaque publication.
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -550,15 +550,16 @@ export default function ConfigModal({ onClose, adminMode = false }: ConfigModalP
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                   <span style={{ fontSize: 13, fontWeight: 600, minWidth: 90 }}>Instructions</span>
+                  <span style={{ fontSize: 11, color: 'var(--success)', background: 'rgba(46,204,113,0.15)', padding: '4px 8px', borderRadius: 6 }}>🔄 Auto-sync</span>
                   <button type="button" onClick={async () => {
                     const { ok, error } = await syncInstructionsToSupabase();
-                    if (ok) showToast('Instructions envoyées', 'success');
+                    if (ok) showToast('Instructions synchronisées', 'success');
                     else showToast('Erreur : ' + (error ?? 'inconnue'), 'error');
-                  }} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--accent)', background: 'rgba(74,158,255,0.15)', color: 'var(--text)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                    📤 Envoyer
+                  }} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--muted)', cursor: 'pointer', fontSize: 12 }}>
+                    🔃 Forcer sync
                   </button>
-                  <button type="button" onClick={async () => { await fetchInstructionsFromSupabase(); showToast('Instructions récupérées', 'success'); }} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.05)', color: 'var(--text)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                    📥 Récupérer
+                  <button type="button" onClick={async () => { await fetchInstructionsFromSupabase(); showToast('Instructions récupérées', 'success'); }} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--muted)', cursor: 'pointer', fontSize: 12 }}>
+                    📥 Recharger
                   </button>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>

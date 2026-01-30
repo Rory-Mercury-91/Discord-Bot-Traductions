@@ -613,17 +613,19 @@ function InstructionsHelp() {
         padding: 16
       }}>
         <h4 style={{ margin: '0 0 12px 0', fontSize: 16, color: '#4ade80' }}>
-          🔄 Synchronisation et partage (Supabase)
+          🔄 Synchronisation automatique (Supabase)
         </h4>
         <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: '0 0 12px 0' }}>
-          Dans <strong>Configuration</strong> (section « Envoyer / Récupérer depuis la base ») :
+          Les <strong>instructions sont synchronisées automatiquement</strong> avec la base de données Supabase à chaque modification. Vous n&apos;avez rien à faire !
         </p>
         <ul style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', margin: 0, paddingLeft: 20 }}>
-          <li><strong>📤 Envoyer</strong> : envoie <em>vos</em> instructions (dont vous êtes le propriétaire) vers la base. Vous devez être connecté.</li>
-          <li><strong>📥 Récupérer</strong> : charge depuis la base toutes les instructions auxquelles vous avez accès (les vôtres + celles des utilisateurs qui vous ont autorisé comme éditeur). Les instructions déjà présentes peuvent être fusionnées ou remplacées selon les noms.</li>
+          <li><strong>✅ Création/modification</strong> : vos instructions sont envoyées automatiquement vers la base.</li>
+          <li><strong>✅ Partage</strong> : si un utilisateur vous ajoute dans « Qui peut modifier mes posts » (Configuration), ses instructions apparaissent automatiquement dans votre app.</li>
+          <li><strong>✅ Révocation</strong> : si votre accès est révoqué, les instructions partagées sont supprimées automatiquement de votre appareil.</li>
+          <li><strong>🔃 Forcer sync / 📥 Recharger</strong> : boutons de secours dans Configuration si besoin de resynchroniser manuellement.</li>
         </ul>
         <p style={{ fontSize: 13, color: 'var(--muted)', margin: '12px 0 0 0' }}>
-          <strong>Partage :</strong> si un utilisateur vous ajoute dans « Qui peut modifier mes posts » (Configuration), vous voyez aussi ses instructions lorsque vous faites « Récupérer ». Vous ne pouvez en revanche envoyer que vos propres instructions ; vous ne modifiez pas les siennes sur la base.
+          <strong>Note :</strong> vous ne pouvez modifier que vos propres instructions sur la base. Les instructions reçues d&apos;autres utilisateurs sont en lecture seule.
         </p>
       </section>
 
@@ -845,7 +847,7 @@ function ConfigHelp() {
           👥 Qui peut modifier mes posts
         </h4>
         <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: 0 }}>
-          Vous pouvez autoriser ou révoquer le droit d'édition de vos publications pour d'autres utilisateurs (identifiés par leur profil Supabase). Les utilisateurs autorisés pourront éditer vos posts depuis l'historique et verront vos instructions lors d'un « Récupérer » (voir section Instructions).
+          Vous pouvez autoriser ou révoquer le droit d'édition de vos publications pour d'autres utilisateurs (identifiés par leur profil Supabase). Les utilisateurs autorisés pourront éditer vos posts depuis l'historique et verront automatiquement vos instructions (synchronisation temps réel).
         </p>
       </section>
 
@@ -856,17 +858,17 @@ function ConfigHelp() {
         padding: 16
       }}>
         <h4 style={{ margin: '0 0 12px 0', fontSize: 16, color: '#8b5cf6' }}>
-          🔄 Envoyer / Récupérer depuis la base
+          🔄 Synchronisation avec la base
         </h4>
         <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: '0 0 12px 0' }}>
-          Pour les <strong>tags</strong>, <strong>instructions</strong> et <strong>templates</strong> :
+          Comportement de synchronisation selon le type de données :
         </p>
         <ul style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', margin: 0, paddingLeft: 20 }}>
-          <li><strong>📤 Envoyer</strong> : envoie vos données vers Supabase (vous devez être connecté).</li>
-          <li><strong>📥 Récupérer</strong> : charge depuis Supabase les données auxquelles vous avez accès (les vôtres + celles des utilisateurs qui vous ont autorisé, selon les cas).</li>
+          <li><strong>📝 Instructions</strong> : synchronisation <strong>automatique</strong> à chaque modification (aucune action requise).</li>
+          <li><strong>🏷️ Tags / 📋 Templates</strong> : utilisez les boutons <strong>📤 Envoyer</strong> / <strong>📥 Récupérer</strong> dans Configuration.</li>
         </ul>
         <p style={{ fontSize: 13, color: 'var(--muted)', margin: '12px 0 0 0' }}>
-          À l'ouverture de l'app, tags, instructions et templates sont chargés depuis la base si vous êtes connecté.
+          À l'ouverture de l'app, toutes les données sont chargées automatiquement depuis la base si vous êtes connecté.
         </p>
       </section>
 

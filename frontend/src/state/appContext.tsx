@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import ErrorModal from '../components/ErrorModal';
 import { getSupabase } from '../lib/supabase';
 import { tauriAPI } from '../lib/tauri-api';
@@ -514,7 +514,71 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return {};
   });
   /** Propriétaire par clé d'instruction (owner_id) : pour ne synchroniser que les instructions de l'utilisateur courant. */
-  const [instructionOwners, setInstructionOwners] = useState<Record<string, string>>({});
+  const [instructionOwners, setInstructionOwners] = useState<Record<string, string>>(() => {
+    try { const raw = localStorage.getItem('instructionOwners'); if (raw) return JSON.parse(raw); } catch (e) { }
+    return {};
+  });
+
+  /**
+   * Fusionne les instructions Supabase avec les instructions locales.
+   * - Instructions locales sans owner connu → conservées
+   * - Instructions Supabase → ajoutées/mises à jour
+   * - Instructions dont le owner était connu mais n'est plus accessible (révoqué) → supprimées
+   */
+  function mergeInstructionsFromSupabase(
+    supabaseData: Array<{ owner_id: string; value: Record<string, string> | string }>,
+    currentInstructions: Record<string, string>,
+    currentOwners: Record<string, string>
+  ): { merged: Record<string, string>; owners: Record<string, string> } {
+    // Extraire toutes les instructions et owners depuis Supabase
+    const supabaseInstructions: Record<string, string> = {};
+    const supabaseOwners: Record<string, string> = {};
+    const visibleOwnerIds = new Set<string>();
+
+    for (const row of supabaseData) {
+      visibleOwnerIds.add(row.owner_id);
+      try {
+        const val = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+        if (val && typeof val === 'object' && !Array.isArray(val)) {
+          for (const [k, v] of Object.entries(val)) {
+            if (typeof v === 'string') {
+              supabaseInstructions[k] = v;
+              supabaseOwners[k] = row.owner_id;
+            }
+          }
+        }
+      } catch (_e) {
+        /* ignorer */
+      }
+    }
+
+    // Fusionner : garder les locales sans owner, supprimer les révoquées, ajouter les Supabase
+    const merged: Record<string, string> = {};
+    const owners: Record<string, string> = {};
+
+    // 1. Parcourir les instructions locales existantes
+    for (const [k, v] of Object.entries(currentInstructions)) {
+      const existingOwner = currentOwners[k];
+      if (!existingOwner) {
+        // Instruction locale pure (pas de owner connu) → garder
+        merged[k] = v;
+      } else if (visibleOwnerIds.has(existingOwner)) {
+        // Le owner est toujours accessible → sera écrasé par Supabase si présent
+        // (ne pas ajouter ici, sera ajouté depuis supabaseInstructions)
+      } else {
+        // Le owner était connu mais n'est plus accessible → RÉVOQUÉ, supprimer
+        console.log(`🔒 Instruction "${k}" révoquée (owner ${existingOwner} non accessible)`);
+      }
+    }
+
+    // 2. Ajouter/écraser avec les instructions Supabase
+    for (const [k, v] of Object.entries(supabaseInstructions)) {
+      merged[k] = v;
+      owners[k] = supabaseOwners[k];
+    }
+
+    return { merged, owners };
+  }
 
   // Translation type and integration state
   const [translationType, setTranslationType] = useState<string>(() => {
@@ -712,9 +776,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setPublishedPosts(prev => prev.map(post => post.id === id ? { ...post, ...withUpdatedAt } : post));
     const sb = getSupabase();
     if (sb) {
-      // Fusionner avec l'état actuel pour avoir un post complet ; les updates passés priment (ex: après édition)
-      const existing = publishedPosts.find(p => p.id === id);
-      const merged: PublishedPost = { ...existing, ...withUpdatedAt, id } as PublishedPost;
+      // Si updates contient déjà tous les champs essentiels (post complet après édition), on l'utilise directement
+      // Sinon on fusionne avec l'état actuel (pour les mises à jour partielles)
+      let merged: PublishedPost;
+      if (withUpdatedAt.threadId && withUpdatedAt.messageId && withUpdatedAt.title !== undefined) {
+        // Post complet : utiliser directement withUpdatedAt
+        merged = { ...withUpdatedAt, id } as PublishedPost;
+      } else {
+        // Mise à jour partielle : fusionner avec l'existant
+        const existing = publishedPosts.find(p => p.id === id);
+        merged = { ...existing, ...withUpdatedAt, id } as PublishedPost;
+      }
       const row = postToRow(merged);
       const res = await sb.from('published_posts').upsert(row, { onConflict: 'id' });
       if (res.error) console.warn('⚠️ Supabase update post:', (res.error as { message?: string })?.message);
@@ -1179,8 +1251,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (threadId && messageId) {
         if (isEditMode && editingPostId && editingPostData) {
+          const now = Date.now();
           const updatedPost: Partial<PublishedPost> = {
-            timestamp: Date.now(),
+            timestamp: now,
+            updatedAt: now,
             title,
             content,
             tags: tagsToSend,
@@ -1315,24 +1389,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Instructions : table saved_instructions (visible par l'auteur + ses éditeurs autorisés)
       const resInstr = await sb.from('saved_instructions').select('owner_id, value');
       if (!resInstr.error && resInstr.data?.length) {
-        const merged: Record<string, string> = {};
-        const owners: Record<string, string> = {};
-        for (const row of resInstr.data as Array<{ owner_id: string; value: Record<string, string> | string }>) {
-          try {
-            const val = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
-            if (val && typeof val === 'object' && !Array.isArray(val)) {
-              for (const [k, v] of Object.entries(val)) {
-                if (typeof v === 'string') {
-                  merged[k] = v;
-                  owners[k] = row.owner_id;
-                }
-              }
-            }
-          } catch (_e) {
-            /* ignorer */
-          }
-        }
-        if (Object.keys(merged).length) setSavedInstructions(merged);
+        // Lire les instructions locales depuis localStorage pour fusion
+        let localInstructions: Record<string, string> = {};
+        let localOwners: Record<string, string> = {};
+        try {
+          const rawInstr = localStorage.getItem('savedInstructions');
+          const rawOwners = localStorage.getItem('instructionOwners');
+          if (rawInstr) localInstructions = JSON.parse(rawInstr);
+          if (rawOwners) localOwners = JSON.parse(rawOwners);
+        } catch (_e) { /* ignorer */ }
+
+        // Fusion intelligente : garder les locales sans owner, supprimer les révoquées, ajouter les Supabase
+        const { merged, owners } = mergeInstructionsFromSupabase(
+          resInstr.data as Array<{ owner_id: string; value: Record<string, string> | string }>,
+          localInstructions,
+          localOwners
+        );
+        setSavedInstructions(merged);
         setInstructionOwners(owners);
       } else if (session?.user?.id) {
         // Migration : anciennes instructions globales (app_config) → saved_instructions pour l'utilisateur courant
@@ -1410,23 +1483,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             .select('owner_id, value')
             .then((res) => {
               if (res.error || !res.data?.length) return;
-              const merged: Record<string, string> = {};
-              const owners: Record<string, string> = {};
-              for (const row of res.data as Array<{ owner_id: string; value: Record<string, string> | string }>) {
-                try {
-                  const val = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
-                  if (val && typeof val === 'object' && !Array.isArray(val)) {
-                    for (const [k, v] of Object.entries(val)) {
-                      if (typeof v === 'string') {
-                        merged[k] = v;
-                        owners[k] = row.owner_id;
-                      }
-                    }
-                  }
-                } catch (_e) {
-                  /* ignorer */
-                }
-              }
+              // Lire les instructions locales depuis localStorage pour fusion
+              let localInstructions: Record<string, string> = {};
+              let localOwners: Record<string, string> = {};
+              try {
+                const rawInstr = localStorage.getItem('savedInstructions');
+                const rawOwners = localStorage.getItem('instructionOwners');
+                if (rawInstr) localInstructions = JSON.parse(rawInstr);
+                if (rawOwners) localOwners = JSON.parse(rawOwners);
+              } catch (_e) { /* ignorer */ }
+
+              // Fusion intelligente : garder les locales sans owner, supprimer les révoquées, ajouter les Supabase
+              const { merged, owners } = mergeInstructionsFromSupabase(
+                res.data as Array<{ owner_id: string; value: Record<string, string> | string }>,
+                localInstructions,
+                localOwners
+              );
               setSavedInstructions(merged);
               setInstructionOwners(owners);
             });
@@ -1492,6 +1564,55 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     localStorage.setItem('savedInstructions', JSON.stringify(savedInstructions));
   }, [savedInstructions]);
+
+  useEffect(() => {
+    localStorage.setItem('instructionOwners', JSON.stringify(instructionOwners));
+  }, [instructionOwners]);
+
+  // Synchronisation automatique des instructions vers Supabase (comme les tags)
+  // Se déclenche à chaque modification de savedInstructions ou instructionOwners
+  const instructionsSyncedRef = useRef(false);
+  useEffect(() => {
+    // Skip le premier rendu (chargement initial depuis localStorage/Supabase)
+    if (!instructionsSyncedRef.current) {
+      instructionsSyncedRef.current = true;
+      return;
+    }
+
+    const sb = getSupabase();
+    if (!sb) return;
+
+    // Synchroniser seulement les instructions de l'utilisateur courant
+    (async () => {
+      try {
+        const { data: { session } } = await sb.auth.getSession();
+        const userId = session?.user?.id;
+        if (!userId) return;
+
+        // Collecter uniquement les instructions de l'utilisateur courant
+        const myInstructions: Record<string, string> = {};
+        for (const [k, v] of Object.entries(savedInstructions)) {
+          // Instruction sans owner connu = instruction locale de l'utilisateur courant
+          // Instruction avec owner = userId = instruction de l'utilisateur courant
+          if (!instructionOwners[k] || instructionOwners[k] === userId) {
+            myInstructions[k] = v;
+          }
+        }
+
+        const { error } = await sb
+          .from('saved_instructions')
+          .upsert(
+            { owner_id: userId, value: myInstructions, updated_at: new Date().toISOString() },
+            { onConflict: 'owner_id' }
+          );
+        if (error) {
+          console.warn('⚠️ Auto-sync instructions:', (error as { message?: string })?.message);
+        }
+      } catch (e) {
+        console.warn('⚠️ Auto-sync instructions exception:', e);
+      }
+    })();
+  }, [savedInstructions, instructionOwners]);
 
   useEffect(() => {
     localStorage.setItem('uploadedImages', JSON.stringify(uploadedImages));
@@ -1792,24 +1913,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!sb) return;
     const { data, error } = await sb.from('saved_instructions').select('owner_id, value');
     if (error || !data?.length) return;
-    const merged: Record<string, string> = {};
-    const owners: Record<string, string> = {};
-    for (const row of data as Array<{ owner_id: string; value: Record<string, string> | string }>) {
-      try {
-        const val = typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
-        if (val && typeof val === 'object' && !Array.isArray(val)) {
-          for (const [k, v] of Object.entries(val)) {
-            if (typeof v === 'string') {
-              merged[k] = v;
-              owners[k] = row.owner_id;
-            }
-          }
-        }
-      } catch (_e) {
-        /* ignorer */
-      }
-    }
-    if (Object.keys(merged).length) setSavedInstructions(merged);
+
+    // Lire les instructions locales depuis localStorage pour fusion
+    let localInstructions: Record<string, string> = {};
+    let localOwners: Record<string, string> = {};
+    try {
+      const rawInstr = localStorage.getItem('savedInstructions');
+      const rawOwners = localStorage.getItem('instructionOwners');
+      if (rawInstr) localInstructions = JSON.parse(rawInstr);
+      if (rawOwners) localOwners = JSON.parse(rawOwners);
+    } catch (_e) { /* ignorer */ }
+
+    // Fusion intelligente : garder les locales sans owner, supprimer les révoquées, ajouter les Supabase
+    const { merged, owners } = mergeInstructionsFromSupabase(
+      data as Array<{ owner_id: string; value: Record<string, string> | string }>,
+      localInstructions,
+      localOwners
+    );
+    setSavedInstructions(merged);
     setInstructionOwners(owners);
   }
 

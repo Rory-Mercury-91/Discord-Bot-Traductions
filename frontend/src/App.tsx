@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import rootPkg from '../../package.json';
 import ApiStatusBadge from './components/ApiStatusBadge';
 import AuthModal from './components/AuthModal';
 import ConfigGateModal from './components/ConfigGateModal';
@@ -16,6 +17,8 @@ import TemplatesModal from './components/TemplatesModal';
 import { ToastProvider, useToast } from './components/ToastProvider';
 import { AppProvider, useApp } from './state/appContext';
 import { AuthProvider, useAuth } from './state/authContext';
+
+const APP_VERSION = rootPkg.version;
 
 function AppContentInner() {
   const {
@@ -132,6 +135,7 @@ function AppContentInner() {
         <h1 style={{ textAlign: 'center', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           <span style={{ fontSize: 24, fontFamily: 'Noto Color Emoji, Segoe UI Emoji, Apple Color Emoji' }}>🇫🇷</span>
           Générateur de publication
+          <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--muted)', opacity: 0.85 }}>v{APP_VERSION}</span>
         </h1>
         <div style={{ marginTop: 12 }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
