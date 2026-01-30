@@ -882,9 +882,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   async function publishPost(authorDiscordId?: string) {
     const title = (postTitle || '').trim();
     const content = preview || '';
-    const tags = postTags || '';
     const templateType = (templates[currentTemplateIdx]?.type) || '';
     const isEditMode = editingPostId !== null && editingPostData !== null;
+
+    // Résoudre les tags sélectionnés (UUID ou IDs Discord) vers les IDs Discord pour l'API et le stockage
+    const selectedIds = (postTags || '').split(',').map(s => s.trim()).filter(Boolean);
+    const tagsToSend = selectedIds
+      .map(id => {
+        const tag = savedTags.find(t => (t.id || t.name) === id || String(t.discordTagId ?? '') === id);
+        if (tag?.discordTagId) return String(tag.discordTagId);
+        return tag?.name ?? id; // fallback : nom pour résolution côté backend
+      })
+      .filter(Boolean)
+      .join(',');
 
     const storedApiUrl = localStorage.getItem('apiUrl');
     const baseUrlRaw = localStorage.getItem('apiBase') || defaultApiBase;
@@ -951,7 +961,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         translate_version: inputs['Translate_version'] || '',
         translation_type: translationType || '',
         is_integrated: isIntegrated,
-        etat: tags || '',
+        etat: tagsToSend || '',
         timestamp: Date.now()
       };
 
@@ -982,7 +992,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const formData = new FormData();
       formData.append('title', title);
       formData.append('content', finalContent); // Utiliser finalContent avec le lien masqué
-      formData.append('tags', tags);
+      formData.append('tags', tagsToSend);
       formData.append('template', templateType);
 
       // ✅ NOUVEAU : Ajouter les métadonnées encodées en base64 (UTF-8)
@@ -1065,7 +1075,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             timestamp: Date.now(),
             title,
             content,
-            tags,
+            tags: tagsToSend,
             template: templateType,
             imagePath: uploadedImages.find(i => i.isMain)?.path || uploadedImages.find(i => i.isMain)?.url,
             translationType,
@@ -1090,7 +1100,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             updatedAt: now,
             title,
             content,
-            tags,
+            tags: tagsToSend,
             template: templateType,
             imagePath: uploadedImages.find(i => i.isMain)?.path || uploadedImages.find(i => i.isMain)?.url,
             translationType,
@@ -2043,19 +2053,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (name === 'Overview' && val) {
-        // Préserver tous les retours à la ligne du textarea : chaque ligne en blockquote "> "
-        // (la première ligne reçoit le "> " du template "> [Overview]")
+        // Synopsis uniquement : préserver les retours à la ligne en blockquote "> "
         const lines = val.split('\n');
         finalVal = lines.length
           ? lines.map((line, i) => (i === 0 ? line : '> ' + line)).join('\n')
           : '';
-
-        const instructionContent = (inputs['instruction'] || '').trim();
-        if (instructionContent) {
-          const instructionLines = instructionContent.split('\n').map(l => l.trim()).filter(Boolean);
-          const numberedInstructions = instructionLines.map((l, index) => `${index + 1}. ${l}`).join('\n');
-          finalVal += '\n\n```Instructions d\'installation :\n' + numberedInstructions + '\n```';
-        }
       }
 
       content = content.split('[' + name + ']').join(finalVal || '[' + name + ']');
@@ -2073,7 +2075,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       content = content.replace(/\n\n\n+/g, '\n\n');
     }
 
-    content = content.split('[instruction]').join('');
+    // [instruction] : bloc de type code (indépendant du synopsis)
+    const instructionContent = (inputs['instruction'] || '').trim();
+    const instructionBlock = instructionContent
+      ? (() => {
+        const instructionLines = instructionContent.split('\n').map(l => l.trim()).filter(Boolean);
+        const numberedInstructions = instructionLines.map((l, index) => `${index + 1}. ${l}`).join('\n');
+        return '```\nInstructions d\'installation :\n' + numberedInstructions + '\n```';
+      })()
+      : '';
+    content = content.split('[instruction]').join(instructionBlock);
     content = content.split('[INVISIBLE_CHAR]').join('\u200B');
 
     // 6. Réduire les retours à la ligne multiples (garder au moins une ligne vide entre sections pour le preview Discord)

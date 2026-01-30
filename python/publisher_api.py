@@ -62,7 +62,7 @@ def _fetch_post_by_thread_id_sync(thread_id) -> Optional[Dict]:
     if not sb:
         return None
     try:
-        r = sb.table("published_posts").select("*").eq("thread_id", str(thread_id)).order("updated_at", ascending=False).limit(1).execute()
+        r = sb.table("published_posts").select("*").eq("thread_id", str(thread_id)).order("updated_at", desc=True).limit(1).execute()
         if r.data and len(r.data) > 0:
             return r.data[0]
     except Exception as e:

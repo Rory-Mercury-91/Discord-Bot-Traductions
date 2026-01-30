@@ -604,7 +604,7 @@ export default function ContentEditor() {
                 ➕ Ajouter
               </button>
               {selectedTagIds.map((tagId) => {
-                const tag = savedTags.find(t => (t.id || t.name) === tagId);
+                const tag = savedTags.find(t => (t.id || t.name) === tagId || String(t.discordTagId ?? '') === tagId);
                 return (
                   <div
                     key={tagId}
