@@ -4,7 +4,7 @@ import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useModalScrollLock } from '../hooks/useModalScrollLock';
 import { useApp } from '../state/appContext';
 import { useAuth } from '../state/authContext';
-import type { TagCategory } from '../state/types';
+import type { TagType } from '../state/types';
 import ConfirmModal from './ConfirmModal';
 import { useToast } from './ToastProvider';
 
@@ -19,7 +19,7 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
 
   const [activeTab, setActiveTab] = useState<'generic' | 'translator'>('generic');
   const [showAddModal, setShowAddModal] = useState(false);
-  const [form, setForm] = useState({ name: '', id: '', discordTagId: '', tagType: 'other' as TagCategory | 'translator' });
+  const [form, setForm] = useState({ name: '', id: '', discordTagId: '', tagType: 'other' as TagType });
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [searchGeneric, setSearchGeneric] = useState('');
@@ -32,9 +32,9 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
     return text.replace(/^[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F000}-\u{1F02F}\u{1F0A0}-\u{1F0FF}\u{1F100}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F900}-\u{1F9FF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\s]+/gu, '').trim();
   };
 
-  // Séparer les tags génériques et traducteurs (tous les tags, sans filtrage par template)
-  const genericTags = savedTags.filter(t => !t.isTranslator);
-  const translatorTags = savedTags.filter(t => t.isTranslator);
+  // Séparer les tags génériques et traducteurs
+  const genericTags = savedTags.filter(t => t.tagType !== 'translator');
+  const translatorTags = savedTags.filter(t => t.tagType === 'translator');
 
   // Filtrer avec recherche (en ignorant les emojis)
   const filterBySearch = (tags: typeof savedTags, searchTerm: string) => {
@@ -60,18 +60,18 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
       });
   };
 
-  // Grouper les tags génériques par catégorie
+  // Grouper les tags génériques par type
   const groupedGenericTags = {
-    translationType: sortTags(filteredGenericTags.filter(t => t.category === 'translationType')),
-    gameStatus: sortTags(filteredGenericTags.filter(t => t.category === 'gameStatus')),
-    sites: sortTags(filteredGenericTags.filter(t => t.category === 'sites')),
-    other: sortTags(filteredGenericTags.filter(t => !t.category || t.category === 'other'))
+    translationType: sortTags(filteredGenericTags.filter(t => t.tagType === 'translationType')),
+    gameStatus: sortTags(filteredGenericTags.filter(t => t.tagType === 'gameStatus')),
+    sites: sortTags(filteredGenericTags.filter(t => t.tagType === 'sites')),
+    other: sortTags(filteredGenericTags.filter(t => t.tagType === 'other'))
   };
 
   const sortedTranslatorTags = sortTags(filteredTranslatorTags);
 
-  // Labels des catégories
-  const categoryLabels: Record<TagCategory, string> = {
+  // Labels des types de tags
+  const tagTypeLabels: Record<Exclude<TagType, 'translator'>, string> = {
     translationType: '📋 Type de traduction',
     gameStatus: '🎮 Statut du jeu',
     sites: '🌐 Sites',
@@ -86,12 +86,11 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
 
   function startEdit(originalIdx: number) {
     const t = savedTags[originalIdx];
-    const tagType = t.isTranslator ? 'translator' : (t.category || 'other');
     setForm({
       name: t.name,
       id: t.id || '',
       discordTagId: t.discordTagId || '',
-      tagType: tagType
+      tagType: t.tagType
     });
     setEditingIdx(originalIdx);
     setShowAddModal(true);
@@ -113,12 +112,9 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
       return;
     }
 
-    const isTranslator = form.tagType === 'translator';
     const tagData = {
       name: form.name.trim(),
-      template: 'my',
-      isTranslator: isTranslator,
-      category: isTranslator ? undefined : (form.tagType as TagCategory),
+      tagType: form.tagType,
       authorDiscordId: profile?.discord_id,
       discordTagId: form.discordTagId.trim() || undefined
     };
@@ -347,13 +343,13 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
                   minHeight: 0,
                   paddingRight: 8
                 }} className="styled-scrollbar">
-                  {/* Affichage groupé par catégorie */}
-                  {(['translationType', 'gameStatus', 'sites', 'other'] as TagCategory[]).map(category => {
-                    const tagsInCategory = groupedGenericTags[category];
-                    if (tagsInCategory.length === 0) return null;
+                  {/* Affichage groupé par type */}
+                  {(['translationType', 'gameStatus', 'sites', 'other'] as const).map(tagType => {
+                    const tagsInType = groupedGenericTags[tagType];
+                    if (tagsInType.length === 0) return null;
 
                     return (
-                      <div key={category} style={{ marginBottom: 24 }}>
+                      <div key={tagType} style={{ marginBottom: 24 }}>
                         <h5 style={{
                           margin: '0 0 12px 0',
                           fontSize: 14,
@@ -365,12 +361,12 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
                           paddingBottom: 8,
                           borderBottom: '1px solid var(--border)'
                         }}>
-                          {categoryLabels[category]}
+                          {tagTypeLabels[tagType]}
                           <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 'normal' }}>
-                            ({tagsInCategory.length})
+                            ({tagsInType.length})
                           </span>
                         </h5>
-                        {renderTagGrid(tagsInCategory)}
+                        {renderTagGrid(tagsInType)}
                       </div>
                     );
                   })}
@@ -510,7 +506,7 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
                 </label>
                 <select
                   value={form.tagType}
-                  onChange={e => setForm({ ...form, tagType: e.target.value as TagCategory | 'translator' })}
+                  onChange={e => setForm({ ...form, tagType: e.target.value as TagType })}
                   style={{
                     width: '100%',
                     padding: '8px 12px',

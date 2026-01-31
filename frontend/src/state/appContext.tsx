@@ -11,7 +11,7 @@ import type {
   LinkConfig,
   PublishedPost,
   Tag,
-  TagCategory,
+  TagType,
   Template,
   VarConfig
 } from './types';
@@ -770,8 +770,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const selectedTagObjects = savedTags.filter(t =>
       selectedIds.some(id => (t.id || t.name) === id || String(t.discordTagId ?? '') === id)
     );
-    const translatorLabel = selectedTagObjects.filter(t => t.isTranslator).map(t => t.name).join(', ');
-    const stateLabel = selectedTagObjects.filter(t => !t.isTranslator).map(t => t.name).join(', ');
+    const translatorLabel = selectedTagObjects.filter(t => t.tagType === 'translator').map(t => t.name).join(', ');
+    const stateLabel = selectedTagObjects.filter(t => t.tagType !== 'translator').map(t => t.name).join(', ');
 
     const storedApiUrl = localStorage.getItem('apiUrl');
     const baseUrlRaw = localStorage.getItem('apiBase') || defaultApiBase;
@@ -1113,16 +1113,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const sb = getSupabase();
     if (!sb) return;
     sb.from('tags')
-      .select('id, name, template, is_translator, author_discord_id, discord_tag_id')
+      .select('id, name, tag_type, author_discord_id, discord_tag_id')
       .order('created_at', { ascending: true })
       .then((res) => {
         if (res.error || !res.data?.length) return;
         setSavedTags(
-          (res.data as Array<{ id: string; name: string; template: string | null; is_translator: boolean; author_discord_id: string | null; discord_tag_id: string | null }>).map((r) => ({
+          (res.data as Array<{ id: string; name: string; tag_type: string; author_discord_id: string | null; discord_tag_id: string | null }>).map((r) => ({
             id: r.id,
             name: r.name,
-            template: r.template ?? undefined,
-            isTranslator: r.is_translator ?? false,
+            tagType: (r.tag_type as TagType) || 'other',
             authorDiscordId: r.author_discord_id ?? undefined,
             discordTagId: r.discord_tag_id ?? undefined
           }))
@@ -1182,20 +1181,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tags' },
         (payload) => {
-          const mapRow = (r: { id: string; name: string; template: string | null; is_translator: boolean; author_discord_id?: string | null; discord_tag_id?: string | null }) => ({
+          const mapRow = (r: { id: string; name: string; tag_type: string; author_discord_id?: string | null; discord_tag_id?: string | null }) => ({
             id: r.id,
             name: r.name,
-            template: r.template ?? undefined,
-            isTranslator: r.is_translator ?? false,
+            tagType: (r.tag_type as TagType) || 'other',
             authorDiscordId: r.author_discord_id ?? undefined,
             discordTagId: r.discord_tag_id ?? undefined
           });
           if (payload.eventType === 'INSERT') {
-            const r = payload.new as { id: string; name: string; template: string | null; is_translator: boolean; author_discord_id?: string | null; discord_tag_id?: string | null };
+            const r = payload.new as { id: string; name: string; tag_type: string; author_discord_id?: string | null; discord_tag_id?: string | null };
             const row = mapRow(r);
             setSavedTags(prev => (prev.some(t => t.id === row.id) ? prev : [...prev, row]));
           } else if (payload.eventType === 'UPDATE') {
-            const r = payload.new as { id: string; name: string; template: string | null; is_translator: boolean; author_discord_id?: string | null; discord_tag_id?: string | null };
+            const r = payload.new as { id: string; name: string; tag_type: string; author_discord_id?: string | null; discord_tag_id?: string | null };
             setSavedTags(prev => prev.map(t => t.id === r.id ? mapRow(r) : t));
           } else if (payload.eventType === 'DELETE') {
             const r = payload.old as { id: string };
@@ -1437,8 +1435,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       sb.from('tags')
         .insert({
           name: t.name || '',
-          template: t.template ?? null,
-          is_translator: t.isTranslator ?? false,
+          tag_type: t.tagType || 'other',
           author_discord_id: t.authorDiscordId ?? null,
           discord_tag_id: t.discordTagId ?? null
         })
@@ -1460,8 +1457,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (sb) {
       const row: Record<string, unknown> = {};
       if (updates.name !== undefined) row.name = updates.name;
-      if (updates.template !== undefined) row.template = updates.template ?? null;
-      if (updates.isTranslator !== undefined) row.is_translator = updates.isTranslator;
+      if (updates.tagType !== undefined) row.tag_type = updates.tagType;
       if (updates.authorDiscordId !== undefined) row.author_discord_id = updates.authorDiscordId ?? null;
       if (updates.discordTagId !== undefined) row.discord_tag_id = updates.discordTagId ?? null;
       if (Object.keys(row).length > 0) {
@@ -1496,9 +1492,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const hasValidUuid = t.id && UUID_REGEX.test(t.id);
         const row = {
           name: t.name || '',
-          template: t.template ?? null,
-          is_translator: t.isTranslator ?? false,
-          category: t.category ?? null,
+          tag_type: t.tagType || 'other',
           author_discord_id: t.authorDiscordId ?? author ?? null,
           discord_tag_id: t.discordTagId ?? null
         };
@@ -1531,16 +1525,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!sb) return;
     const { data, error } = await sb
       .from('tags')
-      .select('id, name, template, is_translator, category, author_discord_id, discord_tag_id')
+      .select('id, name, tag_type, author_discord_id, discord_tag_id')
       .order('created_at', { ascending: true });
     if (error || !data?.length) return;
     setSavedTags(
-      (data as Array<{ id: string; name: string; template: string | null; is_translator: boolean; category: string | null; author_discord_id: string | null; discord_tag_id: string | null }>).map((r) => ({
+      (data as Array<{ id: string; name: string; tag_type: string; author_discord_id: string | null; discord_tag_id: string | null }>).map((r) => ({
         id: r.id,
         name: r.name,
-        template: r.template ?? undefined,
-        isTranslator: r.is_translator ?? false,
-        category: (r.category as TagCategory) ?? undefined,
+        tagType: (r.tag_type as TagType) || 'other',
         authorDiscordId: r.author_discord_id ?? undefined,
         discordTagId: r.discord_tag_id ?? undefined
       }))

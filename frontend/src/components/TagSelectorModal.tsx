@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useModalScrollLock } from '../hooks/useModalScrollLock';
 import { useApp } from '../state/appContext';
-import type { TagCategory } from '../state/types';
+import type { TagType } from '../state/types';
 
 interface TagSelectorModalProps {
   isOpen: boolean;
@@ -43,8 +43,8 @@ export default function TagSelectorModal({
   };
 
   // Séparer les tags génériques et traducteurs
-  const genericTags = savedTags.filter(t => !t.isTranslator);
-  const translatorTags = savedTags.filter(t => t.isTranslator);
+  const genericTags = savedTags.filter(t => t.tagType !== 'translator');
+  const translatorTags = savedTags.filter(t => t.tagType === 'translator');
 
   // Filtrer les tags disponibles (non sélectionnés)
   const availableGenericTags = useMemo(() => {
@@ -85,18 +85,18 @@ export default function TagSelectorModal({
     });
   };
 
-  // Grouper les tags génériques par catégorie
+  // Grouper les tags génériques par type
   const groupedGenericTags = useMemo(() => ({
-    translationType: sortTags(filteredGenericTags.filter(t => t.category === 'translationType')),
-    gameStatus: sortTags(filteredGenericTags.filter(t => t.category === 'gameStatus')),
-    sites: sortTags(filteredGenericTags.filter(t => t.category === 'sites')),
-    other: sortTags(filteredGenericTags.filter(t => !t.category || t.category === 'other'))
+    translationType: sortTags(filteredGenericTags.filter(t => t.tagType === 'translationType')),
+    gameStatus: sortTags(filteredGenericTags.filter(t => t.tagType === 'gameStatus')),
+    sites: sortTags(filteredGenericTags.filter(t => t.tagType === 'sites')),
+    other: sortTags(filteredGenericTags.filter(t => t.tagType === 'other'))
   }), [filteredGenericTags]);
 
   const sortedTranslatorTags = sortTags(filteredTranslatorTags);
 
-  // Labels des catégories
-  const categoryLabels: Record<TagCategory, string> = {
+  // Labels des types de tags
+  const tagTypeLabels: Record<Exclude<TagType, 'translator'>, string> = {
     translationType: '📋 Type de traduction',
     gameStatus: '🎮 Statut du jeu',
     sites: '🌐 Sites',
@@ -195,13 +195,13 @@ export default function TagSelectorModal({
           padding: '16px',
           minHeight: 0
         }} className="styled-scrollbar">
-          {/* Tags génériques groupés par catégorie */}
-          {(['translationType', 'gameStatus', 'sites', 'other'] as TagCategory[]).map(category => {
-            const tagsInCategory = groupedGenericTags[category];
-            if (tagsInCategory.length === 0) return null;
+          {/* Tags génériques groupés par type */}
+          {(['translationType', 'gameStatus', 'sites', 'other'] as const).map(tagType => {
+            const tagsInType = groupedGenericTags[tagType];
+            if (tagsInType.length === 0) return null;
 
             return (
-              <div key={category} style={{ marginBottom: 24 }}>
+              <div key={tagType} style={{ marginBottom: 24 }}>
                 <h4 style={{
                   margin: '0 0 12px 0',
                   fontSize: 13,
@@ -213,9 +213,9 @@ export default function TagSelectorModal({
                   paddingBottom: 8,
                   borderBottom: '1px solid var(--border)'
                 }}>
-                  {categoryLabels[category]}
+                  {tagTypeLabels[tagType]}
                   <span style={{ fontSize: 11, fontWeight: 'normal' }}>
-                    ({tagsInCategory.length})
+                    ({tagsInType.length})
                   </span>
                 </h4>
                 <div style={{
@@ -224,7 +224,7 @@ export default function TagSelectorModal({
                   gap: 8,
                   marginTop: 12
                 }}>
-                  {tagsInCategory.map((tag) => {
+                  {tagsInType.map((tag) => {
                     const tagId = tag.id || tag.name;
                     return (
                       <div

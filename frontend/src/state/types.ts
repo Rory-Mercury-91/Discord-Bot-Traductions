@@ -34,15 +34,13 @@ export type AdditionalTranslationLink = {
   link: string;
 };
 
-export type TagCategory = 'translationType' | 'gameStatus' | 'sites' | 'other';
+export type TagType = 'translator' | 'translationType' | 'gameStatus' | 'sites' | 'other';
 
 export type Tag = {
   name: string;
   id?: string;
-  template?: string;
-  isTranslator?: boolean;
-  /** Catégorie du tag (uniquement pour les tags génériques) */
-  category?: TagCategory;
+  /** Type de tag : 'translator' pour les traducteurs, ou une catégorie pour les tags génériques */
+  tagType: TagType;
   /** ID Discord de l'utilisateur qui a créé le tag (optionnel) */
   authorDiscordId?: string;
   /** ID du tag côté Discord (forum/channel) pour que ça marche avec Discord */

@@ -48,7 +48,7 @@ export default function StatsModal({ onClose }: StatsModalProps) {
     const translatorCount: Record<string, number> = {};
 
     // Récupérer tous les tags de traducteurs
-    const translatorTags = savedTags.filter(tag => tag.isTranslator);
+    const translatorTags = savedTags.filter(tag => tag.tagType === 'translator');
 
     // Compter les occurrences de chaque tag traducteur dans les posts
     filteredPosts.forEach(post => {
