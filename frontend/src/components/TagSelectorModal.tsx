@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { useModalScrollLock } from '../hooks/useModalScrollLock';
 import { useApp } from '../state/appContext';
+import type { TagCategory } from '../state/types';
 
 interface TagSelectorModalProps {
   isOpen: boolean;
@@ -84,8 +85,23 @@ export default function TagSelectorModal({
     });
   };
 
-  const sortedGenericTags = sortTags(filteredGenericTags);
+  // Grouper les tags génériques par catégorie
+  const groupedGenericTags = useMemo(() => ({
+    translationType: sortTags(filteredGenericTags.filter(t => t.category === 'translationType')),
+    gameStatus: sortTags(filteredGenericTags.filter(t => t.category === 'gameStatus')),
+    sites: sortTags(filteredGenericTags.filter(t => t.category === 'sites')),
+    other: sortTags(filteredGenericTags.filter(t => !t.category || t.category === 'other'))
+  }), [filteredGenericTags]);
+
   const sortedTranslatorTags = sortTags(filteredTranslatorTags);
+
+  // Labels des catégories
+  const categoryLabels: Record<TagCategory, string> = {
+    translationType: '📋 Type de traduction',
+    gameStatus: '🎮 Statut du jeu',
+    sites: '🌐 Sites',
+    other: '📦 Autres'
+  };
 
   if (!isOpen) return null;
 
@@ -179,74 +195,84 @@ export default function TagSelectorModal({
           padding: '16px',
           minHeight: 0
         }} className="styled-scrollbar">
-          {/* Tags génériques */}
-          {sortedGenericTags.length > 0 && (
-            <div style={{ marginBottom: 20 }}>
-              <h4 style={{
-                margin: '0 0 12px 0',
-                fontSize: 14,
-                fontWeight: 600,
-                color: 'var(--accent)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8
-              }}>
-                🏷️ Tags génériques ({sortedGenericTags.length})
-              </h4>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                gap: 8
-              }}>
-                {sortedGenericTags.map((tag) => {
-                  const tagId = tag.id || tag.name;
-                  return (
-                    <div
-                      key={tagId}
-                      onClick={() => {
-                        onSelectTag(tagId);
-                        // Ne pas fermer la modale automatiquement - l'utilisateur peut ajouter plusieurs tags
-                      }}
-                      style={{
-                        padding: '10px 12px',
-                        border: '1px solid var(--border)',
-                        borderRadius: 6,
-                        background: 'rgba(255,255,255,0.03)',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(74, 158, 255, 0.1)';
-                        e.currentTarget.style.borderColor = '#4a9eff';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
-                        e.currentTarget.style.borderColor = 'var(--border)';
-                      }}
-                    >
-                      <div style={{
-                        fontWeight: 600,
-                        fontSize: 13,
-                        color: 'var(--text)',
-                        marginBottom: 4
-                      }}>
-                        {tag.name}
-                      </div>
-                      {tag.id && (
+          {/* Tags génériques groupés par catégorie */}
+          {(['translationType', 'gameStatus', 'sites', 'other'] as TagCategory[]).map(category => {
+            const tagsInCategory = groupedGenericTags[category];
+            if (tagsInCategory.length === 0) return null;
+
+            return (
+              <div key={category} style={{ marginBottom: 24 }}>
+                <h4 style={{
+                  margin: '0 0 12px 0',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'var(--muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  paddingBottom: 8,
+                  borderBottom: '1px solid var(--border)'
+                }}>
+                  {categoryLabels[category]}
+                  <span style={{ fontSize: 11, fontWeight: 'normal' }}>
+                    ({tagsInCategory.length})
+                  </span>
+                </h4>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                  gap: 8,
+                  marginTop: 12
+                }}>
+                  {tagsInCategory.map((tag) => {
+                    const tagId = tag.id || tag.name;
+                    return (
+                      <div
+                        key={tagId}
+                        onClick={() => {
+                          onSelectTag(tagId);
+                        }}
+                        style={{
+                          padding: '10px 12px',
+                          border: '1px solid var(--border)',
+                          borderRadius: 6,
+                          background: 'rgba(255,255,255,0.03)',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(74, 158, 255, 0.1)';
+                          e.currentTarget.style.borderColor = '#4a9eff';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+                          e.currentTarget.style.borderColor = 'var(--border)';
+                        }}
+                      >
                         <div style={{
-                          fontSize: 11,
-                          color: 'var(--muted)',
-                          fontFamily: 'monospace'
+                          fontWeight: 600,
+                          fontSize: 13,
+                          color: 'var(--text)',
+                          marginBottom: 4
                         }}>
-                          ID: {tag.id}
+                          {tag.name}
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
+                        {tag.id && (
+                          <div style={{
+                            fontSize: 11,
+                            color: 'var(--muted)',
+                            fontFamily: 'monospace'
+                          }}>
+                            ID: {tag.id}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })}
 
           {/* Tags traducteurs */}
           {sortedTranslatorTags.length > 0 && (
@@ -318,7 +344,7 @@ export default function TagSelectorModal({
           )}
 
           {/* Message si aucun tag disponible */}
-          {sortedGenericTags.length === 0 && sortedTranslatorTags.length === 0 && (
+          {filteredGenericTags.length === 0 && sortedTranslatorTags.length === 0 && (
             <div style={{
               textAlign: 'center',
               padding: 40,

@@ -85,16 +85,11 @@ def _delete_from_supabase_sync(thread_id: str = None, post_id: str = None) -> bo
         return False
     
     try:
-        # Construire la requête de suppression
-        query = sb.table("published_posts")
-        
+        # API Supabase Python: .delete() AVANT .eq()
         if post_id:
-            query = query.eq("id", post_id)
-        elif thread_id:
-            query = query.eq("thread_id", str(thread_id))
-        
-        # Exécuter la suppression
-        result = query.delete().execute()
+            result = sb.table("published_posts").delete().eq("id", post_id).execute()
+        else:
+            result = sb.table("published_posts").delete().eq("thread_id", str(thread_id)).execute()
         
         # Vérifier le résultat
         deleted_count = len(result.data) if result.data else 0

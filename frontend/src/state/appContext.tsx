@@ -11,6 +11,7 @@ import type {
   LinkConfig,
   PublishedPost,
   Tag,
+  TagCategory,
   Template,
   VarConfig
 } from './types';
@@ -1497,6 +1498,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           name: t.name || '',
           template: t.template ?? null,
           is_translator: t.isTranslator ?? false,
+          category: t.category ?? null,
           author_discord_id: t.authorDiscordId ?? author ?? null,
           discord_tag_id: t.discordTagId ?? null
         };
@@ -1529,15 +1531,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!sb) return;
     const { data, error } = await sb
       .from('tags')
-      .select('id, name, template, is_translator, author_discord_id, discord_tag_id')
+      .select('id, name, template, is_translator, category, author_discord_id, discord_tag_id')
       .order('created_at', { ascending: true });
     if (error || !data?.length) return;
     setSavedTags(
-      (data as Array<{ id: string; name: string; template: string | null; is_translator: boolean; author_discord_id: string | null; discord_tag_id: string | null }>).map((r) => ({
+      (data as Array<{ id: string; name: string; template: string | null; is_translator: boolean; category: string | null; author_discord_id: string | null; discord_tag_id: string | null }>).map((r) => ({
         id: r.id,
         name: r.name,
         template: r.template ?? undefined,
         isTranslator: r.is_translator ?? false,
+        category: (r.category as TagCategory) ?? undefined,
         authorDiscordId: r.author_discord_id ?? undefined,
         discordTagId: r.discord_tag_id ?? undefined
       }))
