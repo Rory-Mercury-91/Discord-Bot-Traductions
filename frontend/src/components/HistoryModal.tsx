@@ -176,29 +176,54 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
     });
     if (!ok) return;
     const threadId = String((post as { threadId?: string; thread_id?: string }).threadId ?? (post as { thread_id?: string }).thread_id ?? '').trim();
+
+    // 🔍 DEBUG : Logs de suppression
+    console.log('🗑️ Suppression du post:', {
+      postId: post.id,
+      title: post.title,
+      threadId,
+      post_complete: post
+    });
+
     const baseUrl = (localStorage.getItem('apiBase') || '').replace(/\/+$/, '');
     const apiKey = localStorage.getItem('apiKey') || '';
     if (!baseUrl || !apiKey) {
       showToast('URL API ou clé manquante dans la configuration', 'error');
       return;
     }
+
+    // Vérifier si le threadId est valide
+    if (!threadId) {
+      console.warn('⚠️ Thread ID vide, suppression uniquement en local/Supabase');
+    }
+
     try {
+      console.log(`📡 Appel API DELETE vers ${baseUrl}/api/forum-post/delete avec threadId:`, threadId);
       const res = await fetch(`${baseUrl}/api/forum-post/delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-API-KEY': apiKey },
-        body: JSON.stringify({ threadId })
+        body: JSON.stringify({
+          threadId,
+          postId: post.id // Envoyer aussi l'ID du post pour la suppression Koyeb
+        })
       });
       const data = await res.json().catch(() => ({}));
+      console.log('📩 Réponse API DELETE:', { status: res.status, ok: res.ok, data });
+
       if (!res.ok) {
         if (res.status === 404) {
+          console.log('✅ Thread 404 (déjà supprimé), suppression locale');
           deletePublishedPost(post.id);
           showToast('Le thread était déjà supprimé sur Discord ; entrée retirée de l\'historique.', 'success');
           return;
         }
         const msg = data?.error || `Erreur ${res.status}`;
+        console.error('❌ Erreur lors de la suppression:', msg);
         showToast(msg, 'error');
         return;
       }
+
+      console.log('✅ Suppression réussie, mise à jour de l\'état local');
       deletePublishedPost(post.id);
       if (data?.skipped_discord) {
         showToast('Aucun thread Discord associé ; entrée retirée de l\'historique et de la base.', 'success');
@@ -206,6 +231,7 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
         showToast('Publication supprimée définitivement (historique, base et Discord)', 'success');
       }
     } catch (e: any) {
+      console.error('❌ Erreur réseau lors de la suppression:', e);
       showToast('Erreur réseau : ' + (e?.message || 'inconnue'), 'error');
     }
   }

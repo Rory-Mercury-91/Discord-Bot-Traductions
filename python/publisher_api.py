@@ -317,6 +317,46 @@ class PublicationHistory:
         except Exception as e:
             logger.error(f"Erreur lors de la lecture de l'historique: {e}")
             return []
+    
+    def delete_post(self, thread_id: str = None, post_id: str = None) -> bool:
+        """
+        Supprime un post de l'historique par thread_id ou id.
+        Retourne True si un post a été supprimé, False sinon.
+        """
+        if not thread_id and not post_id:
+            logger.warning("⚠️ delete_post: aucun identifiant fourni")
+            return False
+        
+        try:
+            if not self.history_file.exists():
+                return False
+            
+            content = self.history_file.read_text(encoding='utf-8')
+            history = json.loads(content) if content.strip() else []
+            initial_count = len(history)
+            
+            # Filtrer les posts à supprimer
+            if thread_id:
+                history = [p for p in history if (p.get("thread_id") or "") != thread_id]
+            if post_id:
+                history = [p for p in history if (p.get("id") or "") != post_id]
+            
+            deleted_count = initial_count - len(history)
+            
+            if deleted_count > 0:
+                self.history_file.write_text(
+                    json.dumps(history, ensure_ascii=False, indent=2),
+                    encoding='utf-8'
+                )
+                logger.info(f"✅ {deleted_count} post(s) supprimé(s) de l'historique Koyeb (thread_id={thread_id}, id={post_id})")
+                return True
+            else:
+                logger.info(f"ℹ️ Aucun post trouvé dans l'historique avec thread_id={thread_id} ou id={post_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Erreur lors de la suppression dans l'historique: {e}")
+            return False
 
 
 history_manager = PublicationHistory()
@@ -1859,26 +1899,53 @@ async def get_history(request):
 
 async def forum_post_delete(request):
     """Supprime définitivement un post : supprime le thread sur Discord (tous les messages avec)."""
+    logger.info("🗑️ [DELETE] Début de la suppression d'un post")
+    
     api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
     if api_key != config.PUBLISHER_API_KEY:
+        logger.warning("⚠️ [DELETE] Clé API invalide")
         return _with_cors(request, web.json_response({"ok": False, "error": "Invalid API key"}, status=401))
+    
     try:
         body = await request.json() if request.can_read_body() else {}
-    except Exception:
+    except Exception as e:
+        logger.warning(f"⚠️ [DELETE] Erreur lecture body: {e}")
         body = {}
+    
+    logger.info(f"📦 [DELETE] Body reçu: {body}")
+    
     thread_id = (body.get("threadId") or body.get("thread_id") or "").strip()
+    post_id = (body.get("postId") or body.get("post_id") or body.get("id") or "").strip()
+    logger.info(f"🔍 [DELETE] Thread ID extrait: '{thread_id}', Post ID: '{post_id}' (thread vide={not thread_id})")
+    
     if not thread_id:
         # Pas de thread Discord : succès sans appeler Discord (suppression historique/base uniquement)
+        logger.info("ℹ️ [DELETE] Aucun thread_id fourni, skip Discord")
+        # Supprimer de l'historique Koyeb si on a un post_id
+        if post_id:
+            history_manager.delete_post(post_id=post_id)
         return _with_cors(request, web.json_response({"ok": True, "skipped_discord": True}))
+    
+    logger.info(f"🌐 [DELETE] Appel Discord DELETE /channels/{thread_id}")
     async with aiohttp.ClientSession() as session:
         deleted, status = await _discord_delete_channel(session, thread_id)
+    
+    logger.info(f"📩 [DELETE] Réponse Discord: deleted={deleted}, status={status}")
+    
     if not deleted:
         if status == 404:
-            logger.info(f"ℹ️ Thread déjà supprimé ou introuvable: {thread_id}")
+            logger.info(f"ℹ️ [DELETE] Thread déjà supprimé ou introuvable: {thread_id}")
+            # Supprimer de l'historique Koyeb même si Discord renvoie 404
+            history_manager.delete_post(thread_id=thread_id)
             return _with_cors(request, web.json_response({"ok": False, "error": "Thread introuvable (déjà supprimé ?)", "not_found": True}, status=404))
-        logger.warning(f"⚠️ Échec suppression thread Discord: {thread_id} (status={status})")
+        logger.warning(f"⚠️ [DELETE] Échec suppression thread Discord: {thread_id} (status={status})")
         return _with_cors(request, web.json_response({"ok": False, "error": "Échec suppression du thread sur Discord"}, status=500))
-    logger.info(f"✅ Thread Discord supprimé: {thread_id}")
+    
+    logger.info(f"✅ [DELETE] Thread Discord supprimé avec succès: {thread_id}")
+    
+    # 🔥 Supprimer aussi de l'historique Koyeb
+    history_manager.delete_post(thread_id=thread_id)
+    
     return _with_cors(request, web.json_response({"ok": True, "thread_id": thread_id}))
 
 # ==================== APPLICATION WEB ====================

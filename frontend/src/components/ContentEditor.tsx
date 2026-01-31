@@ -76,10 +76,39 @@ export default function ContentEditor() {
     if (!inputs['instruction']) setInstructionSearchQuery('');
   }, [inputs['instruction']]);
 
-  // On garde celui-ci pour les changements de templates/posts
+  // 🔥 NOUVEAU : Restaurer le nom de l'instruction depuis selected_instruction_key
   useEffect(() => {
-    setInstructionSearchQuery('');
-    setInput('instruction', '');
+    const selectedKey = inputs['selected_instruction_key'];
+    if (selectedKey && savedInstructions[selectedKey]) {
+      // Vérifier que le contenu correspond (sécurité)
+      if (inputs['instruction'] === savedInstructions[selectedKey]) {
+        setInstructionSearchQuery(selectedKey);
+      }
+    }
+  }, [inputs['selected_instruction_key'], savedInstructions]);
+
+  // Référence pour suivre les valeurs précédentes
+  const prevTemplateIdxRef = useRef(currentTemplateIdx);
+  const prevEditingPostIdRef = useRef(editingPostId);
+
+  // ⚠️ IMPORTANT : Ne vider l'instruction que lors du changement de template
+  // ou lors de la SORTIE du mode édition (pas lors de l'ENTRÉE)
+  useEffect(() => {
+    const templateChanged = prevTemplateIdxRef.current !== currentTemplateIdx;
+    const exitingEditMode = prevEditingPostIdRef.current !== null && editingPostId === null;
+
+    // Vider uniquement si :
+    // 1. Le template a changé, OU
+    // 2. On sort du mode édition (passage de non-null à null)
+    if (templateChanged || exitingEditMode) {
+      setInstructionSearchQuery('');
+      setInput('instruction', '');
+      setInput('selected_instruction_key', ''); // 🔥 Vider aussi la clé de sélection
+    }
+
+    // Mettre à jour les références
+    prevTemplateIdxRef.current = currentTemplateIdx;
+    prevEditingPostIdRef.current = editingPostId;
   }, [currentTemplateIdx, editingPostId]);
 
   const currentTemplateId = templates[currentTemplateIdx]?.id || templates[currentTemplateIdx]?.name;
@@ -1390,6 +1419,7 @@ export default function ContentEditor() {
                       className="suggestion-item"
                       onClick={() => {
                         setInput('instruction', savedInstructions[name]);
+                        setInput('selected_instruction_key', name); // 🔥 Sauvegarder le nom pour restauration
                         setInstructionSearchQuery(name);
                         setShowInstructionSuggestions(false);
                       }}

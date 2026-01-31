@@ -2248,6 +2248,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const resetAllFields = useCallback(() => {
     allVarsConfig.forEach(v => setInput(v.name, ''));
     setInput('instruction', '');
+    setInput('selected_instruction_key', ''); // 🔥 Vider aussi la clé d'instruction sélectionnée
     setInput('is_modded_game', 'false');
     setInput('Mod_link', '');
     setInput('use_additional_links', 'false');
@@ -2485,20 +2486,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       // ✅ RESTAURER TOUS LES INPUTS (y compris instruction)
       if (post.savedInputs) {
+        console.log('📋 Restauration des inputs depuis savedInputs:', post.savedInputs);
+
         // Réinitialiser d'abord tous les inputs pour éviter de garder de vieilles valeurs
         const cleanInputs: Record<string, string> = {};
         allVarsConfig.forEach(v => cleanInputs[v.name] = '');
         cleanInputs['instruction'] = '';
+        cleanInputs['selected_instruction_key'] = ''; // 🔥 Réinitialiser la clé d'instruction
         cleanInputs['is_modded_game'] = 'false';
         cleanInputs['Mod_link'] = '';
         cleanInputs['use_additional_links'] = 'false';
         cleanInputs['main_translation_label'] = 'Traduction';
         cleanInputs['main_mod_label'] = 'Mod';
 
-        // Puis appliquer les valeurs sauvegardées
+        // 🔥 APPLIQUER d'abord le nettoyage
+        Object.keys(cleanInputs).forEach(key => {
+          setInput(key, cleanInputs[key]);
+        });
+
+        // Puis appliquer les valeurs sauvegardées (écrasent les valeurs par défaut)
         Object.keys(post.savedInputs).forEach(key => {
           setInput(key, post.savedInputs![key] || '');
         });
+
+        console.log('✅ Inputs restaurés, instruction:', post.savedInputs.instruction || '(vide)');
       }
 
       // ✅ RESTAURER LINKCONFIGS
@@ -2565,6 +2576,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       // Restaurer le contenu du post dans le preview
       setPreviewOverride(post.content ?? '');
+
+      // 🔥 Le champ de recherche d'instruction sera restauré automatiquement
+      // via l'input 'selected_instruction_key' dans ContentEditor
     },
     loadPostForDuplication: (post: PublishedPost) => {
       setEditingPostId(null);
