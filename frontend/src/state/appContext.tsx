@@ -774,23 +774,55 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const updatePublishedPost = async (id: string, updates: Partial<PublishedPost>) => {
     const withUpdatedAt = { ...updates, updatedAt: updates.updatedAt ?? Date.now() };
-    setPublishedPosts(prev => prev.map(post => post.id === id ? { ...post, ...withUpdatedAt } : post));
+
     const sb = getSupabase();
     if (sb) {
-      // Si updates contient déjà tous les champs essentiels (post complet après édition), on l'utilise directement
-      // Sinon on fusionne avec l'état actuel (pour les mises à jour partielles)
-      let merged: PublishedPost;
-      if (withUpdatedAt.threadId && withUpdatedAt.messageId && withUpdatedAt.title !== undefined) {
-        // Post complet : utiliser directement withUpdatedAt
-        merged = { ...withUpdatedAt, id } as PublishedPost;
-      } else {
-        // Mise à jour partielle : fusionner avec l'existant
-        const existing = publishedPosts.find(p => p.id === id);
-        merged = { ...existing, ...withUpdatedAt, id } as PublishedPost;
+      try {
+        // 🔥 RÉCUPÉRER LA VERSION FRAÎCHE DEPUIS SUPABASE (au lieu de l'état local)
+        const { data: existingRow, error: fetchError } = await sb
+          .from('published_posts')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (fetchError) {
+          console.warn('⚠️ Post non trouvé dans Supabase, utilisation de l\'état local:', fetchError);
+          // Fallback : chercher dans l'état local
+          const existing = publishedPosts.find(p => p.id === id);
+          if (!existing) {
+            console.error('❌ Post introuvable (id:', id, ')');
+            return;
+          }
+          const merged = { ...existing, ...withUpdatedAt, id } as PublishedPost;
+          const row = postToRow(merged);
+          const res = await sb.from('published_posts').upsert(row, { onConflict: 'id' });
+          if (res.error) console.warn('⚠️ Supabase update post:', res.error.message);
+
+          // Mettre à jour l'état local
+          setPublishedPosts(prev => prev.map(p => p.id === id ? merged : p));
+          return;
+        }
+
+        // Fusionner avec les données fraîches de Supabase
+        const existingPost = rowToPost(existingRow);
+        const merged = { ...existingPost, ...withUpdatedAt, id } as PublishedPost;
+
+        // Upsert dans Supabase
+        const row = postToRow(merged);
+        const res = await sb.from('published_posts').upsert(row, { onConflict: 'id' });
+        if (res.error) console.warn('⚠️ Supabase update post:', res.error.message);
+
+        // Mettre à jour l'état local
+        setPublishedPosts(prev => prev.map(p => p.id === id ? merged : p));
+
+      } catch (e) {
+        console.error('❌ Erreur updatePublishedPost:', e);
+        // Fallback : mise à jour locale uniquement
+        setPublishedPosts(prev => prev.map(post => post.id === id ? { ...post, ...withUpdatedAt } : post));
       }
-      const row = postToRow(merged);
-      const res = await sb.from('published_posts').upsert(row, { onConflict: 'id' });
-      if (res.error) console.warn('⚠️ Supabase update post:', (res.error as { message?: string })?.message);
+    } else {
+      // Pas de Supabase : mise à jour locale uniquement
+      setPublishedPosts(prev => prev.map(post => post.id === id ? { ...post, ...withUpdatedAt } : post));
     }
   };
 
@@ -1243,10 +1275,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const forumId = res.forum_id || res.forumId || 0;
 
       if (threadId && messageId) {
+        // Dans la section mise à jour (après le fetch réussi) :
         if (isEditMode && editingPostId && editingPostData) {
           const now = Date.now();
-          const updatedPost: Partial<PublishedPost> = {
+
+          // 🔥 CONSTRUIRE UN OBJET COMPLET (pas Partial)
+          const updatedPost: PublishedPost = {
+            ...editingPostData, // Garder toutes les anciennes valeurs
+            id: editingPostId,
             timestamp: now,
+            createdAt: editingPostData.createdAt ?? now, // Garder la date de création originale
             updatedAt: now,
             title,
             content,
@@ -1254,19 +1292,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             imagePath: uploadedImages.find(i => i.isMain)?.path || uploadedImages.find(i => i.isMain)?.url,
             translationType,
             isIntegrated,
-            savedInputs: { ...inputs },
+            savedInputs: { ...inputs }, // 🔥 SAUVEGARDER TOUS LES INPUTS (y compris instruction)
             savedLinkConfigs: JSON.parse(JSON.stringify(linkConfigs)),
             savedAdditionalTranslationLinks: JSON.parse(JSON.stringify(additionalTranslationLinks)),
             savedAdditionalModLinks: JSON.parse(JSON.stringify(additionalModLinks)),
             threadId: String(threadId),
             messageId: String(messageId),
             discordUrl: threadUrl || editingPostData.discordUrl,
-            forumId: typeof forumId === 'number' ? forumId : parseInt(String(forumId)) || 0
+            forumId: typeof forumId === 'number' ? forumId : parseInt(String(forumId)) || 0,
+            authorDiscordId: editingPostData.authorDiscordId // Garder l'auteur original
           };
-          // Post fusionné = même contenu que Discord pour que Supabase et le contrôle de version restent cohérents
-          const mergedPost = { ...editingPostData, ...updatedPost };
-          await updatePublishedPost(editingPostId, mergedPost);
-          tauriAPI.saveLocalHistoryPost(postToRow(mergedPost), mergedPost.authorDiscordId);
+
+          await updatePublishedPost(editingPostId, updatedPost);
+          tauriAPI.saveLocalHistoryPost(postToRow(updatedPost), updatedPost.authorDiscordId);
           setEditingPostId(null);
           setEditingPostData(null);
           console.log('✅ Post mis à jour dans l\'historique et Supabase:', updatedPost);
@@ -2403,42 +2441,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setIsIntegrated(post.isIntegrated);
       }
 
-      // ✅ Restaurer les inputs sauvegardés
+      // ✅ RESTAURER TOUS LES INPUTS (y compris instruction)
       if (post.savedInputs) {
+        // Réinitialiser d'abord tous les inputs pour éviter de garder de vieilles valeurs
+        const cleanInputs: Record<string, string> = {};
+        allVarsConfig.forEach(v => cleanInputs[v.name] = '');
+        cleanInputs['instruction'] = '';
+        cleanInputs['is_modded_game'] = 'false';
+        cleanInputs['Mod_link'] = '';
+        cleanInputs['use_additional_links'] = 'false';
+        cleanInputs['main_translation_label'] = 'Traduction';
+        cleanInputs['main_mod_label'] = 'Mod';
+
+        // Puis appliquer les valeurs sauvegardées
         Object.keys(post.savedInputs).forEach(key => {
           setInput(key, post.savedInputs![key] || '');
         });
       }
 
-      // ✅ Restaurer linkConfigs sauvegardés
+      // ✅ RESTAURER LINKCONFIGS
       if (post.savedLinkConfigs) {
         setLinkConfigs(JSON.parse(JSON.stringify(post.savedLinkConfigs)));
-      } else {
-        // Fallback : reconstruire depuis savedInputs si ancienne version
-        if (post.savedInputs) {
-          setLinkConfigs({
-            Game_link: { source: 'F95', value: post.savedInputs.Game_link || '' },
-            Translate_link: { source: 'Autre', value: post.savedInputs.Translate_link || '' },
-            Mod_link: { source: 'Autre', value: post.savedInputs.Mod_link || '' }
-          });
-        }
+      } else if (post.savedInputs) {
+        // Fallback : reconstruire depuis savedInputs
+        setLinkConfigs({
+          Game_link: { source: 'F95', value: post.savedInputs.Game_link || '' },
+          Translate_link: { source: 'Autre', value: post.savedInputs.Translate_link || '' },
+          Mod_link: { source: 'Autre', value: post.savedInputs.Mod_link || '' }
+        });
       }
 
-      // ✅ Restaurer les liens additionnels de traduction
+      // ✅ RESTAURER LIENS ADDITIONNELS
       if (post.savedAdditionalTranslationLinks) {
         setAdditionalTranslationLinks(JSON.parse(JSON.stringify(post.savedAdditionalTranslationLinks)));
       } else {
         setAdditionalTranslationLinks([]);
       }
 
-      // ✅ Restaurer les liens additionnels mod
       if (post.savedAdditionalModLinks) {
         setAdditionalModLinks(JSON.parse(JSON.stringify(post.savedAdditionalModLinks)));
       } else {
         setAdditionalModLinks([]);
       }
 
-      // ✅ Restaurer les labels principaux (Traduction, Mod) depuis savedInputs
+      // ✅ RESTAURER LES LABELS PRINCIPAUX
       if (post.savedInputs?.['main_translation_label']) {
         setInput('main_translation_label', post.savedInputs.main_translation_label);
       }
@@ -2446,11 +2492,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setInput('main_mod_label', post.savedInputs.main_mod_label);
       }
 
-      // ✅ Restaurer l'image si elle existe encore
+      // ✅ RESTAURER L'IMAGE
       if (post.imagePath) {
-        // Vérifier si c'est une URL ou un chemin local
         if (post.imagePath.startsWith('http://') || post.imagePath.startsWith('https://')) {
-          // C'est une URL externe
           const fileName = new URL(post.imagePath).pathname.split('/').pop() || 'image.jpg';
           setUploadedImages([{
             id: Date.now().toString(),
@@ -2459,11 +2503,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             isMain: true
           }]);
         } else {
-          // C'est un fichier local, vérifier s'il existe dans le dossier images/
           tauriAPI.readImage(post.imagePath)
             .then(result => {
               if (result.ok) {
-                // L'image existe, on peut la restaurer
                 const fileName = post.imagePath!.split(/[/\\]/).pop() || 'image';
                 setUploadedImages([{
                   id: Date.now().toString(),
@@ -2475,15 +2517,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             })
             .catch(err => {
               console.warn('Image du post non trouvée:', err);
-              // L'image n'existe plus dans le dossier local, on continue sans
             });
         }
       }
 
-      // Restaurer le contenu du post dans le preview (mode override) pour édition directe
+      // Restaurer le contenu du post dans le preview
       setPreviewOverride(post.content ?? '');
-
-      // Plus besoin de restaurer le template - un seul template maintenant
     },
     loadPostForDuplication: (post: PublishedPost) => {
       setEditingPostId(null);

@@ -1588,9 +1588,11 @@ async def forum_post_update(request):
         return _with_cors(request, web.json_response({"ok": False, "error": "Invalid API key"}, status=401))
     if not config.FORUM_MY_ID:
         return _with_cors(request, web.json_response({"ok": False, "error": "PUBLISHER_FORUM_MY_ID non configuré"}, status=500))
+    
     title, content, tags, thread_id, message_id, metadata_b64 = "", "", "", None, None, None
     translator_label, state_label, game_version, translate_version, announce_image_url, thread_url = "", "", "", "", "", ""
     history_payload_raw = None
+    
     reader = await request.multipart()
     async for part in reader:
         if part.name == "title":
@@ -1725,42 +1727,49 @@ async def forum_post_update(request):
                 image_url=announce_image_url or None,
             )
 
-    ts = int(time.time() * 1000)
-    if history_payload_raw:
-        try:
-            payload = json.loads(history_payload_raw)
-            payload["thread_id"] = thread_id or payload.get("thread_id") or ""
-            payload["message_id"] = message_id or payload.get("message_id") or ""
-            payload["discord_url"] = (thread_url or "").strip() or payload.get("discord_url") or ""
-            payload["updated_at"] = datetime.datetime.now(ZoneInfo("UTC")).isoformat()
-            if "timestamp" not in payload:
-                payload["timestamp"] = ts
-            history_manager.update_or_add_post(payload)
-        except Exception as e:
-            logger.warning(f"Historique (update): payload invalide, fallback minimal: {e}")
-            history_manager.update_or_add_post({
-                "id": f"post_{ts}",
-                "timestamp": ts,
-                "title": title,
-                "content": content,
-                "tags": tags,
-                "template": "my",
-                "thread_id": thread_id,
-                "message_id": message_id,
-                "discord_url": thread_url or "",
-            })
-    else:
-        history_manager.update_or_add_post({
-            "id": f"post_{ts}",
-            "timestamp": ts,
-            "title": title,
-            "content": content,
-            "tags": tags,
-            "thread_id": thread_id,
-            "message_id": message_id,
-            "discord_url": thread_url or "",
-            "template": "my",
-        })
+        # 🔥 RECONSTRUCTION DU PAYLOAD COMPLET POUR L'HISTORIQUE
+        ts = int(time.time() * 1000)
+        
+        # Récupérer l'entrée existante depuis Supabase pour fusionner
+        loop = asyncio.get_event_loop()
+        existing_row = await loop.run_in_executor(None, _fetch_post_by_thread_id_sync, thread_id)
+        
+        if history_payload_raw:
+            try:
+                payload = json.loads(history_payload_raw)
+            except Exception as e:
+                logger.warning(f"⚠️ Payload JSON invalide, création minimal: {e}")
+                payload = {}
+        else:
+            payload = {}
+        
+        # Fusionner avec les données existantes (si trouvées)
+        if existing_row:
+            # Garder les champs non modifiés de l'ancien post
+            final_payload = dict(existing_row)  # Copie de l'existant
+            # Écraser avec les nouvelles valeurs du payload
+            final_payload.update(payload)
+        else:
+            final_payload = payload
+        
+        # Forcer les champs reçus (priorité aux nouvelles valeurs)
+        final_payload["thread_id"] = thread_id
+        final_payload["message_id"] = message_id
+        final_payload["discord_url"] = (thread_url or "").strip() or final_payload.get("discord_url") or ""
+        final_payload["title"] = title
+        final_payload["content"] = content
+        final_payload["tags"] = tags
+        final_payload["updated_at"] = datetime.datetime.now(ZoneInfo("UTC")).isoformat()
+        
+        # S'assurer que created_at existe
+        if "created_at" not in final_payload or not final_payload.get("created_at"):
+            final_payload["created_at"] = datetime.datetime.now(ZoneInfo("UTC")).isoformat()
+        
+        # Normaliser le payload (snake_case)
+        final_payload = _normalize_history_row(final_payload)
+        
+        # Sauvegarder dans l'historique Koyeb
+        history_manager.update_or_add_post(final_payload)
 
     return _with_cors(request, web.json_response({"ok": True, "updated": True, "thread_id": thread_id}))
 
