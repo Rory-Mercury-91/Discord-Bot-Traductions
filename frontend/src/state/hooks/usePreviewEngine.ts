@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { AdditionalTranslationLink, Template, VarConfig } from '../types';
 
-/** Même logique qu’appContext : ID seul + accepter #post-XXXXX ou /post-XXXXX (normalisé en #). */
+/** Même logique qu’appContext : conserver la forme (#post-XXXXX ou /post-XXXXX), ne rien ajouter si absent. */
 function cleanGameLink(url: string): string {
   if (!url || !url.trim()) return url;
   const trimmed = url.trim().replace(/^<|>$/g, '');
@@ -10,18 +10,20 @@ function cleanGameLink(url: string): string {
     const segment = f95Match[1];
     const postPath = f95Match[2];
     const postHash = f95Match[3];
-    const hash = postHash || (postPath ? `#${postPath}` : '');
+    const suffix = postHash || (postPath ? `/${postPath}` : '');
     const id = segment.includes('.') ? (segment.match(/\.(\d+)$/)?.[1] ?? segment) : segment;
-    return `https://f95zone.to/threads/${id}/${hash}`.replace(/\/+$/, hash ? '' : '/');
+    const base = `https://f95zone.to/threads/${id}/`;
+    return base + (suffix.startsWith('/') ? suffix.slice(1) : suffix);
   }
   const lewdMatch = trimmed.match(/lewdcorner\.com\/threads\/([^\/#]+)(?:\/(post-\d+))?(?:\/)?(#post-\d+)?/);
   if (lewdMatch) {
     const segment = lewdMatch[1];
     const postPath = lewdMatch[2];
     const postHash = lewdMatch[3];
-    const hash = postHash || (postPath ? `#${postPath}` : '');
+    const suffix = postHash || (postPath ? `/${postPath}` : '');
     const id = segment.includes('.') ? (segment.match(/\.(\d+)$/)?.[1] ?? segment) : segment;
-    return `https://lewdcorner.com/threads/${id}/${hash}`.replace(/\/+$/, hash ? '' : '/');
+    const base = `https://lewdcorner.com/threads/${id}/`;
+    return base + (suffix.startsWith('/') ? suffix.slice(1) : suffix);
   }
   return trimmed;
 }

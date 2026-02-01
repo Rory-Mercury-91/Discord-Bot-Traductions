@@ -24,29 +24,30 @@ export type {
 
 /**
  * Nettoie les liens F95/Lewd : on ne garde que l'ID entre threads/ et le reste.
- * Accepte les deux formes : #post-XXXXX et /post-XXXXX ; on normalise en #post-XXXXX.
+ * Accepte #post-XXXXX ou /post-XXXXX ; on conserve la forme fournie (on n'ajoute jamais de hash si absent).
  */
 function cleanGameLinkUrl(url: string): string {
   if (!url || !url.trim()) return url;
   const trimmed = url.trim().replace(/^<|>$/g, '');
-  // F95 : segment + optionnel /post-XXXXX ou (slash?) + #post-XXXXX (le slash avant # doit être optionnel)
   const f95Match = trimmed.match(/f95zone\.to\/threads\/([^\/#]+)(?:\/(post-\d+))?(?:\/)?(#post-\d+)?/);
   if (f95Match) {
     const segment = f95Match[1];
-    const postPath = f95Match[2]; // "post-13454014"
-    const postHash = f95Match[3]; // "#post-13454014"
-    const hash = postHash || (postPath ? `#${postPath}` : '');
+    const postPath = f95Match[2]; // "post-13454014" (forme path)
+    const postHash = f95Match[3]; // "#post-13454014" (forme hash)
+    const suffix = postHash || (postPath ? `/${postPath}` : '');
     const id = segment.includes('.') ? (segment.match(/\.(\d+)$/)?.[1] ?? segment) : segment;
-    return `https://f95zone.to/threads/${id}/${hash}`.replace(/\/+$/, hash ? '' : '/');
+    const base = `https://f95zone.to/threads/${id}/`;
+    return base + (suffix.startsWith('/') ? suffix.slice(1) : suffix);
   }
   const lewdMatch = trimmed.match(/lewdcorner\.com\/threads\/([^\/#]+)(?:\/(post-\d+))?(?:\/)?(#post-\d+)?/);
   if (lewdMatch) {
     const segment = lewdMatch[1];
     const postPath = lewdMatch[2];
     const postHash = lewdMatch[3];
-    const hash = postHash || (postPath ? `#${postPath}` : '');
+    const suffix = postHash || (postPath ? `/${postPath}` : '');
     const id = segment.includes('.') ? (segment.match(/\.(\d+)$/)?.[1] ?? segment) : segment;
-    return `https://lewdcorner.com/threads/${id}/${hash}`.replace(/\/+$/, hash ? '' : '/');
+    const base = `https://lewdcorner.com/threads/${id}/`;
+    return base + (suffix.startsWith('/') ? suffix.slice(1) : suffix);
   }
   return trimmed;
 }
