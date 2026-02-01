@@ -1,6 +1,7 @@
 """
-Bot Discord - Serveur 2 : VERSION SIMPLIFIÉE RSS
-Vérifie les MAJ F95Zone via RSS quotidiennement à 6h
+🐝 Bot Discord - Serveur FRELON (F95Zone Checker)
+Vérifie les MAJ F95Zone via API checker.php quotidiennement à 6h
+Anciennement "Bot Serveur 2"
 """
 import discord
 from discord.ext import commands, tasks
@@ -30,6 +31,14 @@ CHECK_TIME_MINUTE = int(os.getenv('VERSION_CHECK_MINUTE', '0'))
 MANUAL_CHECK_COOLDOWN_SECONDS = int(os.getenv('MANUAL_CHECK_COOLDOWN_SECONDS', '90'))
 RSS_URL = "https://f95zone.to/sam/latest_alpha/latest_data.php?cmd=rss&cat=games&rows=90&ignored=hide"
 
+print("🐝 [FRELON] Configuration chargée:")
+print(f"   - FORUM_SEMI_AUTO_ID: {FORUM_SEMI_AUTO_ID}")
+print(f"   - FORUM_AUTO_ID: {FORUM_AUTO_ID}")
+print(f"   - NOTIFICATION_CHANNEL_F95_ID: {NOTIFICATION_CHANNEL_F95_ID}")
+print(f"   - WARNING_MAJ_CHANNEL_ID: {WARNING_MAJ_CHANNEL_ID}")
+print(f"   - CHECK_TIME: {CHECK_TIME_HOUR:02d}:{CHECK_TIME_MINUTE:02d}")
+print(f"   - DAYS_BEFORE_PUBLICATION: {DAYS_BEFORE_PUBLICATION}")
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
@@ -47,12 +56,17 @@ _notified_versions: Dict[int, Dict] = {}
 def _manual_check_allowed() -> bool:
     global _LAST_MANUAL_CHECK_AT
     now = datetime.datetime.now()
+    print(f"🐝 [FRELON] Vérification cooldown manuel...")
     if _LAST_MANUAL_CHECK_AT is None:
+        print(f"🐝 [FRELON] Premier check manuel, autorisation accordée")
         _LAST_MANUAL_CHECK_AT = now
         return True
     delta = (now - _LAST_MANUAL_CHECK_AT).total_seconds()
     if delta < MANUAL_CHECK_COOLDOWN_SECONDS:
+        remaining = MANUAL_CHECK_COOLDOWN_SECONDS - delta
+        print(f"🐝 [FRELON] Cooldown actif: {remaining:.0f}s restantes")
         return False
+    print(f"🐝 [FRELON] Cooldown expiré, autorisation accordée")
     _LAST_MANUAL_CHECK_AT = now
     return True
 
@@ -63,15 +77,22 @@ def _clean_old_notifications():
         tid for tid, data in _notified_versions.items()
         if data.get("timestamp", datetime.datetime.min) < cutoff
     ]
+    if to_remove:
+        print(f"🐝 [FRELON] Nettoyage de {len(to_remove)} notifications anciennes (>30j)")
     for tid in to_remove:
         del _notified_versions[tid]
 
 def _is_already_notified(thread_id: int, f95_version: str) -> bool:
     if thread_id not in _notified_versions:
+        print(f"🐝 [FRELON] Thread {thread_id} jamais notifié")
         return False
-    return _notified_versions[thread_id].get("f95_version") == f95_version
+    stored_version = _notified_versions[thread_id].get("f95_version")
+    is_same = stored_version == f95_version
+    print(f"🐝 [FRELON] Thread {thread_id}: version stockée={stored_version}, nouvelle={f95_version}, déjà notifié={is_same}")
+    return is_same
 
 def _mark_as_notified(thread_id: int, f95_version: str):
+    print(f"🐝 [FRELON] Marquage thread {thread_id} comme notifié (version {f95_version})")
     _notified_versions[thread_id] = {
         "f95_version": f95_version,
         "timestamp": datetime.datetime.now()
@@ -94,6 +115,7 @@ _RE_TRANSLATION_VERSION = re.compile(
 def _extract_link_and_versions(text: str):
     """Extrait (url_f95, version_jeu, version_traduction)"""
     if not text:
+        print(f"🐝 [FRELON] _extract_link_and_versions: texte vide")
         return None, None, None
     
     m_link = _RE_GAME_LINK.search(text)
@@ -103,6 +125,8 @@ def _extract_link_and_versions(text: str):
     url = m_link.group("url").strip() if m_link else None
     game_ver = m_game_ver.group("ver").strip() if m_game_ver else None
     trad_ver = m_trad_ver.group("ver").strip() if m_trad_ver else None
+    
+    print(f"🐝 [FRELON] Extraction: url={url}, game_ver={game_ver}, trad_ver={trad_ver}")
     
     return url, game_ver, trad_ver
 
@@ -121,6 +145,7 @@ def extract_f95_thread_id(url: str) -> Optional[str]:
         L'ID numérique comme string, ou None si non trouvé
     """
     if not url:
+        print(f"🐝 [FRELON] extract_f95_thread_id: URL vide")
         return None
     
     # Pattern pour capturer l'ID : soit après "threads/" soit après le dernier "."
@@ -130,8 +155,11 @@ def extract_f95_thread_id(url: str) -> Optional[str]:
     
     match = re.search(pattern, url)
     if match:
-        return match.group(1)
+        thread_id = match.group(1)
+        print(f"🐝 [FRELON] Thread ID extrait: {thread_id} depuis {url}")
+        return thread_id
     
+    print(f"🐝 [FRELON] ⚠️ Impossible d'extraire l'ID de: {url}")
     return None
 
 
@@ -166,31 +194,42 @@ async def fetch_f95_versions_by_ids(session: aiohttp.ClientSession, thread_ids: 
         Example: {"100": "v0.68", "285451": "Ch.7"}
     """
     if not thread_ids:
+        print(f"🐝 [FRELON] fetch_f95_versions_by_ids: liste vide, aucune requête")
         return {}
+    
+    print(f"🐝 [FRELON] Requête F95 Checker API pour {len(thread_ids)} threads: {thread_ids[:5]}{'...' if len(thread_ids) > 5 else ''}")
     
     # L'API accepte plusieurs IDs séparés par des virgules
     # Ex: https://f95zone.to/sam/checker.php?threads=100,285451,300
     ids_str = ",".join(str(tid) for tid in thread_ids)
     checker_url = f"https://f95zone.to/sam/checker.php?threads={ids_str}"
     
+    print(f"🐝 [FRELON] URL API: {checker_url}")
+    
     try:
         async with session.get(checker_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            print(f"🐝 [FRELON] Réponse HTTP: {resp.status}")
             if resp.status != 200:
-                print(f"⚠️ F95 Checker API HTTP {resp.status}")
+                print(f"🐝 [FRELON] ⚠️ F95 Checker API HTTP {resp.status}")
                 return {}
             
             data = await resp.json()
+            print(f"🐝 [FRELON] Données reçues: {data}")
             
             # Format de réponse: {"status":"ok","msg":{"100":"v0.68","285451":"Ch.7"}}
             if data.get("status") == "ok" and "msg" in data:
-                print(f"✅ F95 Checker API: {len(data['msg'])} versions récupérées")
+                print(f"🐝 [FRELON] ✅ F95 Checker API: {len(data['msg'])} versions récupérées")
+                for tid, ver in list(data["msg"].items())[:10]:
+                    print(f"🐝 [FRELON]    Thread {tid} → {ver}")
                 return data["msg"]
             else:
-                print(f"⚠️ F95 Checker API réponse invalide: {data}")
+                print(f"🐝 [FRELON] ⚠️ F95 Checker API réponse invalide: {data}")
                 return {}
                 
     except Exception as e:
-        print(f"❌ Erreur fetch F95 Checker API: {e}")
+        print(f"🐝 [FRELON] ❌ Erreur fetch F95 Checker API: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return {}
 
 
@@ -368,10 +407,16 @@ async def run_api_version_check():
     4. Compare avec les versions des posts Discord
     5. Envoie les alertes groupées
     """
+    print(f"🐝 [FRELON] ================================================")
+    print(f"🐝 [FRELON] Démarrage du contrôle de version F95 via API")
+    print(f"🐝 [FRELON] ================================================")
+    
     channel_warn = bot.get_channel(WARNING_MAJ_CHANNEL_ID)
     if not channel_warn:
-        print("❌ Canal avertissements introuvable")
+        print(f"🐝 [FRELON] ❌ Canal avertissements introuvable (ID: {WARNING_MAJ_CHANNEL_ID})")
         return
+    
+    print(f"🐝 [FRELON] ✅ Canal d'avertissements trouvé: {channel_warn.name}")
     
     _clean_old_notifications()
     
@@ -391,29 +436,43 @@ async def run_api_version_check():
             forum_configs = []
             if FORUM_AUTO_ID:
                 forum_configs.append((FORUM_AUTO_ID, "Auto"))
+                print(f"🐝 [FRELON] Forum Auto configuré: {FORUM_AUTO_ID}")
             if FORUM_SEMI_AUTO_ID:
                 forum_configs.append((FORUM_SEMI_AUTO_ID, "Semi-Auto"))
+                print(f"🐝 [FRELON] Forum Semi-Auto configuré: {FORUM_SEMI_AUTO_ID}")
+            
+            print(f"🐝 [FRELON] Nombre de forums à scanner: {len(forum_configs)}")
             
             for forum_id, forum_type in forum_configs:
+                print(f"🐝 [FRELON] ----------------------------------------")
+                print(f"🐝 [FRELON] Scan du forum [{forum_type}] (ID: {forum_id})")
                 forum = bot.get_channel(forum_id)
                 if not forum:
+                    print(f"🐝 [FRELON] ⚠️ Forum [{forum_type}] introuvable")
                     continue
                 
+                print(f"🐝 [FRELON] ✅ Forum trouvé: {forum.name}")
                 threads = await _collect_all_forum_threads(forum)
-                print(f"🔎 [{forum_type}] {len(threads)} threads à vérifier")
+                print(f"🐝 [FRELON] 🔎 [{forum_type}] {len(threads)} threads récupérés")
                 
-                for thread in threads:
+                for idx, thread in enumerate(threads, 1):
                     await asyncio.sleep(0.2)  # Anti-spam Discord
+                    
+                    print(f"🐝 [FRELON]    Thread {idx}/{len(threads)}: {thread.name[:50]}")
                     
                     # Récupérer le premier message
                     msg = thread.starter_message
                     if not msg:
+                        print(f"🐝 [FRELON]       Pas de starter_message, tentative fetch...")
                         try:
                             msg = await thread.fetch_message(thread.id)
-                        except Exception:
+                            print(f"🐝 [FRELON]       ✅ Message récupéré via fetch")
+                        except Exception as e:
+                            print(f"🐝 [FRELON]       ❌ Impossible de récupérer le message: {e}")
                             continue
                     
                     if not msg:
+                        print(f"🐝 [FRELON]       ⚠️ Aucun message disponible, skip")
                         continue
                     
                     # Extraire les infos
@@ -421,29 +480,36 @@ async def run_api_version_check():
                     f95_url, post_game_version, post_trad_version = _extract_link_and_versions(content)
                     
                     if not f95_url or not post_game_version:
+                        print(f"🐝 [FRELON]       ⚠️ Données manquantes (url={bool(f95_url)}, version={bool(post_game_version)}), skip")
                         continue
                     
                     # Extraire l'ID F95 depuis l'URL
                     f95_id = extract_f95_thread_id(f95_url)
                     if not f95_id:
-                        print(f"⚠️ Impossible d'extraire l'ID F95 depuis: {f95_url}")
+                        print(f"🐝 [FRELON]       ⚠️ Impossible d'extraire l'ID F95 depuis: {f95_url}")
                         continue
                     
+                    print(f"🐝 [FRELON]       ✅ Enregistré: F95 ID={f95_id}, version={post_game_version}, trad={post_trad_version or 'N/A'}")
                     thread_mapping[f95_id] = (thread, post_game_version, post_trad_version or "Non renseignée", forum_type)
             
             if not thread_mapping:
-                print("✅ Aucun thread avec lien F95 trouvé")
+                print(f"🐝 [FRELON] ✅ Aucun thread avec lien F95 trouvé")
                 return
             
             # 🚀 PHASE 2: Récupérer les versions F95 via l'API (1 seule requête groupée !)
             f95_ids = list(thread_mapping.keys())
-            print(f"🌐 Récupération API F95 pour {len(f95_ids)} threads...")
+            print(f"🐝 [FRELON] ========================================")
+            print(f"🐝 [FRELON] PHASE 2: Récupération API F95")
+            print(f"🐝 [FRELON] Nombre d'IDs à vérifier: {len(f95_ids)}")
+            print(f"🐝 [FRELON] ========================================")
             
             try:
                 f95_versions = await fetch_f95_versions_by_ids(session, f95_ids)
+                print(f"🐝 [FRELON] ✅ Versions récupérées: {len(f95_versions)}")
             except Exception as e:
                 http_error = str(e)
                 f95_versions = {}
+                print(f"🐝 [FRELON] ❌ Erreur lors de la récupération: {http_error}")
             
             if http_error:
                 await channel_warn.send(
@@ -454,12 +520,17 @@ async def run_api_version_check():
                 return
             
             if not f95_versions:
-                print("✅ Aucune version récupérée depuis l'API F95")
+                print(f"🐝 [FRELON] ✅ Aucune version récupérée depuis l'API F95")
                 return
             
             # 🎯 PHASE 3: Comparaison des versions
-            for f95_id, api_version in f95_versions.items():
+            print(f"🐝 [FRELON] ========================================")
+            print(f"🐝 [FRELON] PHASE 3: Comparaison des versions")
+            print(f"🐝 [FRELON] ========================================")
+            
+            for idx, (f95_id, api_version) in enumerate(f95_versions.items(), 1):
                 if f95_id not in thread_mapping:
+                    print(f"🐝 [FRELON] [{idx}/{len(f95_versions)}] Thread F95 {f95_id} non trouvé dans mapping, skip")
                     continue
                 
                 thread, post_version, trad_version, forum_type = thread_mapping[f95_id]
@@ -468,10 +539,16 @@ async def run_api_version_check():
                 api_version_clean = api_version.strip()
                 post_version_clean = post_version.strip()
                 
+                print(f"🐝 [FRELON] [{idx}/{len(f95_versions)}] {thread.name[:40]}")
+                print(f"🐝 [FRELON]    Version Discord: {post_version_clean}")
+                print(f"🐝 [FRELON]    Version F95:     {api_version_clean}")
+                
                 # Vérifier si différent
                 if api_version_clean != post_version_clean:
+                    print(f"🐝 [FRELON]    🔔 DIFFÉRENCE DÉTECTÉE !")
                     # Anti-doublon
                     if not _is_already_notified(thread.id, api_version_clean):
+                        print(f"🐝 [FRELON]    ✅ Nouvelle alerte enregistrée")
                         all_alerts.append(VersionAlert(
                             thread.name,
                             thread.jump_url,
@@ -481,24 +558,42 @@ async def run_api_version_check():
                             forum_type
                         ))
                         _mark_as_notified(thread.id, api_version_clean)
-                        print(f"🔔 MAJ: {thread.name} ({post_version_clean} -> {api_version_clean})")
+                        print(f"🐝 [FRELON]    🔔 MAJ: {thread.name} ({post_version_clean} -> {api_version_clean})")
+                    else:
+                        print(f"🐝 [FRELON]    ⏭️  Déjà notifié, skip")
+                else:
+                    print(f"🐝 [FRELON]    ✅ Versions identiques, pas d'alerte")
         
         # 📢 ENVOI DES ALERTES (ou silence)
+        print(f"🐝 [FRELON] ========================================")
+        print(f"🐝 [FRELON] PHASE 4: Envoi des alertes")
+        print(f"🐝 [FRELON] ========================================")
+        
         if all_alerts:
+            print(f"🐝 [FRELON] 📢 Envoi de {len(all_alerts)} alertes...")
             await send_grouped_alerts(channel_warn, all_alerts)
-            print(f"✅ {len(all_alerts)} alertes envoyées")
+            print(f"🐝 [FRELON] ✅ {len(all_alerts)} alertes envoyées avec succès")
         else:
-            print("✅ Aucune MAJ détectée, silence total")
+            print(f"🐝 [FRELON] ✅ Aucune MAJ détectée, silence total")
+        
+        print(f"🐝 [FRELON] ================================================")
+        print(f"🐝 [FRELON] Contrôle de version F95 terminé avec succès")
+        print(f"🐝 [FRELON] ================================================")
     
     except Exception as e:
-        print(f"❌ Erreur globale: {e}")
+        print(f"🐝 [FRELON] ❌❌❌ ERREUR GLOBALE ❌❌❌")
+        print(f"🐝 [FRELON] Type: {type(e).__name__}")
+        print(f"🐝 [FRELON] Message: {e}")
         import traceback
+        print(f"🐝 [FRELON] Traceback:")
         traceback.print_exc()
-        await channel_warn.send(
-            f"⚠️ **Erreur lors du contrôle F95**\n"
-            f"Erreur technique : `{type(e).__name__}: {e}`\n"
-            f"Nouvelle tentative dans 24h."
-        )
+        
+        if channel_warn:
+            await channel_warn.send(
+                f"⚠️ **Erreur lors du contrôle F95**\n"
+                f"Erreur technique : `{type(e).__name__}: {e}`\n"
+                f"Nouvelle tentative dans 24h."
+            )
 
 
 async def run_rss_version_check():
@@ -514,17 +609,20 @@ async def run_rss_version_check():
 @tasks.loop(time=datetime.time(hour=CHECK_TIME_HOUR, minute=CHECK_TIME_MINUTE, tzinfo=ZoneInfo("Europe/Paris")))
 async def daily_version_check():
     """Contrôle quotidien à 6h Europe/Paris"""
-    print(f"🕐 Contrôle quotidien RSS à {CHECK_TIME_HOUR:02d}:{CHECK_TIME_MINUTE:02d}")
+    print(f"🐝 [FRELON] ⏰⏰⏰ CONTRÔLE QUOTIDIEN DÉCLENCHÉ ⏰⏰⏰")
+    print(f"🐝 [FRELON] Heure configurée: {CHECK_TIME_HOUR:02d}:{CHECK_TIME_MINUTE:02d} Europe/Paris")
     
     if CHECK_LOCK.locked():
-        print("⏸️ Contrôle ignoré: déjà en cours")
+        print(f"🐝 [FRELON] ⏸️ Contrôle ignoré: déjà en cours")
         return
     
     async with CHECK_LOCK:
         try:
             await run_rss_version_check()
         except Exception as e:
-            print(f"❌ Erreur contrôle quotidien: {e}")
+            print(f"🐝 [FRELON] ❌ Erreur contrôle quotidien: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 # ==================== COMMANDE MANUELLE ====================
@@ -644,29 +742,56 @@ async def on_ready():
 
 @bot.event
 async def on_thread_create(thread):
+    print(f"🐝 [FRELON] 📝 Nouveau thread créé: {thread.name} (ID: {thread.id}, Parent: {thread.parent_id})")
     if thread.parent_id in [FORUM_SEMI_AUTO_ID, FORUM_AUTO_ID]:
+        print(f"🐝 [FRELON] ✅ Thread dans un forum surveillé, envoi notification dans 5s...")
         await asyncio.sleep(5)
         thread_actuel = bot.get_channel(thread.id)
         if thread_actuel:
-            await envoyer_notification_f95(thread_actuel, is_update=a_tag_maj(thread_actuel))
+            is_maj = a_tag_maj(thread_actuel)
+            print(f"🐝 [FRELON] Envoi notification F95 (is_update={is_maj})")
+            await envoyer_notification_f95(thread_actuel, is_update=is_maj)
+        else:
+            print(f"🐝 [FRELON] ⚠️ Thread introuvable après fetch")
+    else:
+        print(f"🐝 [FRELON] Thread hors forums surveillés, ignoré")
 
 
 @bot.event
 async def on_thread_update(before, after):
+    print(f"🐝 [FRELON] 🔄 Thread mis à jour: {after.name} (ID: {after.id})")
     if after.parent_id in [FORUM_SEMI_AUTO_ID, FORUM_AUTO_ID]:
-        if a_tag_maj(after) and not a_tag_maj(before):
+        has_maj_before = a_tag_maj(before)
+        has_maj_after = a_tag_maj(after)
+        print(f"🐝 [FRELON] Tag MAJ: avant={has_maj_before}, après={has_maj_after}")
+        if has_maj_after and not has_maj_before:
+            print(f"🐝 [FRELON] ✅ Tag MAJ ajouté, envoi notification F95...")
             await envoyer_notification_f95(after, is_update=True)
+        else:
+            print(f"🐝 [FRELON] Pas de changement de tag MAJ pertinent")
+    else:
+        print(f"🐝 [FRELON] Thread hors forums surveillés, ignoré")
 
 
 @bot.event
 async def on_message_edit(before, after):
     if not isinstance(after.channel, discord.Thread):
         return
-    if after.id == after.channel.id:
+    
+    if after.id == after.channel.id:  # Message de démarrage du thread
+        print(f"🐝 [FRELON] ✏️ Message de thread édité: {after.channel.name} (ID: {after.id})")
         if before.content != after.content:
+            print(f"🐝 [FRELON] Contenu modifié")
             if after.channel.parent_id in [FORUM_SEMI_AUTO_ID, FORUM_AUTO_ID]:
                 if a_tag_maj(after.channel):
+                    print(f"🐝 [FRELON] ✅ Thread avec tag MAJ, envoi notification F95...")
                     await envoyer_notification_f95(after.channel, is_update=True)
+                else:
+                    print(f"🐝 [FRELON] Pas de tag MAJ, pas de notification")
+            else:
+                print(f"🐝 [FRELON] Thread hors forums surveillés, ignoré")
+        else:
+            print(f"🐝 [FRELON] Contenu identique, aucune action")
 
 
 # ==================== LANCEMENT ====================

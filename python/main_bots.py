@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 import discord
 from discord.http import Route
 
-# Import direct de l'instance du bot Serveur 2
-from bot_server2 import bot as bot2
+# Import direct de l'instance du Bot Serveur Frelon
+from bot_frelon import bot as bot_frelon
 
 # Import des handlers + bot du publisher
 from publisher_api import (
@@ -49,7 +49,7 @@ async def health(request):
     status = {
         "status": "ok",
         "bots": {
-            "server2": bot2.is_ready(),
+            "bot_frelon": bot_frelon.is_ready(),
             "publisher": publisher_bot.is_ready(),
         },
         "publisher_configured": bool(getattr(publisher_config, "configured", False)),
@@ -271,7 +271,7 @@ async def start():
 
     logger.info("🚀 Démarrage de l'orchestrateur...")
     logger.info(f"📋 Configuration:")
-    logger.info(f"   - Bot2 (DISCORD_TOKEN_F95): {'✓' if TOKEN2 else '✗'}")
+    logger.info(f"   - Bot Frelon / F95 Checker (DISCORD_TOKEN_F95): {'✓' if TOKEN2 else '✗'}")
     logger.info(f"   - Publisher (DISCORD_TOKEN_PUBLISHER): {'✓' if TOKEN_PUB else '✗'}")
 
     # 1) Serveur Web (API + healthchecks)
@@ -294,20 +294,20 @@ async def start():
 
     # --- BOT 2 ---
     logger.info("=" * 60)
-    logger.info("🤖 ÉTAPE 1/2: Lancement Bot2 (Serveur 2)...")
+    logger.info("🐝 ÉTAPE 1/2: Lancement Bot Serveur Frelon (F95 Checker)...")
     logger.info("=" * 60)
 
-    bot2_task = asyncio.create_task(start_bot_with_backoff(bot2, TOKEN2, "Bot2"))
+    frelon_task = asyncio.create_task(start_bot_with_backoff(bot_frelon, TOKEN2, "Bot Frelon"))
 
     try:
-        await wait_ready(bot2, "Bot2", timeout=180)
-        logger.info("✅ Bot2 prêt et opérationnel")
+        await wait_ready(bot_frelon, "Bot Frelon", timeout=180)
+        logger.info("✅🐝 Bot Frelon prêt et opérationnel")
     except Exception as e:
-        logger.error(f"⛔ Bot2 n'a pas pu démarrer: {e}")
+        logger.error(f"⛔🐝 Bot Frelon n'a pas pu démarrer: {e}")
         logger.error("🛑 Arrêt de la séquence de démarrage")
-        bot2_task.cancel()
+        frelon_task.cancel()
         try:
-            await bot2_task
+            await frelon_task
         except asyncio.CancelledError:
             pass
         return
@@ -326,8 +326,8 @@ async def start():
 
     if not TOKEN_PUB:
         logger.error("⛔ DISCORD_PUBLISHER_TOKEN toujours manquant après 180s")
-        logger.warning("⚠️ Publisher Bot non lancé, Bot2 continue de fonctionner")
-        await asyncio.gather(bot2_task, return_exceptions=True)
+        logger.warning("⚠️ Publisher Bot non lancé, Bot Frelon continue de fonctionner")
+        await asyncio.gather(frelon_task, return_exceptions=True)
         return
 
     logger.info("=" * 60)
@@ -341,21 +341,21 @@ async def start():
         logger.info("✅ PublisherBot prêt et opérationnel")
     except Exception as e:
         logger.error(f"⛔ PublisherBot n'a pas pu démarrer: {e}")
-        logger.warning("⚠️ Bot2 continue de fonctionner")
-        await asyncio.gather(bot2_task, pub_task, return_exceptions=True)
+        logger.warning("⚠️ Bot Frelon continue de fonctionner")
+        await asyncio.gather(frelon_task, pub_task, return_exceptions=True)
         return
 
     # --- TOUS LES BOTS SONT PRÊTS ---
     logger.info("=" * 60)
     logger.info("🎉 TOUS LES BOTS SONT OPÉRATIONNELS")
     logger.info("=" * 60)
-    logger.info("✅ Bot2 (Serveur 2): Ready")
+    logger.info("✅🐝 Bot Serveur Frelon: Ready")
     logger.info("✅ PublisherBot: Ready")
     logger.info(f"🌐 API REST: http://0.0.0.0:{PORT}")
     logger.info("=" * 60)
 
     # Garde le process vivant tant que les bots tournent
-    await asyncio.gather(bot2_task, pub_task, return_exceptions=True)
+    await asyncio.gather(frelon_task, pub_task, return_exceptions=True)
 
 
 if __name__ == "__main__":
