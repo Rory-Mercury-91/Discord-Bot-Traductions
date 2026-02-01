@@ -53,7 +53,7 @@ export default function ContentEditor() {
   const { profile } = useAuth();
   const { showToast } = useToast();
   const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm();
-  const { linkConfigs, setLinkConfig } = useApp();
+  const { linkConfigs, setLinkConfig, buildFinalLink } = useApp();
 
   // Tags : IDs sélectionnés et vérification des catégories obligatoires (avant canPublish)
   const selectedTagIds = useMemo(() => {
@@ -265,45 +265,16 @@ export default function ContentEditor() {
         detectedSource = 'Autre';
       }
 
-      // Extraction de l'ID du thread et du hash #post-XXXXX si c'est une URL F95 ou Lewd
-      let hash: string | undefined;
-      if (detectedSource !== 'Autre') {
-        const fullMatch = val.match(/threads\/(?:[^/]*\.)?(\d+)\/?(#post-\d+)?/i);
-        if (fullMatch && fullMatch[1]) {
-          val = fullMatch[1];
-          hash = fullMatch[2] || undefined;
-        } else if (/^\d+$/.test(val.trim())) {
-          val = val.trim();
-        }
+      // Pour F95/Lewd : on garde la valeur telle quelle (URL ou ID) ; setLinkConfig nettoiera l'URL côté context
+      if (detectedSource !== 'Autre' && /^\d+$/.test(val.trim())) {
+        val = val.trim();
       }
-
-      setLinkConfig(linkName, detectedSource, val, hash);
+      setLinkConfig(linkName, detectedSource, val);
     };
 
-    // Ne pas préfixer F95/Lewd si la valeur est déjà une URL d'un autre domaine (Proton, etc.)
-    const valueLower = (config.value || '').toLowerCase();
-    const isOtherFullUrl = valueLower.startsWith('http') && !valueLower.includes('f95zone.to') && !valueLower.includes('lewdcorner.com');
-
-    // Base URL pour F95/Lewd (avec hash #post-XXXXX si présent)
-    const baseF95 = config.source === 'F95' ? `https://f95zone.to/threads/${config.value || '...'}/` : '';
-    const baseLewd = config.source === 'Lewd' ? `https://lewdcorner.com/threads/${config.value || '...'}/` : '';
-    const hashPart = (config.hash || '').trim() ? (config.hash!.startsWith('#') ? config.hash : `#${config.hash}`) : '';
-
-    // Construction de l'URL finale : uniquement préfixer F95/Lewd si la valeur n'est PAS déjà une URL d'un autre domaine
-    const finalUrl = isOtherFullUrl
-      ? config.value || '...'
-      : baseF95
-        ? baseF95 + hashPart
-        : baseLewd
-          ? baseLewd + hashPart
-          : config.value || '...';
-
-    // Affichage dans le champ : URL complète nettoyée pour F95/Lewd (avec hash), sinon valeur brute
-    const displayValue = isOtherFullUrl || config.source === 'Autre'
-      ? config.value
-      : (config.source === 'F95' || config.source === 'Lewd') && config.value.trim()
-        ? (config.source === 'F95' ? `https://f95zone.to/threads/${config.value.trim()}/` : `https://lewdcorner.com/threads/${config.value.trim()}/`) + hashPart
-        : config.value;
+    // Même logique que le preview : une seule source de vérité (buildFinalLink)
+    const finalUrl = buildFinalLink(config) || '...';
+    const displayValue = buildFinalLink(config);
 
     const previewNode = finalUrl && !finalUrl.includes('...') ? (
       <div
@@ -484,20 +455,17 @@ export default function ContentEditor() {
         return m?.[1] ?? '';
       };
 
-      // Priorité: data.id -> id depuis l'url -> si link = "232384" -> fallback url en "Autre"
-      let idToUse = rawId || (rawLink ? extractThreadId(rawLink) : '');
-      let sourceToUse: 'F95' | 'Lewd' | 'Autre' = rawLink ? detectSource(rawLink) : 'F95';
+      const sourceToUse: 'F95' | 'Lewd' | 'Autre' = rawLink ? detectSource(rawLink) : 'F95';
+      const idFromLink = rawLink ? extractThreadId(rawLink) : '';
+      const idToUse = rawId || idFromLink || (rawLink && /^\d+$/.test(rawLink.trim()) ? rawLink.trim() : '');
 
-      if (!idToUse && rawLink && /^\d+$/.test(rawLink)) {
-        idToUse = rawLink;
-      }
-
-      if (idToUse) {
-        // On met l'ID dans l'input du lien
-        if (sourceToUse === 'Autre') sourceToUse = 'F95'; // le scraper vient en général de F95
-        setLinkConfig('Game_link', sourceToUse, idToUse);
+      // Préférer l’URL complète (rawLink) pour F95/Lewd afin de conserver #post-XXXXX ; sinon ID ou Autre
+      if (rawLink && (sourceToUse === 'F95' || sourceToUse === 'Lewd')) {
+        setLinkConfig('Game_link', sourceToUse, rawLink);
+      } else if (idToUse) {
+        if (sourceToUse === 'Autre') setLinkConfig('Game_link', 'F95', idToUse);
+        else setLinkConfig('Game_link', sourceToUse, idToUse);
       } else if (rawLink) {
-        // Secours : garder l'URL complète si on n'a pas l'ID
         setLinkConfig('Game_link', 'Autre', rawLink);
       }
 
@@ -514,35 +482,16 @@ export default function ContentEditor() {
   };
 
   // Définir un lien principal à partir d'une URL brute (pour promotion d'un lien additionnel en premier)
+  // On passe l’URL complète pour que setLinkConfig nettoie et conserve le hash (#post-XXXXX).
   const setTranslateLinkFromUrl = (url: string) => {
     const u = url.trim();
-    let source: 'F95' | 'Lewd' | 'Autre' = 'Autre';
-    let value = u;
-    if (u.toLowerCase().includes('f95zone.to')) {
-      source = 'F95';
-      const m = u.match(/threads\/(?:[^/]*\.)?(\d+)/);
-      value = m?.[1] ?? u;
-    } else if (u.toLowerCase().includes('lewdcorner.com')) {
-      source = 'Lewd';
-      const m = u.match(/threads\/(?:[^/]*\.)?(\d+)/);
-      value = m?.[1] ?? u;
-    }
-    setLinkConfig('Translate_link', source, value);
+    const source: 'F95' | 'Lewd' | 'Autre' = u.toLowerCase().includes('f95zone.to') ? 'F95' : u.toLowerCase().includes('lewdcorner.com') ? 'Lewd' : 'Autre';
+    setLinkConfig('Translate_link', source, u);
   };
   const setModLinkFromUrl = (url: string) => {
     const u = url.trim();
-    let source: 'F95' | 'Lewd' | 'Autre' = 'Autre';
-    let value = u;
-    if (u.toLowerCase().includes('f95zone.to')) {
-      source = 'F95';
-      const m = u.match(/threads\/(?:[^/]*\.)?(\d+)/);
-      value = m?.[1] ?? u;
-    } else if (u.toLowerCase().includes('lewdcorner.com')) {
-      source = 'Lewd';
-      const m = u.match(/threads\/(?:[^/]*\.)?(\d+)/);
-      value = m?.[1] ?? u;
-    }
-    setLinkConfig('Mod_link', source, value);
+    const source: 'F95' | 'Lewd' | 'Autre' = u.toLowerCase().includes('f95zone.to') ? 'F95' : u.toLowerCase().includes('lewdcorner.com') ? 'Lewd' : 'Autre';
+    setLinkConfig('Mod_link', source, u);
   };
 
   return (
@@ -887,8 +836,7 @@ export default function ContentEditor() {
               <button
                 type="button"
                 onClick={async () => {
-                  const cfg = linkConfigs.Game_link;
-                  const url = cfg.source === 'F95' ? `https://f95zone.to/threads/${cfg.value || ''}/` : cfg.source === 'Lewd' ? `https://lewdcorner.com/threads/${cfg.value || ''}/` : cfg.value || '';
+                  const url = buildFinalLink(linkConfigs.Game_link);
                   if (url && !url.includes('...')) {
                     const result = await tauriAPI.openUrl(url);
                     if (!result.ok) console.error('Erreur ouverture URL:', result.error);
@@ -1054,8 +1002,7 @@ export default function ContentEditor() {
               <button
                 type="button"
                 onClick={async () => {
-                  const cfg = linkConfigs.Translate_link;
-                  const url = cfg.source === 'F95' ? `https://f95zone.to/threads/${cfg.value || ''}/` : cfg.source === 'Lewd' ? `https://lewdcorner.com/threads/${cfg.value || ''}/` : cfg.value || '';
+                  const url = buildFinalLink(linkConfigs.Translate_link);
                   if (url && !url.includes('...')) {
                     const result = await tauriAPI.openUrl(url);
                     if (!result.ok) console.error('Erreur ouverture URL:', result.error);
@@ -1226,8 +1173,7 @@ export default function ContentEditor() {
               <button
                 type="button"
                 onClick={async () => {
-                  const cfg = linkConfigs.Mod_link;
-                  const url = cfg.source === 'F95' ? `https://f95zone.to/threads/${cfg.value || ''}/` : cfg.source === 'Lewd' ? `https://lewdcorner.com/threads/${cfg.value || ''}/` : cfg.value || '';
+                  const url = buildFinalLink(linkConfigs.Mod_link);
                   if (url && !url.includes('...')) {
                     const result = await tauriAPI.openUrl(url);
                     if (!result.ok) console.error('Erreur ouverture URL:', result.error);

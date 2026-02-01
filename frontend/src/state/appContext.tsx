@@ -22,15 +22,32 @@ export type {
   AdditionalTranslationLink, LinkConfig, PublishedPost, Tag, Template, VarConfig
 };
 
-/** Nettoyage des liens F95/Lewd : accepter /post-XXXXX ou #post-XXXXX, garder thread ID/slug et optionnellement le hash. */
+/**
+ * Nettoie les liens F95/Lewd : on ne garde que l'ID entre threads/ et le reste.
+ * Accepte les deux formes : #post-XXXXX et /post-XXXXX ; on normalise en #post-XXXXX.
+ */
 function cleanGameLinkUrl(url: string): string {
   if (!url || !url.trim()) return url;
   const trimmed = url.trim().replace(/^<|>$/g, '');
-  // Segment thread = tout jusqu'à / ou # (ex: 8012 ou milfy-city.8012) ; optionnellement conserver #post-XXXXX
-  const f95Match = trimmed.match(/f95zone\.to\/threads\/([^\/#]+)(#post-\d+)?/);
-  if (f95Match) return `https://f95zone.to/threads/${f95Match[1].replace(/\/$/, '')}/${f95Match[2] || ''}`.replace(/\/+$/, (m) => (f95Match[2] ? m : '/'));
-  const lewdMatch = trimmed.match(/lewdcorner\.com\/threads\/([^\/#]+)(#post-\d+)?/);
-  if (lewdMatch) return `https://lewdcorner.com/threads/${lewdMatch[1].replace(/\/$/, '')}/${lewdMatch[2] || ''}`.replace(/\/+$/, (m) => (lewdMatch[2] ? m : '/'));
+  // F95 : segment + optionnel /post-XXXXX ou (slash?) + #post-XXXXX (le slash avant # doit être optionnel)
+  const f95Match = trimmed.match(/f95zone\.to\/threads\/([^\/#]+)(?:\/(post-\d+))?(?:\/)?(#post-\d+)?/);
+  if (f95Match) {
+    const segment = f95Match[1];
+    const postPath = f95Match[2]; // "post-13454014"
+    const postHash = f95Match[3]; // "#post-13454014"
+    const hash = postHash || (postPath ? `#${postPath}` : '');
+    const id = segment.includes('.') ? (segment.match(/\.(\d+)$/)?.[1] ?? segment) : segment;
+    return `https://f95zone.to/threads/${id}/${hash}`.replace(/\/+$/, hash ? '' : '/');
+  }
+  const lewdMatch = trimmed.match(/lewdcorner\.com\/threads\/([^\/#]+)(?:\/(post-\d+))?(?:\/)?(#post-\d+)?/);
+  if (lewdMatch) {
+    const segment = lewdMatch[1];
+    const postPath = lewdMatch[2];
+    const postHash = lewdMatch[3];
+    const hash = postHash || (postPath ? `#${postPath}` : '');
+    const id = segment.includes('.') ? (segment.match(/\.(\d+)$/)?.[1] ?? segment) : segment;
+    return `https://lewdcorner.com/threads/${id}/${hash}`.replace(/\/+$/, hash ? '' : '/');
+  }
   return trimmed;
 }
 
@@ -107,9 +124,10 @@ type AppContextValue = {
   setLinkConfig: (
     linkName: 'Game_link' | 'Translate_link' | 'Mod_link',
     source: 'F95' | 'Lewd' | 'Autre',
-    value: string,
-    hash?: string
+    value: string
   ) => void;
+  /** Construit l’URL finale à partir d’une LinkConfig (même logique que le preview). */
+  buildFinalLink: (config: LinkConfig) => string;
   setLinkConfigs: React.Dispatch<React.SetStateAction<{
     Game_link: LinkConfig;
     Translate_link: LinkConfig;
@@ -1411,68 +1429,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setInputs(prev => ({ ...prev, [name]: finalValue }));
   }
 
+  /** Extrait l'ID numérique d'une URL F95/Lewd (pour API ou affichage court). */
   function extractIdFromUrl(url: string, source: 'F95' | 'Lewd'): string {
-    const { id } = extractIdAndHashFromUrl(url, source);
-    return id || url.trim();
-  }
-
-  /** Extrait l'ID thread et le hash #post-XXXXX d'une URL F95/Lewd. */
-  function extractIdAndHashFromUrl(url: string, source: 'F95' | 'Lewd'): { id: string; hash?: string } {
-    if (!url || !url.trim()) return { id: '' };
+    if (!url || !url.trim()) return '';
     const trimmed = url.trim();
     if (source === 'F95') {
-      // f95zone.to/threads/slug.ID/ ou threads/ID/ ou .../#post-513555
-      const match = trimmed.match(/f95zone\.to\/threads\/(?:[^/]*\.)?(\d+)\/?(#post-\d+)?/);
-      if (match) return { id: match[1], hash: match[2] || undefined };
-      return { id: trimmed };
+      const m = trimmed.match(/f95zone\.to\/threads\/(?:[^/]*\.)?(\d+)/);
+      return m ? m[1] : trimmed;
     }
     if (source === 'Lewd') {
-      const match = trimmed.match(/lewdcorner\.com\/threads\/(?:[^/]*\.)?(\d+)\/?(#post-\d+)?/);
-      if (match) return { id: match[1], hash: match[2] || undefined };
-      return { id: trimmed };
+      const m = trimmed.match(/lewdcorner\.com\/threads\/(?:[^/]*\.)?(\d+)/);
+      return m ? m[1] : trimmed;
     }
-    return { id: trimmed };
+    return trimmed;
   }
 
   function buildFinalLink(config: LinkConfig): string {
     const v = config.value.trim();
     if (!v) return '';
 
-    // Détecter si c'est une URL complète d'un autre domaine (Proton, etc.)
     const isOtherFullUrl = v.toLowerCase().startsWith('http') &&
       !v.toLowerCase().includes('f95zone.to') &&
       !v.toLowerCase().includes('lewdcorner.com');
+    if (isOtherFullUrl) return v;
 
-    // Si c'est une URL d'un autre domaine, la retourner telle quelle, peu importe la source sélectionnée
-    if (isOtherFullUrl) {
-      return v;
-    }
-
-    // Sinon, construire l'URL selon la source (avec hash #post-XXXXX si présent)
-    const base = config.source === 'F95'
-      ? `https://f95zone.to/threads/${v}/`
-      : config.source === 'Lewd'
-        ? `https://lewdcorner.com/threads/${v}/`
-        : v;
-    if (config.source !== 'F95' && config.source !== 'Lewd') return base;
-    const hash = (config.hash || '').trim();
-    return hash ? `${base}${hash.startsWith('#') ? hash : `#${hash}`}` : base;
+    // F95/Lewd : si value est déjà une URL complète, la retourner (déjà nettoyée) ; sinon legacy (juste l'ID)
+    if (config.source === 'F95' && v.toLowerCase().includes('f95zone.to')) return cleanGameLinkUrl(v);
+    if (config.source === 'Lewd' && v.toLowerCase().includes('lewdcorner.com')) return cleanGameLinkUrl(v);
+    if (config.source === 'F95') return `https://f95zone.to/threads/${v}/`;
+    if (config.source === 'Lewd') return `https://lewdcorner.com/threads/${v}/`;
+    return v;
   }
 
-  // Fonction pour mettre à jour la config d'un lien
-  function setLinkConfig(linkName: 'Game_link' | 'Translate_link' | 'Mod_link', source: 'F95' | 'Lewd' | 'Autre', value: string, hash?: string) {
+  function setLinkConfig(linkName: 'Game_link' | 'Translate_link' | 'Mod_link', source: 'F95' | 'Lewd' | 'Autre', value: string) {
     setLinkConfigs(prev => {
       let processedValue = value;
-      let processedHash: string | undefined = hash;
-      if ((source === 'F95' || source === 'Lewd') && value.includes('http')) {
-        const extracted = extractIdAndHashFromUrl(value, source);
-        processedValue = extracted.id;
-        if (extracted.hash) processedHash = extracted.hash;
+      if ((source === 'F95' || source === 'Lewd') && value.trim().toLowerCase().includes('threads/')) {
+        processedValue = cleanGameLinkUrl(value);
       }
-      return {
-        ...prev,
-        [linkName]: { source, value: processedValue, ...(processedHash != null && processedHash !== '' ? { hash: processedHash } : {}) }
-      };
+      return { ...prev, [linkName]: { source, value: processedValue } };
     });
   }
 
@@ -1686,6 +1681,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     resetAllFields,
     linkConfigs,
     setLinkConfig,
+    buildFinalLink,
     setLinkConfigs,
     templates,
     importFullConfig,

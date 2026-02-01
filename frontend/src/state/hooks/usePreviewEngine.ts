@@ -1,32 +1,29 @@
 import { useMemo, useState } from 'react';
 import type { AdditionalTranslationLink, Template, VarConfig } from '../types';
 
+/** Même logique qu’appContext : ID seul + accepter #post-XXXXX ou /post-XXXXX (normalisé en #). */
 function cleanGameLink(url: string): string {
   if (!url || !url.trim()) return url;
-
-  const trimmed = url.trim();
-
-  // Retirer les chevrons si présents (au cas où l'utilisateur les met manuellement)
-  const cleaned = trimmed.replace(/^<|>$/g, '');
-
-  // F95Zone - Nettoyer : garder threads/slug.ID/ et préserver #post-XXXXX si présent
-  const f95Match = cleaned.match(/f95zone\.to\/threads\/([^\/#]+?)(?:\/post-\d+)?\/?(#post-\d+)?/);
+  const trimmed = url.trim().replace(/^<|>$/g, '');
+  const f95Match = trimmed.match(/f95zone\.to\/threads\/([^\/#]+)(?:\/(post-\d+))?(?:\/)?(#post-\d+)?/);
   if (f95Match) {
-    const segment = f95Match[1].replace(/\/$/, '');
-    const hash = f95Match[2] || '';
-    return `https://f95zone.to/threads/${segment}/${hash}`.replace(/\/+$/, (m) => (hash ? m : '/'));
+    const segment = f95Match[1];
+    const postPath = f95Match[2];
+    const postHash = f95Match[3];
+    const hash = postHash || (postPath ? `#${postPath}` : '');
+    const id = segment.includes('.') ? (segment.match(/\.(\d+)$/)?.[1] ?? segment) : segment;
+    return `https://f95zone.to/threads/${id}/${hash}`.replace(/\/+$/, hash ? '' : '/');
   }
-
-  // LewdCorner - Nettoyer : garder threads/slug.ID/ et préserver #post-XXXXX si présent
-  const lewdMatch = cleaned.match(/lewdcorner\.com\/threads\/([^\/#]+?)(?:\/post-\d+)?\/?(#post-\d+)?/);
+  const lewdMatch = trimmed.match(/lewdcorner\.com\/threads\/([^\/#]+)(?:\/(post-\d+))?(?:\/)?(#post-\d+)?/);
   if (lewdMatch) {
-    const segment = lewdMatch[1].replace(/\/$/, '');
-    const hash = lewdMatch[2] || '';
-    return `https://lewdcorner.com/threads/${segment}/${hash}`.replace(/\/+$/, (m) => (hash ? m : '/'));
+    const segment = lewdMatch[1];
+    const postPath = lewdMatch[2];
+    const postHash = lewdMatch[3];
+    const hash = postHash || (postPath ? `#${postPath}` : '');
+    const id = segment.includes('.') ? (segment.match(/\.(\d+)$/)?.[1] ?? segment) : segment;
+    return `https://lewdcorner.com/threads/${id}/${hash}`.replace(/\/+$/, hash ? '' : '/');
   }
-
-  // Si aucun pattern reconnu, retourner l'URL nettoyée
-  return cleaned;
+  return trimmed;
 }
 
 type UsePreviewEngineProps = {

@@ -26,9 +26,8 @@ export type Template = {
 
 export type LinkConfig = {
   source: 'F95' | 'Lewd' | 'Autre';
-  value: string; // ID ou URL complète selon la source
-  /** Hash optionnel pour lien direct vers un post (ex: #post-513555) */
-  hash?: string;
+  /** URL canonique complète (F95/Lewd) ou URL brute (Autre) */
+  value: string;
 };
 
 export type AdditionalTranslationLink = {
@@ -153,9 +152,9 @@ export type AppContextValue = {
   setLinkConfig: (
     linkName: 'Game_link' | 'Translate_link' | 'Mod_link',
     source: 'F95' | 'Lewd' | 'Autre',
-    value: string,
-    hash?: string
+    value: string
   ) => void;
+  buildFinalLink: (config: LinkConfig) => string;
   setLinkConfigs: React.Dispatch<React.SetStateAction<{
     Game_link: LinkConfig;
     Translate_link: LinkConfig;
