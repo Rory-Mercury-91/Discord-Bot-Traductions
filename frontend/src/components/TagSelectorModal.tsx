@@ -266,14 +266,9 @@ export default function TagSelectorModal({
                         e.currentTarget.style.borderColor = 'var(--border)';
                       }}
                     >
-                      <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 4 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>
                         {tag.name}
                       </div>
-                      {tag.id && (
-                        <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace' }}>
-                          ID: {tag.id}
-                        </div>
-                      )}
                     </div>
                   );
                 })}
@@ -338,20 +333,10 @@ export default function TagSelectorModal({
                         <div style={{
                           fontWeight: 600,
                           fontSize: 13,
-                          color: 'var(--text)',
-                          marginBottom: 4
+                          color: 'var(--text)'
                         }}>
                           {tag.name}
                         </div>
-                        {tag.id && (
-                          <div style={{
-                            fontSize: 11,
-                            color: 'var(--muted)',
-                            fontFamily: 'monospace'
-                          }}>
-                            ID: {tag.id}
-                          </div>
-                        )}
                       </div>
                     );
                   })}

@@ -759,9 +759,24 @@ async def _extract_post_data(thread: discord.Thread) -> Tuple[Optional[str], Opt
     return game_link, game_version
 
 # ==================== MODIFICATION POST ====================
+def _embed_preserve_dict(embed: discord.Embed) -> dict:
+    """
+    Convertit un embed en dict en préservant explicitement image, thumbnail et tous les champs
+    visuels pour un round-trip sans perte (ex: image du post qui ne doit pas disparaître au MAJ version).
+    """
+    d = embed.to_dict()
+    # S'assurer que l'image est bien présente (embed créé côté Discord peut avoir une structure différente)
+    if getattr(embed, "image", None) and getattr(embed.image, "url", None):
+        d["image"] = {"url": str(embed.image.url)}
+    if getattr(embed, "thumbnail", None) and getattr(embed.thumbnail, "url", None):
+        d["thumbnail"] = {"url": str(embed.thumbnail.url)}
+    return d
+
+
 async def _update_post_version(thread: discord.Thread, new_version: str) -> bool:
     """
     Met à jour la version du jeu dans le post Discord (contenu + métadonnées).
+    Préserve tous les éléments existants : image(s), embeds non-métadonnées, etc.
     Priorité : construire les métadonnées depuis Supabase (published_posts), sinon depuis l'embed Discord.
     Returns:
         True si succès, False sinon
@@ -812,6 +827,7 @@ async def _update_post_version(thread: discord.Thread, new_version: str) -> bool
                             metadata_b64_new = base64.b64encode(metadata_json.encode("utf-8")).decode("utf-8")
                     break
 
+        # Conserver tous les embeds sauf le métadonnées ; préserver explicitement image/thumbnail
         new_embeds = []
         metadata_updated = False
         for embed in msg.embeds:
@@ -819,10 +835,9 @@ async def _update_post_version(thread: discord.Thread, new_version: str) -> bool
             if footer_text and footer_text.startswith("metadata:v1:"):
                 if metadata_b64_new:
                     metadata_updated = True
-                else:
-                    pass
+                # on ne copie pas l'embed métadonnées, il sera remplacé par la nouvelle version
             else:
-                new_embeds.append(embed.to_dict())
+                new_embeds.append(_embed_preserve_dict(embed))
         if metadata_b64_new:
             new_embeds.append(_build_metadata_embed(metadata_b64_new))
             metadata_updated = True
@@ -854,11 +869,7 @@ async def _update_post_version(thread: discord.Thread, new_version: str) -> bool
                     except Exception as e:
                         logger.warning(f"⚠️ Échec mise à jour Supabase published_posts: {e}")
             logger.info(f"✅ Post mis à jour pour {thread.name}: {new_version}")
-            if metadata_updated:
-                try:
-                    await msg.edit(suppress=True)
-                except Exception as e:
-                    logger.warning(f"⚠️ Impossible de masquer l'embed: {e}")
+            # Ne pas appeler msg.edit(suppress=True) : cela masquerait TOUS les embeds (y compris l'image du post).
             return True
         except Exception as e:
             logger.error(f"❌ Erreur modification message pour {thread.name}: {e}")

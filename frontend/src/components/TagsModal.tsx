@@ -131,8 +131,13 @@ export default function TagsModal({ onClose }: { onClose?: () => void }) {
     } else {
       addSavedTag(tagData);
       showToast('Tag ajouté', 'success');
+      // Basculer sur l'onglet Traducteurs pour que le nouvel ajout soit visible
+      if (form.tagType === 'translator') {
+        setActiveTab('translator');
+      }
     }
-    syncTagsToSupabase(profile?.discord_id).catch(() => {});
+    // Ne pas appeler syncTagsToSupabase ici : addSavedTag/updateSavedTag écrivent déjà en BDD,
+    // et syncTagsToSupabase s'exécuterait avec l'ancien état (sans le nouveau tag) et écraserait savedTags.
     closeAddModal();
   }
 
