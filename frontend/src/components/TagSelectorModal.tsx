@@ -164,6 +164,32 @@ export default function TagSelectorModal({
           </button>
         </div>
 
+        {/* Info limite tags */}
+        <div style={{
+          padding: '12px 16px',
+          background: 'rgba(255, 193, 7, 0.1)',
+          borderBottom: '1px solid rgba(255, 193, 7, 0.3)',
+          flexShrink: 0
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            fontSize: 13,
+            color: 'var(--text)'
+          }}>
+            <span style={{ fontSize: 16 }}>⚠️</span>
+            <span>
+              <strong>Limite :</strong> Maximum <strong>5 tags</strong> par publication. <strong>Obligatoires :</strong> au moins un Site, un Type de traduction et un Traducteur (Autres et Statut optionnels).
+              {selectedTagIds.length > 0 && (
+                <span style={{ marginLeft: 8, color: selectedTagIds.length >= 5 ? '#ff4444' : '#4a9eff' }}>
+                  ({selectedTagIds.length}/5 sélectionnés)
+                </span>
+              )}
+            </span>
+          </div>
+        </div>
+
         {/* Search */}
         <div style={{
           padding: '12px 16px',

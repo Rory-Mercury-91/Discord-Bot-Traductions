@@ -329,6 +329,22 @@ function FormulaireHelp() {
 function TagsHelp() {
   return (
     <div style={{ display: 'grid', gap: 24 }}>
+      {/* Encart limite tags */}
+      <section style={{
+        background: 'rgba(255, 193, 7, 0.1)',
+        border: '1px solid rgba(255, 193, 7, 0.3)',
+        borderRadius: 8,
+        padding: 16
+      }}>
+        <h4 style={{ margin: '0 0 8px 0', fontSize: 16, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>⚠️</span>
+          <span>Limite de tags</span>
+        </h4>
+        <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: 0 }}>
+          Vous pouvez sélectionner <strong>maximum 5 tags</strong> par publication. Cette limite permet de maintenir une catégorisation claire et efficace de vos posts.
+        </p>
+      </section>
+
       <section style={{
         background: 'rgba(139, 92, 246, 0.1)',
         border: '1px solid rgba(139, 92, 246, 0.3)',

@@ -54,10 +54,28 @@ export default function ContentEditor() {
   const { showToast } = useToast();
   const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm();
   const { linkConfigs, setLinkConfig } = useApp();
+
+  // Tags : IDs sélectionnés et vérification des catégories obligatoires (avant canPublish)
+  const selectedTagIds = useMemo(() => {
+    return postTags ? postTags.split(',').map(s => s.trim()).filter(Boolean) : [];
+  }, [postTags]);
+  const selectedTagObjects = useMemo(() => {
+    return savedTags.filter(t =>
+      selectedTagIds.some(id => (t.id || t.name) === id || String(t.discordTagId ?? '') === id)
+    );
+  }, [savedTags, selectedTagIds]);
+  const hasRequiredTags = useMemo(() => {
+    const hasSite = selectedTagObjects.some(t => t.tagType === 'sites');
+    const hasTranslationType = selectedTagObjects.some(t => t.tagType === 'translationType');
+    const hasTranslator = selectedTagObjects.some(t => t.tagType === 'translator');
+    return hasSite && hasTranslationType && hasTranslator;
+  }, [selectedTagObjects]);
+
   // 2️⃣ ENSUITE : Calculer les valeurs dérivées
   const currentTemplate = templates[currentTemplateIdx]; // ✅ UNE SEULE FOIS
   const canPublish = currentTemplate?.type === 'my' &&
-    rateLimitCooldown === null;
+    rateLimitCooldown === null &&
+    hasRequiredTags;
   const isEditMode = editingPostId !== null;
   const rateLimitRemaining = rateLimitCooldown ? Math.ceil((rateLimitCooldown - Date.now()) / 1000) : 0;
 
@@ -151,11 +169,6 @@ export default function ContentEditor() {
 
     return [...fromConfig, ...orphanVars];
   }, [allVarsConfig, currentTemplateId, editingPostData?.savedInputs, inputs, varsUsedInTemplate]);
-
-  // Calculer les IDs des tags sélectionnés
-  const selectedTagIds = useMemo(() => {
-    return postTags ? postTags.split(',').map(s => s.trim()).filter(Boolean) : [];
-  }, [postTags]);
 
   // Fonction pour ouvrir la modale de sélection des tags
   const handleOpenTagSelector = () => {
@@ -1550,8 +1563,14 @@ export default function ContentEditor() {
               </button>
             )}
 
+            {!hasRequiredTags && (
+              <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 8 }}>
+                Tags obligatoires : au moins un <strong>Site</strong>, un <strong>Type de traduction</strong> et un <strong>Traducteur</strong>. Autres et Statut optionnels.
+              </div>
+            )}
+
             <button
-              disabled={publishInProgress}
+              disabled={publishInProgress || !canPublish}
               onClick={async () => {
                 const ok = await confirm({
                   title: editingPostId ? 'Mettre à jour' : 'Publier',
@@ -1576,10 +1595,10 @@ export default function ContentEditor() {
                 padding: '12px 32px',
                 fontSize: 15,
                 fontWeight: 700,
-                background: publishInProgress ? 'var(--muted)' : (editingPostId ? '#f59e0b' : '#5865F2'),
+                background: (publishInProgress || !canPublish) ? 'var(--muted)' : (editingPostId ? '#f59e0b' : '#5865F2'),
                 color: 'white',
                 minWidth: '220px',
-                cursor: publishInProgress ? 'not-allowed' : 'pointer',
+                cursor: (publishInProgress || !canPublish) ? 'not-allowed' : 'pointer',
                 border: 'none',
                 borderRadius: 6
               }}

@@ -827,6 +827,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { ok: false, error: 'rate_limit_cooldown' };
     }
 
+    // Tags obligatoires : au moins un Site, un Type de traduction et un Traducteur (Autres et Statut optionnels)
+    const hasSite = selectedTagObjects.some(t => t.tagType === 'sites');
+    const hasTranslationType = selectedTagObjects.some(t => t.tagType === 'translationType');
+    const hasTranslator = selectedTagObjects.some(t => t.tagType === 'translator');
+    const missing: string[] = [];
+    if (!hasSite) missing.push('Site');
+    if (!hasTranslationType) missing.push('Type de traduction');
+    if (!hasTranslator) missing.push('Traducteur');
+    if (missing.length > 0) {
+      setLastPublishResult(`❌ Tags obligatoires manquants : ${missing.join(', ')}`);
+      showErrorModal({
+        code: 'VALIDATION_ERROR',
+        message: 'Tags obligatoires manquants',
+        context: `Vous devez sélectionner au moins un tag pour chaque catégorie : Site, Type de traduction et Traducteur. Manquant : ${missing.join(', ')}. Les tags "Autres" et "Statut du jeu" restent optionnels.`,
+        httpStatus: 400
+      });
+      return { ok: false, error: 'missing_required_tags' };
+    }
+
     setPublishInProgress(true);
     setLastPublishResult(null);
 
