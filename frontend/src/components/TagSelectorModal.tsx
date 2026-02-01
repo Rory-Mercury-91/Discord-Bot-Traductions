@@ -221,8 +221,68 @@ export default function TagSelectorModal({
           padding: '16px',
           minHeight: 0
         }} className="styled-scrollbar">
-          {/* Tags génériques groupés par type */}
-          {(['translationType', 'gameStatus', 'sites', 'other'] as const).map(tagType => {
+          {/* 1. Tags traducteurs (en premier) */}
+          {sortedTranslatorTags.length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <h4 style={{
+                margin: '0 0 12px 0',
+                fontSize: 14,
+                fontWeight: 600,
+                color: 'var(--accent)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                paddingBottom: 8,
+                borderBottom: '1px solid var(--border)'
+              }}>
+                👤 Tags traducteurs ({sortedTranslatorTags.length})
+              </h4>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                gap: 8,
+                marginTop: 12
+              }}>
+                {sortedTranslatorTags.map((tag) => {
+                  const tagId = tag.id || tag.name;
+                  return (
+                    <div
+                      key={tagId}
+                      onClick={() => onSelectTag(tagId)}
+                      style={{
+                        padding: '10px 12px',
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        background: 'rgba(255,255,255,0.03)',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(74, 158, 255, 0.1)';
+                        e.currentTarget.style.borderColor = '#4a9eff';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+                        e.currentTarget.style.borderColor = 'var(--border)';
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 4 }}>
+                        {tag.name}
+                      </div>
+                      {tag.id && (
+                        <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace' }}>
+                          ID: {tag.id}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 2. Tags génériques : Type de traduction, Sites, Statut, Autres */}
+          {(['translationType', 'sites', 'gameStatus', 'other'] as const).map(tagType => {
             const tagsInType = groupedGenericTags[tagType];
             if (tagsInType.length === 0) return null;
 
@@ -299,75 +359,6 @@ export default function TagSelectorModal({
               </div>
             );
           })}
-
-          {/* Tags traducteurs */}
-          {sortedTranslatorTags.length > 0 && (
-            <div>
-              <h4 style={{
-                margin: '0 0 12px 0',
-                fontSize: 14,
-                fontWeight: 600,
-                color: 'var(--accent)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8
-              }}>
-                👤 Tags traducteurs ({sortedTranslatorTags.length})
-              </h4>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                gap: 8
-              }}>
-                {sortedTranslatorTags.map((tag) => {
-                  const tagId = tag.id || tag.name;
-                  return (
-                    <div
-                      key={tagId}
-                      onClick={() => {
-                        onSelectTag(tagId);
-                        // Ne pas fermer la modale automatiquement - l'utilisateur peut ajouter plusieurs tags
-                      }}
-                      style={{
-                        padding: '10px 12px',
-                        border: '1px solid var(--border)',
-                        borderRadius: 6,
-                        background: 'rgba(255,255,255,0.03)',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(74, 158, 255, 0.1)';
-                        e.currentTarget.style.borderColor = '#4a9eff';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
-                        e.currentTarget.style.borderColor = 'var(--border)';
-                      }}
-                    >
-                      <div style={{
-                        fontWeight: 600,
-                        fontSize: 13,
-                        color: 'var(--text)',
-                        marginBottom: 4
-                      }}>
-                        {tag.name}
-                      </div>
-                      {tag.id && (
-                        <div style={{
-                          fontSize: 11,
-                          color: 'var(--muted)',
-                          fontFamily: 'monospace'
-                        }}>
-                          ID: {tag.id}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
           {/* Message si aucun tag disponible */}
           {filteredGenericTags.length === 0 && sortedTranslatorTags.length === 0 && (

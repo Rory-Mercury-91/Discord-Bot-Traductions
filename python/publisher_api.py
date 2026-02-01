@@ -247,6 +247,16 @@ _RE_BRACKETS = re.compile(r"\[(?P<val>[^\]]+)\]")
 # Version dans le nom du thread Discord (ex: "Growing Problems [v0.12]")
 _RE_VERSION_IN_THREAD_NAME = re.compile(r"\[v?(?P<ver>[^\]]+)\]\s*$", re.IGNORECASE)
 
+
+def _build_thread_title_with_version(thread_name: str, new_version: str) -> str:
+    """Remplace la référence de version entre crochets à la fin du titre par la nouvelle version.
+    Ex: 'The Legend of the Goblins [Ch.5]' -> 'The Legend of the Goblins [Ch.6]'
+    """
+    if not (thread_name and new_version):
+        return thread_name or ""
+    new_title = _RE_VERSION_IN_THREAD_NAME.sub(f"[{new_version}]", thread_name.strip()).strip()
+    return new_title or thread_name
+
 # ==================== STOCKAGE ANTI-DOUBLON ====================
 # Structure: {thread_id: {"f95_version": "Ch.7", "timestamp": datetime}}
 _notified_versions: Dict[int, Dict] = {}
@@ -819,6 +829,30 @@ async def _update_post_version(thread: discord.Thread, new_version: str) -> bool
 
         try:
             await msg.edit(content=new_content, embeds=[discord.Embed.from_dict(e) for e in new_embeds])
+            # Mettre à jour le titre du thread Discord : référence entre crochets -> nouvelle version (ex: "Jeu [Ch.5]" -> "Jeu [Ch.6]")
+            new_title = _build_thread_title_with_version(thread.name, new_version)
+            if new_title != thread.name:
+                try:
+                    await thread.edit(name=new_title)
+                    logger.info(f"✅ Titre du thread mis à jour: {thread.name} -> {new_title}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Impossible de renommer le thread {thread.name}: {e}")
+            # Mettre à jour published_posts sur Supabase pour que l'historique reste aligné
+            if row:
+                sb = _get_supabase()
+                if sb:
+                    try:
+                        saved = _parse_saved_inputs(row)
+                        saved["Game_version"] = new_version
+                        updates = {
+                            "title": new_title,
+                            "saved_inputs": saved,
+                            "updated_at": datetime.datetime.now(ZoneInfo("UTC")).isoformat(),
+                        }
+                        sb.table("published_posts").update(updates).eq("id", row["id"]).execute()
+                        logger.info(f"✅ published_posts mis à jour sur Supabase pour {thread.name}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Échec mise à jour Supabase published_posts: {e}")
             logger.info(f"✅ Post mis à jour pour {thread.name}: {new_version}")
             if metadata_updated:
                 try:

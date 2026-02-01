@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import ErrorModal from '../components/ErrorModal';
+import { useAuth } from './authContext';
 import { getSupabase } from '../lib/supabase';
 import { tauriAPI } from '../lib/tauri-api';
 import { defaultTemplates, defaultVarsConfig } from './defaults';
@@ -131,6 +132,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ========================================
   // HOOKS EXTRAITS
   // ========================================
+  const { user } = useAuth();
   const imagesState = useImagesState();
   const instructionsState = useInstructionsState();
 
@@ -1128,8 +1130,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
   }, []);
 
-  // Charger les tags depuis Supabase au montage (remplace localStorage si Supabase a des données)
+  // Charger les tags depuis Supabase une fois la session prête (évite la race : requête avant JWT → RLS vide → anciens tags localStorage)
   useEffect(() => {
+    if (!user) return;
     const sb = getSupabase();
     if (!sb) return;
     sb.from('tags')
@@ -1147,7 +1150,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }))
         );
       });
-  }, []);
+  }, [user?.id]);
 
   // Charger instructions (par propriétaire ; visible par l'auteur + éditeurs autorisés) et templates (par utilisateur connecté)
   useEffect(() => {
