@@ -106,7 +106,7 @@ export default function HistoryModal({ onClose }: HistoryModalProps) {
   // Recherche, tri et filtre par auteur
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc'>('date-desc');
-  const [filterAuthorId, setFilterAuthorId] = useState<string>('');
+  const [filterAuthorId, setFilterAuthorId] = useState<string>('me');
   const [currentPage, setCurrentPage] = useState(1);
 
   const filteredAndSortedPosts = useMemo(() => {
