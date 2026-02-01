@@ -827,23 +827,54 @@ async def _update_post_version(thread: discord.Thread, new_version: str) -> bool
                             metadata_b64_new = base64.b64encode(metadata_json.encode("utf-8")).decode("utf-8")
                     break
 
-        # Conserver tous les embeds sauf le métadonnées ; préserver explicitement image/thumbnail
+        # Conserver uniquement les embeds non-métadonnées (image, etc.) sur le message principal.
+        # Les métadonnées vont dans un 2e message séparé (comme à la création) puis SUPPRESS pour le masquer.
         new_embeds = []
-        metadata_updated = False
         for embed in msg.embeds:
             footer_text = embed.footer.text if embed.footer else ""
             if footer_text and footer_text.startswith("metadata:v1:"):
-                if metadata_b64_new:
-                    metadata_updated = True
-                # on ne copie pas l'embed métadonnées, il sera remplacé par la nouvelle version
-            else:
-                new_embeds.append(_embed_preserve_dict(embed))
-        if metadata_b64_new:
-            new_embeds.append(_build_metadata_embed(metadata_b64_new))
-            metadata_updated = True
+                # Ne pas copier l'embed métadonnées sur le message principal
+                continue
+            new_embeds.append(_embed_preserve_dict(embed))
 
         try:
             await msg.edit(content=new_content, embeds=[discord.Embed.from_dict(e) for e in new_embeds])
+
+            # Mettre à jour ou créer le message métadonnées séparé (2e message), puis le masquer (SUPPRESS)
+            if metadata_b64_new and len(metadata_b64_new) <= 25000:
+                metadata_message = None
+                async for m in thread.history(limit=30):
+                    if m.id == msg.id:
+                        continue
+                    for e in m.embeds:
+                        ft = e.footer.text if e.footer else ""
+                        if ft and ft.startswith("metadata:v1:"):
+                            metadata_message = m
+                            break
+                    if metadata_message:
+                        break
+                if metadata_message:
+                    await metadata_message.edit(
+                        content=" ",
+                        embeds=[discord.Embed.from_dict(_build_metadata_embed(metadata_b64_new))]
+                    )
+                    try:
+                        await metadata_message.edit(suppress=True)
+                    except Exception as e:
+                        logger.warning(f"⚠️ Impossible de masquer l'embed métadonnées: {e}")
+                    logger.info(f"✅ Message métadonnées mis à jour et masqué pour {thread.name}")
+                else:
+                    # Créer un 2e message avec les métadonnées puis le masquer
+                    sent = await thread.send(
+                        content=" ",
+                        embeds=[discord.Embed.from_dict(_build_metadata_embed(metadata_b64_new))]
+                    )
+                    try:
+                        await sent.edit(suppress=True)
+                    except Exception as e:
+                        logger.warning(f"⚠️ Impossible de masquer le nouvel embed métadonnées: {e}")
+                    logger.info(f"✅ Message métadonnées créé et masqué pour {thread.name}")
+
             # Mettre à jour le titre du thread Discord : référence entre crochets -> nouvelle version (ex: "Jeu [Ch.5]" -> "Jeu [Ch.6]")
             new_title = _build_thread_title_with_version(thread.name, new_version)
             if new_title != thread.name:
@@ -869,7 +900,6 @@ async def _update_post_version(thread: discord.Thread, new_version: str) -> bool
                     except Exception as e:
                         logger.warning(f"⚠️ Échec mise à jour Supabase published_posts: {e}")
             logger.info(f"✅ Post mis à jour pour {thread.name}: {new_version}")
-            # Ne pas appeler msg.edit(suppress=True) : cela masquerait TOUS les embeds (y compris l'image du post).
             return True
         except Exception as e:
             logger.error(f"❌ Erreur modification message pour {thread.name}: {e}")

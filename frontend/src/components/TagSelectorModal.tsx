@@ -238,8 +238,8 @@ export default function TagSelectorModal({
                 👤 Tags traducteurs ({sortedTranslatorTags.length})
               </h4>
               <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                display: 'flex',
+                flexWrap: 'wrap',
                 gap: 8,
                 marginTop: 12
               }}>
@@ -250,12 +250,14 @@ export default function TagSelectorModal({
                       key={tagId}
                       onClick={() => onSelectTag(tagId)}
                       style={{
+                        flex: '0 0 auto',
                         padding: '10px 12px',
                         border: '1px solid var(--border)',
                         borderRadius: 6,
                         background: 'rgba(255,255,255,0.03)',
                         cursor: 'pointer',
-                        transition: 'all 0.2s'
+                        transition: 'all 0.2s',
+                        whiteSpace: 'nowrap'
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = 'rgba(74, 158, 255, 0.1)';
@@ -300,8 +302,8 @@ export default function TagSelectorModal({
                   </span>
                 </h4>
                 <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                  display: 'flex',
+                  flexWrap: 'wrap',
                   gap: 8,
                   marginTop: 12
                 }}>
@@ -314,12 +316,14 @@ export default function TagSelectorModal({
                           onSelectTag(tagId);
                         }}
                         style={{
+                          flex: '0 0 auto',
                           padding: '10px 12px',
                           border: '1px solid var(--border)',
                           borderRadius: 6,
                           background: 'rgba(255,255,255,0.03)',
                           cursor: 'pointer',
-                          transition: 'all 0.2s'
+                          transition: 'all 0.2s',
+                          whiteSpace: 'nowrap'
                         }}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.background = 'rgba(74, 158, 255, 0.1)';
