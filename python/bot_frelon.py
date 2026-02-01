@@ -185,6 +185,9 @@ async def fetch_f95_versions_by_ids(session: aiohttp.ClientSession, thread_ids: 
     🆕 NOUVELLE MÉTHODE: Récupère les versions depuis l'API F95 checker.php
     Plus fiable et précise que le flux RSS !
     
+    ⚠️ LIMITE API F95: Maximum 100 IDs par requête
+    Cette fonction découpe automatiquement en blocs de 50 IDs pour la sécurité
+    
     Args:
         session: Session aiohttp
         thread_ids: Liste des IDs de threads F95 (ex: ["100", "285451"])
@@ -197,40 +200,66 @@ async def fetch_f95_versions_by_ids(session: aiohttp.ClientSession, thread_ids: 
         print(f"🐝 [FRELON] fetch_f95_versions_by_ids: liste vide, aucune requête")
         return {}
     
-    print(f"🐝 [FRELON] Requête F95 Checker API pour {len(thread_ids)} threads: {thread_ids[:5]}{'...' if len(thread_ids) > 5 else ''}")
+    # ⚠️ LIMITE API: Maximum 100 IDs, on utilise des chunks de 50 par sécurité
+    CHUNK_SIZE = 50
+    total_ids = len(thread_ids)
+    all_versions = {}
     
-    # L'API accepte plusieurs IDs séparés par des virgules
-    # Ex: https://f95zone.to/sam/checker.php?threads=100,285451,300
-    ids_str = ",".join(str(tid) for tid in thread_ids)
-    checker_url = f"https://f95zone.to/sam/checker.php?threads={ids_str}"
+    print(f"🐝 [FRELON] Récupération pour {total_ids} threads (par blocs de {CHUNK_SIZE})")
     
-    print(f"🐝 [FRELON] URL API: {checker_url}")
-    
-    try:
-        async with session.get(checker_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-            print(f"🐝 [FRELON] Réponse HTTP: {resp.status}")
-            if resp.status != 200:
-                print(f"🐝 [FRELON] ⚠️ F95 Checker API HTTP {resp.status}")
-                return {}
-            
-            data = await resp.json()
-            print(f"🐝 [FRELON] Données reçues: {data}")
-            
-            # Format de réponse: {"status":"ok","msg":{"100":"v0.68","285451":"Ch.7"}}
-            if data.get("status") == "ok" and "msg" in data:
-                print(f"🐝 [FRELON] ✅ F95 Checker API: {len(data['msg'])} versions récupérées")
-                for tid, ver in list(data["msg"].items())[:10]:
-                    print(f"🐝 [FRELON]    Thread {tid} → {ver}")
-                return data["msg"]
-            else:
-                print(f"🐝 [FRELON] ⚠️ F95 Checker API réponse invalide: {data}")
-                return {}
+    # Découper en chunks de 50 IDs
+    for chunk_idx in range(0, total_ids, CHUNK_SIZE):
+        chunk = thread_ids[chunk_idx:chunk_idx + CHUNK_SIZE]
+        chunk_num = (chunk_idx // CHUNK_SIZE) + 1
+        total_chunks = (total_ids + CHUNK_SIZE - 1) // CHUNK_SIZE
+        
+        print(f"🐝 [FRELON] ----------------------------------------")
+        print(f"🐝 [FRELON] Bloc {chunk_num}/{total_chunks}: {len(chunk)} IDs")
+        print(f"🐝 [FRELON] IDs: {chunk[:5]}{'...' if len(chunk) > 5 else ''}")
+        
+        # Construire l'URL pour ce chunk
+        ids_str = ",".join(str(tid) for tid in chunk)
+        checker_url = f"https://f95zone.to/sam/checker.php?threads={ids_str}"
+        
+        try:
+            async with session.get(checker_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                print(f"🐝 [FRELON] Réponse HTTP: {resp.status}")
                 
-    except Exception as e:
-        print(f"🐝 [FRELON] ❌ Erreur fetch F95 Checker API: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
-        return {}
+                if resp.status != 200:
+                    print(f"🐝 [FRELON] ⚠️ F95 Checker API HTTP {resp.status} pour le bloc {chunk_num}")
+                    continue  # Passer au chunk suivant
+                
+                data = await resp.json()
+                
+                # Format de réponse: {"status":"ok","msg":{"100":"v0.68","285451":"Ch.7"}}
+                if data.get("status") == "ok" and "msg" in data:
+                    chunk_versions = data["msg"]
+                    print(f"🐝 [FRELON] ✅ Bloc {chunk_num}: {len(chunk_versions)} versions récupérées")
+                    
+                    # Afficher quelques exemples
+                    for tid, ver in list(chunk_versions.items())[:3]:
+                        print(f"🐝 [FRELON]    Thread {tid} → {ver}")
+                    
+                    # Fusionner avec les résultats globaux
+                    all_versions.update(chunk_versions)
+                else:
+                    print(f"🐝 [FRELON] ⚠️ Bloc {chunk_num}: réponse invalide: {data}")
+                    
+        except Exception as e:
+            print(f"🐝 [FRELON] ❌ Erreur bloc {chunk_num}: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        # Petit délai entre les requêtes pour ne pas surcharger l'API
+        if chunk_idx + CHUNK_SIZE < total_ids:
+            await asyncio.sleep(1)
+            print(f"🐝 [FRELON] ⏱️ Pause 1s avant le bloc suivant...")
+    
+    print(f"🐝 [FRELON] ========================================")
+    print(f"🐝 [FRELON] ✅ TOTAL: {len(all_versions)}/{total_ids} versions récupérées")
+    print(f"🐝 [FRELON] ========================================")
+    
+    return all_versions
 
 
 async def fetch_f95_rss_updates(session: aiohttp.ClientSession) -> Dict[str, str]:

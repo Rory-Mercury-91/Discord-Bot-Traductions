@@ -480,6 +480,9 @@ async def fetch_f95_versions_by_ids(session: aiohttp.ClientSession, thread_ids: 
     🆕 NOUVELLE MÉTHODE: Récupère les versions depuis l'API F95 checker.php
     Plus fiable et rapide que le parsing HTML !
     
+    ⚠️ LIMITE API F95: Maximum 100 IDs par requête
+    Cette fonction découpe automatiquement en blocs de 50 IDs pour la sécurité
+    
     Args:
         session: Session aiohttp
         thread_ids: Liste des IDs de threads F95 (ex: ["100", "285451"])
@@ -491,27 +494,49 @@ async def fetch_f95_versions_by_ids(session: aiohttp.ClientSession, thread_ids: 
     if not thread_ids:
         return {}
     
-    ids_str = ",".join(str(tid) for tid in thread_ids)
-    checker_url = f"https://f95zone.to/sam/checker.php?threads={ids_str}"
+    # ⚠️ LIMITE API: Maximum 100 IDs, on utilise des chunks de 50 par sécurité
+    CHUNK_SIZE = 50
+    total_ids = len(thread_ids)
+    all_versions = {}
     
-    try:
-        async with session.get(checker_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-            if resp.status != 200:
-                logger.warning(f"⚠️ F95 Checker API HTTP {resp.status}")
-                return {}
-            
-            data = await resp.json()
-            
-            if data.get("status") == "ok" and "msg" in data:
-                logger.info(f"✅ F95 Checker API: {len(data['msg'])} versions récupérées")
-                return data["msg"]
-            else:
-                logger.warning(f"⚠️ F95 Checker API réponse invalide")
-                return {}
+    logger.info(f"📡 F95 API: Récupération pour {total_ids} threads (par blocs de {CHUNK_SIZE})")
+    
+    # Découper en chunks de 50 IDs
+    for chunk_idx in range(0, total_ids, CHUNK_SIZE):
+        chunk = thread_ids[chunk_idx:chunk_idx + CHUNK_SIZE]
+        chunk_num = (chunk_idx // CHUNK_SIZE) + 1
+        total_chunks = (total_ids + CHUNK_SIZE - 1) // CHUNK_SIZE
+        
+        logger.info(f"📡 Bloc {chunk_num}/{total_chunks}: {len(chunk)} IDs")
+        
+        # Construire l'URL pour ce chunk
+        ids_str = ",".join(str(tid) for tid in chunk)
+        checker_url = f"https://f95zone.to/sam/checker.php?threads={ids_str}"
+        
+        try:
+            async with session.get(checker_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                if resp.status != 200:
+                    logger.warning(f"⚠️ F95 Checker API HTTP {resp.status} pour le bloc {chunk_num}")
+                    continue  # Passer au chunk suivant
                 
-    except Exception as e:
-        logger.warning(f"❌ Erreur fetch F95 Checker API: {e}")
-        return {}
+                data = await resp.json()
+                
+                if data.get("status") == "ok" and "msg" in data:
+                    chunk_versions = data["msg"]
+                    logger.info(f"✅ Bloc {chunk_num}: {len(chunk_versions)} versions récupérées")
+                    all_versions.update(chunk_versions)
+                else:
+                    logger.warning(f"⚠️ Bloc {chunk_num}: réponse invalide")
+                    
+        except Exception as e:
+            logger.warning(f"❌ Erreur bloc {chunk_num}: {e}")
+        
+        # Petit délai entre les requêtes pour ne pas surcharger l'API
+        if chunk_idx + CHUNK_SIZE < total_ids:
+            await asyncio.sleep(1)
+    
+    logger.info(f"✅ F95 API: TOTAL {len(all_versions)}/{total_ids} versions récupérées")
+    return all_versions
 
 def _normalize_version(version: str) -> str:
     """Normalise une version pour la comparaison (enlève backticks, espaces inutiles)"""
