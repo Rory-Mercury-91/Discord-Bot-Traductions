@@ -244,8 +244,9 @@ _RE_GAME_LINK_JEU_ORIGINAL = re.compile(
 
 # Extraction version depuis titre F95
 _RE_BRACKETS = re.compile(r"\[(?P<val>[^\]]+)\]")
-# Version dans le nom du thread Discord (ex: "Growing Problems [v0.12]")
-_RE_VERSION_IN_THREAD_NAME = re.compile(r"\[v?(?P<ver>[^\]]+)\]\s*$", re.IGNORECASE)
+# Version dans le nom du thread Discord (ex: "Growing Problems [v0.12]" -> "v0.12")
+# Le groupe ver doit capturer tout le contenu y compris le préfixe "v" pour la comparaison avec F95
+_RE_VERSION_IN_THREAD_NAME = re.compile(r"\[(?P<ver>v?[^\]]+)\]\s*$", re.IGNORECASE)
 
 
 def _build_thread_title_with_version(thread_name: str, new_version: str) -> str:

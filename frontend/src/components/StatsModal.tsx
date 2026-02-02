@@ -44,18 +44,21 @@ export default function StatsModal({ onClose }: StatsModalProps) {
   const stats = useMemo(() => {
     const total = filteredPosts.length;
 
-    // Traducteurs les plus fréquents - Basé sur les tags avec isTranslator: true
+    // Traducteurs les plus fréquents - Basé sur les tags avec tagType === 'translator'
     const translatorCount: Record<string, number> = {};
 
     // Récupérer tous les tags de traducteurs
     const translatorTags = savedTags.filter(tag => tag.tagType === 'translator');
 
     // Compter les occurrences de chaque tag traducteur dans les posts
+    // post.tags peut contenir des IDs internes (id/name) ou des IDs Discord (discordTagId)
     filteredPosts.forEach(post => {
       if (post.tags) {
         const postTagIds = post.tags.split(',').map(t => t.trim()).filter(Boolean);
         postTagIds.forEach(tagId => {
-          const translatorTag = translatorTags.find(t => (t.id || t.name) === tagId);
+          const translatorTag = translatorTags.find(t =>
+            (t.id || t.name) === tagId || String(t.discordTagId ?? '') === tagId
+          );
           if (translatorTag) {
             const translatorName = translatorTag.name;
             translatorCount[translatorName] = (translatorCount[translatorName] || 0) + 1;

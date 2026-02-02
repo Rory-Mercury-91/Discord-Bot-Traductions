@@ -16,16 +16,29 @@ export default function InstructionsManagerModal({ onClose }: { onClose?: () => 
 
   const [form, setForm] = useState({ name: '', content: '' });
   const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [addSectionOpen, setAddSectionOpen] = useState(false);
 
   function startEdit(key: string) {
     const content = savedInstructions[key];
     setForm({ name: key, content });
     setEditingKey(key);
+    setAddSectionOpen(true);
   }
 
   function cancelEdit() {
     setForm({ name: '', content: '' });
     setEditingKey(null);
+    setAddSectionOpen(false);
+  }
+
+  function toggleAddSection() {
+    if (addSectionOpen) {
+      cancelEdit();
+    } else {
+      setForm({ name: '', content: '' });
+      setEditingKey(null);
+      setAddSectionOpen(true);
+    }
   }
 
   function saveInstructionItem() {
@@ -90,47 +103,51 @@ export default function InstructionsManagerModal({ onClose }: { onClose?: () => 
             <h4>Instructions enregistrées ({instructionEntries.length})</h4>
             {instructionEntries.length === 0 ? (
               <div style={{ color: 'var(--muted)', fontStyle: 'italic', padding: 12, textAlign: 'center' }}>
-                Aucune instruction enregistrée. Utilisez le formulaire ci-dessous pour en ajouter.
+                Aucune instruction enregistrée. Cliquez sur « Ajouter une instruction » pour en créer.
               </div>
             ) : (
               <div style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(2, 1fr)',
+                gridTemplateColumns: 'repeat(3, 1fr)',
                 gap: 8,
                 overflowY: 'auto',
                 paddingRight: 8
               }}>
                 {instructionEntries.map(([key, content]) => (
                   <div key={key} style={{
-                    display: 'grid',
-                    gridTemplateColumns: editingKey === key ? '1fr' : '1fr auto auto',
+                    display: 'flex',
+                    alignItems: 'center',
                     gap: 8,
-                    alignItems: 'start',
                     border: '1px solid var(--border)',
                     borderRadius: 6,
-                    padding: 8,
+                    padding: '8px 12px',
                     background: editingKey === key ? 'rgba(255,255,255,0.05)' : 'transparent'
                   }}>
                     {editingKey === key ? (
-                      <div style={{ display: 'grid', gap: 8 }}>
-                        <div style={{ color: 'var(--muted)', fontSize: 12 }}>✏️ Mode édition</div>
-                        <div>
-                          <strong>{key}</strong>
-                          <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 4, maxHeight: 60, overflow: 'auto' }}>
-                            {content.slice(0, 200)}{content.length > 200 ? '...' : ''}
-                          </div>
-                        </div>
+                      <div style={{ width: '100%', fontSize: 12, color: 'var(--muted)' }}>
+                        ✏️ Mode édition : {key}
                       </div>
                     ) : (
                       <>
-                        <div>
-                          <strong>{key}</strong>
-                          <div style={{ color: 'var(--muted)', fontSize: 12, marginTop: 4, maxHeight: 60, overflow: 'auto' }}>
-                            {content.slice(0, 200)}{content.length > 200 ? '...' : ''}
-                          </div>
+                        <div
+                          title={content}
+                          style={{
+                            flex: 1,
+                            minWidth: 0,
+                            fontSize: 13,
+                            fontWeight: 500,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            cursor: 'help'
+                          }}
+                        >
+                          {key} :
                         </div>
-                        <button onClick={() => startEdit(key)} style={{ fontSize: 12, padding: '4px 8px' }} title="Éditer">✏️</button>
-                        <button onClick={() => handleDelete(key)} style={{ fontSize: 12, padding: '4px 8px' }} title="Supprimer">🗑️</button>
+                        <span style={{ color: 'var(--border)', fontSize: 12 }}>|</span>
+                        <button onClick={() => startEdit(key)} style={{ fontSize: 14, padding: '4px 6px', background: 'none', border: 'none', cursor: 'pointer' }} title="Éditer">✏️</button>
+                        <span style={{ color: 'var(--border)', fontSize: 12 }}>|</span>
+                        <button onClick={() => handleDelete(key)} style={{ fontSize: 14, padding: '4px 6px', background: 'none', border: 'none', cursor: 'pointer' }} title="Supprimer">🗑️</button>
                       </>
                     )}
                   </div>
@@ -139,58 +156,79 @@ export default function InstructionsManagerModal({ onClose }: { onClose?: () => 
             )}
           </div>
 
-          {/* Formulaire d'ajout/édition */}
+          {/* Formulaire d'ajout/édition - collapsible, fermé par défaut */}
           <div style={{ borderTop: '2px solid var(--border)', paddingTop: 16 }}>
-            {/* Le reste du formulaire reste identique */}
-            <h4>{editingKey ? '✏️ Modifier l\'instruction' : '➕ Ajouter une instruction'}</h4>
+            <button
+              type="button"
+              onClick={toggleAddSection}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 0',
+                background: 'none',
+                border: 'none',
+                color: 'inherit',
+                fontSize: 15,
+                fontWeight: 600,
+                cursor: 'pointer',
+                textAlign: 'left'
+              }}
+            >
+              <span>{editingKey ? '✏️ Modifier l\'instruction' : '➕ Ajouter une instruction'}</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{addSectionOpen ? '▼' : '▶'}</span>
+            </button>
 
-            <div style={{ display: 'grid', gap: 12 }}>
-              <div>
-                <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
-                  Nom de l'instruction
-                </label>
-                <input
-                  placeholder="ex: Installation Windows, Guide Linux..."
-                  value={form.name}
-                  onChange={e => setForm({ ...form, name: e.target.value })}
-                  style={{ width: '100%' }}
-                  disabled={editingKey !== null}
-                />
-                {editingKey && (
+            {addSectionOpen && (
+              <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
+                    Nom de l'instruction
+                  </label>
+                  <input
+                    placeholder="ex: Installation Windows, Guide Linux..."
+                    value={form.name}
+                    onChange={e => setForm({ ...form, name: e.target.value })}
+                    style={{ width: '100%' }}
+                    disabled={editingKey !== null}
+                  />
+                  {editingKey && (
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                      💡 Pour renommer, supprimez et recréez l'instruction
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
+                    Contenu de l'instruction
+                  </label>
+                  <textarea
+                    placeholder="Instructions d'installation détaillées..."
+                    value={form.content}
+                    onChange={e => setForm({ ...form, content: e.target.value })}
+                    rows={8}
+                    style={{ width: '100%', fontFamily: 'monospace', fontSize: 13 }}
+                    spellCheck={true}
+                    lang="fr-FR"
+                  />
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                    💡 Pour renommer, supprimez et recréez l'instruction
+                    💡 Cette instruction sera disponible via la variable [instruction] dans tous les templates
                   </div>
-                )}
-              </div>
+                </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
-                  Contenu de l'instruction
-                </label>
-                <textarea
-                  placeholder="Instructions d'installation détaillées..."
-                  value={form.content}
-                  onChange={e => setForm({ ...form, content: e.target.value })}
-                  rows={8}
-                  style={{ width: '100%', fontFamily: 'monospace', fontSize: 13 }}
-                  spellCheck={true}
-                  lang="fr-FR"
-                />
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                  💡 Cette instruction sera disponible via la variable [instruction] dans tous les templates
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+                  {editingKey !== null && (
+                    <button onClick={cancelEdit}>❌ Annuler</button>
+                  )}
+                  <button onClick={saveInstructionItem}>
+                    {editingKey !== null ? '✅ Enregistrer' : '➕ Ajouter'}
+                  </button>
+                  <button onClick={onClose}>🚪 Fermer</button>
                 </div>
               </div>
-
-              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
-                {editingKey !== null && (
-                  <button onClick={cancelEdit}>🚪 Fermer</button>
-                )}
-                <button onClick={saveInstructionItem}>
-                  {editingKey !== null ? '✅ Enregistrer' : '➕ Ajouter'}
-                </button>
-                <button onClick={onClose}>🚪 Fermer</button>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </div>

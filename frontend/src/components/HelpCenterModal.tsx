@@ -329,6 +329,30 @@ function FormulaireHelp() {
 function TagsHelp() {
   return (
     <div style={{ display: 'grid', gap: 24 }}>
+      {/* Encart tags requis pour publier */}
+      <section style={{
+        background: 'rgba(34, 197, 94, 0.1)',
+        border: '1px solid rgba(34, 197, 94, 0.3)',
+        borderRadius: 8,
+        padding: 16
+      }}>
+        <h4 style={{ margin: '0 0 8px 0', fontSize: 16, color: '#22c55e', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>✅</span>
+          <span>Tags requis pour publier</span>
+        </h4>
+        <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: 0 }}>
+          Pour pouvoir publier, vous devez sélectionner <strong>au moins un tag dans chacune de ces catégories</strong> :
+        </p>
+        <ul style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', margin: '8px 0 0 0', paddingLeft: 20 }}>
+          <li><strong>Site</strong> (ex. F95, Lewd)</li>
+          <li><strong>Type de traduction</strong> (Manuelle, Semi-automatique, Automatique)</li>
+          <li><strong>Traducteur</strong> (votre nom ou celui du traducteur)</li>
+        </ul>
+        <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0 0' }}>
+          Les tags <strong>Autres</strong> et <strong>Statut du jeu</strong> sont optionnels.
+        </p>
+      </section>
+
       {/* Encart limite tags */}
       <section style={{
         background: 'rgba(255, 193, 7, 0.1)',
@@ -469,7 +493,7 @@ function StatsHelp() {
           👤 Répartition par traducteur
         </h4>
         <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: 0 }}>
-          Cette section affiche tous les traducteurs selon le nombre de publications auxquelles ils sont associés. Seuls les <strong>tags marqués comme « Tag traducteur »</strong> (dans la gestion des tags) sont pris en compte. Si aucun tag traducteur n'est défini ou utilisé dans les posts, cette section affiche « Aucune donnée ».
+          Cette section affiche tous les traducteurs selon le nombre de publications auxquelles ils sont associés.
         </p>
       </section>
 
@@ -607,18 +631,18 @@ function InstructionsHelp() {
         padding: 16
       }}>
         <h4 style={{ margin: '0 0 12px 0', fontSize: 16, color: '#4a9eff' }}>
-          💾 Sauvegarde locale
+          📋 Gestion des instructions
         </h4>
         <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: '0 0 12px 0' }}>
           Dans la fenêtre <strong>Gestion des instructions</strong> (bouton 📋 dans l'éditeur) :
         </p>
         <ul style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', margin: 0, paddingLeft: 20 }}>
-          <li><strong>Ajouter</strong> : remplissez le nom et le contenu, puis cliquez sur « ➕ Ajouter ». L'instruction est enregistrée localement dans l'app.</li>
-          <li><strong>Modifier</strong> : cliquez sur ✏️ sur une instruction, modifiez le contenu et validez avec « ✅ Enregistrer ».</li>
+          <li><strong>Ajouter</strong> : cliquez sur « ➕ Ajouter une instruction » pour ouvrir le formulaire, remplissez le nom et le contenu, puis validez avec « ➕ Ajouter ».</li>
+          <li><strong>Modifier</strong> : cliquez sur ✏️ sur une instruction, modifiez le contenu dans le formulaire et validez avec « ✅ Enregistrer ».</li>
           <li><strong>Supprimer</strong> : cliquez sur 🗑️ ; une confirmation est demandée. La suppression est définitive.</li>
         </ul>
         <p style={{ fontSize: 13, color: 'var(--muted)', margin: '12px 0 0 0' }}>
-          Ces actions ne touchent que votre copie locale. Pour les conserver ou les partager via la base, utilisez la synchronisation (voir ci-dessous).
+          Vos instructions sont <strong>synchronisées automatiquement avec Supabase</strong> à chaque modification (voir section suivante pour le partage et la révocation).
         </p>
       </section>
 
@@ -629,16 +653,15 @@ function InstructionsHelp() {
         padding: 16
       }}>
         <h4 style={{ margin: '0 0 12px 0', fontSize: 16, color: '#4ade80' }}>
-          🔄 Synchronisation automatique (Supabase)
+          🔄 Synchronisation et partage (Supabase)
         </h4>
         <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: '0 0 12px 0' }}>
-          Les <strong>instructions sont synchronisées automatiquement</strong> avec la base de données Supabase à chaque modification. Vous n&apos;avez rien à faire !
+          Les <strong>instructions sont synchronisées automatiquement</strong> avec la base Supabase à chaque modification. Vous n&apos;avez rien à faire !
         </p>
         <ul style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', margin: 0, paddingLeft: 20 }}>
           <li><strong>✅ Création/modification</strong> : vos instructions sont envoyées automatiquement vers la base.</li>
           <li><strong>✅ Partage</strong> : si un utilisateur vous ajoute dans « Qui peut modifier mes posts » (Configuration), ses instructions apparaissent automatiquement dans votre app.</li>
           <li><strong>✅ Révocation</strong> : si votre accès est révoqué, les instructions partagées sont supprimées automatiquement de votre appareil.</li>
-          <li><strong>🔃 Forcer sync / 📥 Recharger</strong> : boutons de secours dans Configuration si besoin de resynchroniser manuellement.</li>
         </ul>
         <p style={{ fontSize: 13, color: 'var(--muted)', margin: '12px 0 0 0' }}>
           <strong>Note :</strong> vous ne pouvez modifier que vos propres instructions sur la base. Les instructions reçues d&apos;autres utilisateurs sont en lecture seule.
@@ -754,18 +777,6 @@ function ShortcutsHelp() {
           </div>
         </section>
       ))}
-
-      <div style={{
-        padding: 12,
-        background: 'rgba(74, 158, 255, 0.1)',
-        border: '1px solid rgba(74, 158, 255, 0.3)',
-        borderRadius: 6,
-        fontSize: 13,
-        color: 'var(--text)'
-      }}>
-        💡 <strong>Astuce :</strong> D'autres raccourcis seront ajoutés au fur et à mesure
-        des mises à jour de l'application.
-      </div>
     </div>
   );
 }
@@ -795,9 +806,14 @@ function TemplatesHelp() {
           Gérer le template
         </h4>
         <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: '0 0 12px 0' }}>
-          La fenêtre <strong>Gestion du template</strong> (bouton « Gérer le Template ») permet de modifier le template, ou de restaurer le Template par défaut. Les templates peuvent être partagés via la base : dans Configuration, utilisez « Envoyer » / « Récupérer » pour les templates afin de les synchroniser avec Supabase ou bien en exportant ou important un Template d'un autre utilisateur.
+          La fenêtre <strong>Gestion du template</strong> (bouton « Gérer le Template ») permet de modifier le template, de restaurer le template par défaut, ou d'exporter/importer un template. Les modifications sont <strong>synchronisées automatiquement avec Supabase</strong>.
         </p>
-        <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
+        <ul style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', margin: '8px 0 0 0', paddingLeft: 20 }}>
+          <li><strong>📤 Exporter</strong> : enregistre le template (et les variables) en fichier JSON, utile pour sauvegarder une version adaptée à une traduction et la recharger plus tard.</li>
+          <li><strong>📥 Importer</strong> : charge un template depuis un fichier JSON exporté.</li>
+          <li><strong>🔄 Restaurer</strong> : rétablit le template par défaut. Utilisez cette option si vous souhaitez revenir au template standard.</li>
+        </ul>
+        <p style={{ fontSize: 13, color: 'var(--muted)', margin: '12px 0 0 0' }}>
           Les variables disponibles (ex. <code style={{ fontFamily: 'monospace', fontSize: 11 }}>[Game_name]</code>, <code style={{ fontFamily: 'monospace', fontSize: 11 }}>[Game_version]</code>, <code style={{ fontFamily: 'monospace', fontSize: 11 }}>[instruction]</code>, <code style={{ fontFamily: 'monospace', fontSize: 11 }}>[Overview]</code>) sont documentées dans la modale Templates ou dans le Markdown d'aide du champ contenu.
         </p>
       </section>
@@ -833,7 +849,7 @@ function ConfigHelp() {
           ⚙️ À quoi sert la configuration ?
         </h4>
         <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: 0 }}>
-          La configuration regroupe les paramètres de l'API (URL Koyeb, clé API), l'état de la fenêtre au démarrage, les droits d'édition (qui peut modifier vos posts), et la synchronisation des données (tags, instructions, templates) avec la base Supabase. En mode admin, l'export/import complet et le nettoyage des données sont également disponibles.
+          La fenêtre <strong>Configuration</strong> regroupe la clé API pour publier, l’état de la fenêtre (Normal, Maximisé, Plein écran, Minimisé), et les droits d’édition (qui peut modifier vos posts). En mode admin, l’URL de l’API, l’export/import complet et le nettoyage des données sont également disponibles.
         </p>
       </section>
 
@@ -844,12 +860,11 @@ function ConfigHelp() {
         padding: 16
       }}>
         <h4 style={{ margin: '0 0 12px 0', fontSize: 16, color: '#4a9eff' }}>
-          🌐 API et fenêtre
+          🌐 Configuration (API)
         </h4>
         <ul style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', margin: 0, paddingLeft: 20 }}>
-          <li><strong>URL de l'API Koyeb</strong> : URL de base de votre service (ex. https://votre-app.koyeb.app), sans /api.</li>
-          <li><strong>Clé API</strong> : clé secrète pour l'accès à l'API de publication.</li>
-          <li><strong>État de la fenêtre au démarrage</strong> : Normal, Maximisé, Plein écran ou Minimisé (application Tauri). Enregistré avec le bouton « Enregistrer ».</li>
+          <li><strong>URL de l'API (admin)</strong> : visible uniquement en mode admin. URL de base du service de publication (ex. https://votre-app.koyeb.app), sans /api. Les utilisateurs non-admin utilisent l’URL définie ici.</li>
+          <li><strong>Clé API</strong> : clé de sécurité pour publier. Chaque utilisateur saisit la sienne. Validez avec « 💾 Enregistrer ».</li>
         </ul>
       </section>
 
@@ -863,7 +878,7 @@ function ConfigHelp() {
           👥 Qui peut modifier mes posts
         </h4>
         <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: 0 }}>
-          Vous pouvez autoriser ou révoquer le droit d'édition de vos publications pour d'autres utilisateurs (identifiés par leur profil Supabase). Les utilisateurs autorisés pourront éditer vos posts depuis l'historique et verront automatiquement vos instructions (synchronisation temps réel).
+          Autorisez ou révoquez le droit d’édition de vos publications pour les autres utilisateurs (profils Supabase). Les utilisateurs autorisés peuvent éditer vos posts depuis l’historique et voient automatiquement vos instructions (synchronisation temps réel). Utilisez les boutons <strong>Autoriser</strong> / <strong>Révoquer</strong> à côté de chaque profil.
         </p>
       </section>
 
@@ -874,26 +889,32 @@ function ConfigHelp() {
         padding: 16
       }}>
         <h4 style={{ margin: '0 0 12px 0', fontSize: 16, color: '#8b5cf6' }}>
-          🔄 Synchronisation avec la base
+          🪟 État de la fenêtre
         </h4>
-        <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: '0 0 12px 0' }}>
-          Comportement de synchronisation selon le type de données :
-        </p>
-        <ul style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', margin: 0, paddingLeft: 20 }}>
-          <li><strong>📝 Instructions</strong> : synchronisation <strong>automatique</strong> à chaque modification (aucune action requise).</li>
-          <li><strong>🏷️ Tags / 📋 Templates</strong> : utilisez les boutons <strong>📤 Envoyer</strong> / <strong>📥 Récupérer</strong> dans Configuration.</li>
-        </ul>
-        <p style={{ fontSize: 13, color: 'var(--muted)', margin: '12px 0 0 0' }}>
-          À l'ouverture de l'app, toutes les données sont chargées automatiquement depuis la base si vous êtes connecté.
+        <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: 0 }}>
+          Choisissez l’état au démarrage de l’application : <strong>Normal</strong>, <strong>Maximisé</strong>, <strong>Plein écran</strong> ou <strong>Minimisé</strong>. L’état est appliqué immédiatement et conservé au prochain démarrage (application Tauri). Validez avec « 💾 Enregistrer ».
         </p>
       </section>
 
-      <section>
-        <h4 style={{ margin: '0 0 12px 0', fontSize: 16, color: 'var(--accent)' }}>
-          🔐 Mode admin
+      <section style={{
+        background: 'rgba(255, 193, 7, 0.1)',
+        border: '1px solid rgba(255, 193, 7, 0.3)',
+        borderRadius: 8,
+        padding: 16
+      }}>
+        <h4 style={{ margin: '0 0 12px 0', fontSize: 16, color: '#f59e0b' }}>
+          🔐 Mode admin — Sauvegarde et restauration
         </h4>
-        <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: 0 }}>
-          En débloquant le mode admin (via le code Master Admin dans la fenêtre d'accès à la configuration), vous accédez à l'<strong>export</strong> et l'<strong>import</strong> complets (sauvegarde JSON de toutes les données) et au <strong>nettoyage complet des données</strong> (suppression des publications, tags, config, etc. sur Supabase). Utilisez ces options avec précaution.
+        <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 12px 0' }}>
+          En débloquant le mode admin (code Master Admin à l’accès à la configuration), la section <strong>💾 Sauvegarde et restauration</strong> apparaît :
+        </p>
+        <ul style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', margin: 0, paddingLeft: 20 }}>
+          <li><strong>📤 Exporter une copie</strong> : télécharge un fichier JSON contenant config, templates, tags, instructions et historique.</li>
+          <li><strong>📥 Restaurer depuis un fichier</strong> : remplace vos données par le contenu d’un fichier de sauvegarde (export précédent). Écrase les données actuelles.</li>
+          <li><strong>🗑️ Tout supprimer</strong> : supprime toutes les données sur Supabase et localement. Irréversible. À utiliser avec précaution.</li>
+        </ul>
+        <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0 0' }}>
+          Tags, templates et instructions sont synchronisés <strong>automatiquement</strong> avec Supabase à chaque modification. Aucun bouton de sync manuel dans Configuration.
         </p>
       </section>
     </div>
