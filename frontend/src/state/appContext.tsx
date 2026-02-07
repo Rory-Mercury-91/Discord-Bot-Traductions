@@ -458,7 +458,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     localStorage.getItem('apiBase') ??
     localStorage.getItem('apiUrl') ??
     (typeof import.meta?.env?.VITE_PUBLISHER_API_URL === 'string' ? import.meta.env.VITE_PUBLISHER_API_URL : '') ??
-    'https://dependent-klarika-rorymercury91-e1486cf2.koyeb.app';
+    'http://138.2.182.125:8080';
 
   const defaultApiBase = (defaultApiBaseRaw || '').replace(/\/+$/, '');
 
@@ -742,7 +742,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }
 
-  // Récupérer l'historique : d'abord Supabase, puis API Koyeb en backup
+  // Récupérer l'historique : d'abord Supabase, puis API en backup
   async function fetchHistoryFromAPI() {
     console.log('[Historique] Début chargement…');
     const sb = getSupabase();
@@ -760,19 +760,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           console.log('[Historique] Supabase OK:', rows.length, 'publication(s)');
           return;
         } else {
-          console.log('[Historique] Supabase OK mais 0 publication, passage à Koyeb si configuré');
+          console.log('[Historique] Supabase OK mais 0 publication, passage à l\'API si configurée');
         }
       } catch (e) {
         console.warn('[Historique] Supabase exception:', e);
       }
     } else {
-      console.log('[Historique] Supabase non configuré, tentative Koyeb');
+      console.log('[Historique] Supabase non configuré, tentative API');
     }
     try {
       const baseUrl = localStorage.getItem('apiBase') || defaultApiBase;
       const apiKey = localStorage.getItem('apiKey') || '';
       if (!baseUrl || !apiKey) {
-        console.log('[Historique] API Koyeb non configurée (apiBase ou apiKey manquant)');
+        console.log('[Historique] API non configurée (apiBase ou apiKey manquant)');
         return;
       }
       const endpoint = `${baseUrl}/api/history`;
@@ -784,26 +784,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       });
       if (!response.ok) {
-        console.warn('[Historique] Koyeb HTTP', response.status, response.statusText);
+        console.warn('[Historique] API HTTP', response.status, response.statusText);
         return;
       }
       const data = await response.json();
       if (Array.isArray(data.posts) || Array.isArray(data)) {
-        const koyebPosts = Array.isArray(data.posts) ? data.posts : data;
+        const apiPosts = Array.isArray(data.posts) ? data.posts : data;
         const localPosts = publishedPosts;
-        const newPostsFromKoyeb = koyebPosts.filter((p: any) => {
-          const koyebThreadId = p.thread_id || p.threadId;
-          const koyebMessageId = p.message_id || p.messageId;
+        const newPostsFromApi = apiPosts.filter((p: any) => {
+          const apiThreadId = p.thread_id || p.threadId;
+          const apiMessageId = p.message_id || p.messageId;
           return !localPosts.some(local =>
-            (local.threadId === koyebThreadId && local.messageId === koyebMessageId) ||
+            (local.threadId === apiThreadId && local.messageId === apiMessageId) ||
             local.id === p.id
           );
         });
-        if (newPostsFromKoyeb.length > 0) {
-          const mapped = newPostsFromKoyeb.map((p: Record<string, unknown>) => {
+        if (newPostsFromApi.length > 0) {
+          const mapped = newPostsFromApi.map((p: Record<string, unknown>) => {
             const row = {
               ...p,
-              id: p.id ?? `post_${p.timestamp ?? Date.now()}_koyeb`,
+              id: p.id ?? `post_${p.timestamp ?? Date.now()}_api`,
               thread_id: p.thread_id ?? p.threadId ?? '',
               message_id: p.message_id ?? p.messageId ?? '',
               discord_url: p.discord_url ?? p.thread_url ?? '',
@@ -815,13 +815,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const merged = [...mapped, ...prev].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
             return merged;
           });
-          console.log('[Historique] Koyeb OK:', newPostsFromKoyeb.length, 'nouvelle(s) publication(s)');
+          console.log('[Historique] API OK:', newPostsFromApi.length, 'nouvelle(s) publication(s)');
         } else {
-          console.log('[Historique] Koyeb OK mais aucune nouvelle publication');
+          console.log('[Historique] API OK mais aucune nouvelle publication');
         }
       }
     } catch (e) {
-      console.warn('[Historique] Koyeb exception:', e);
+      console.warn('[Historique] API exception:', e);
     }
   }
 
@@ -873,7 +873,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       showErrorModal({
         code: 'CONFIG_ERROR',
         message: 'URL de l\'API manquante',
-        context: 'Veuillez configurer l\'URL Koyeb dans Configuration',
+        context: 'Veuillez configurer l\'URL de l\'API dans Configuration',
         httpStatus: 500
       });
       return { ok: false, error: 'missing_api_url' };
@@ -986,7 +986,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         formData.append('isUpdate', 'true');
       }
 
-      // Payload complet pour l'historique Koyeb (aligné Supabase) : tous les champs
+      // Payload complet pour l'historique (aligné Supabase) : tous les champs
       const now = Date.now();
       const postId = `post_${now}_${Math.random().toString(36).substr(2, 9)}`;
       const imagePathVal = imagesState.uploadedImages.find(i => i.isMain)?.path || imagesState.uploadedImages.find(i => i.isMain)?.url;
@@ -1076,7 +1076,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         showErrorModal({
           code: res.error || 'API_ERROR',
           message: isNetworkError
-            ? 'L\'API n\'est pas accessible. Vérifiez l\'URL Koyeb.'
+            ? 'L\'API n\'est pas accessible. Vérifiez l\'URL de l\'API.'
             : (res.error || 'Erreur inconnue'),
           context: isEditMode ? 'Mise à jour du post Discord' : 'Publication du post Discord',
           httpStatus: response.status || 0,

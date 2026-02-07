@@ -99,7 +99,7 @@ fn get_python_workdir(app: &AppHandle) -> Result<PathBuf, String> {
 async fn test_api_connection() -> Result<serde_json::Value, String> {
     let client = reqwest::Client::new();
     let base_url = std::env::var("PUBLISHER_API_URL")
-        .unwrap_or_else(|_| "https://dependent-klarika-rorymercury91-e1486cf2.koyeb.app".to_string());
+        .unwrap_or_else(|_| "http://138.2.182.125:8080".to_string());
     let url = format!("{}/health", base_url.trim_end_matches('/'));
     let response = client.get(&url).send().await
         .map_err(|e| format!("Erreur connexion API: {}", e))?;
@@ -144,7 +144,7 @@ async fn publish_post(payload: PublishPayload) -> Result<serde_json::Value, Stri
     let api_key = std::env::var("PUBLISHER_API_KEY").unwrap_or_default();
     let client = reqwest::Client::new();
     let base_url = std::env::var("PUBLISHER_API_URL")
-        .unwrap_or_else(|_| "https://dependent-klarika-rorymercury91-e1486cf2.koyeb.app".to_string());
+        .unwrap_or_else(|_| "http://138.2.182.125:8080".to_string());
     let url = format!("{}/api/forum-post", base_url.trim_end_matches('/'));
     
     let response = client.post(&url)

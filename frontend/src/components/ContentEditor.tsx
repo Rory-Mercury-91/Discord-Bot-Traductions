@@ -1,14 +1,63 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import DiscordIcon from '../assets/discord-icon.svg';
 import { useConfirm } from '../hooks/useConfirm';
+import { useImageLoader } from '../hooks/useImageLoader';
 import { tauriAPI } from '../lib/tauri-api';
 import { useApp } from '../state/appContext';
 import { useAuth } from '../state/authContext';
 import ConfirmModal from './ConfirmModal';
-import ImageThumbnail from './ImageThumbnail';
 import TagSelectorModal from './TagSelectorModal';
 import { useToast } from './ToastProvider';
-// Si tu n'as pas de composant "Button" personnalisé, on utilisera des balises <button> normales
+
+function FormImageDisplay({ imagePath, onDelete }: { imagePath: string; onDelete: () => void }) {
+  const { imageUrl, isLoading, error } = useImageLoader(imagePath);
+  return (
+    <>
+      {isLoading ? (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.05)' }}>
+          <span style={{ fontSize: 14, color: 'var(--muted)' }}>⏳</span>
+        </div>
+      ) : error ? (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,0,0,0.1)' }}>
+          <span style={{ fontSize: 12, color: 'var(--error)' }}>❌ Erreur</span>
+        </div>
+      ) : (
+        <img
+          src={imageUrl}
+          alt=""
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            display: 'block'
+          }}
+        />
+      )}
+      <button
+        type="button"
+        onClick={onDelete}
+        title="Supprimer"
+        style={{
+          position: 'absolute',
+          bottom: 8,
+          right: 8,
+          padding: '6px 14px',
+          borderRadius: 6,
+          border: 'none',
+          background: 'rgba(239, 68, 68, 0.65)',
+          color: '#fff',
+          fontSize: 12,
+          cursor: 'pointer'
+        }}
+      >
+        🗑️
+      </button>
+    </>
+  );
+}
+
 export default function ContentEditor() {
   // 1️⃣ D'ABORD : Extraire toutes les valeurs du context
   const {
@@ -622,42 +671,39 @@ export default function ContentEditor() {
             </div>
           </div>
 
-          {/* LIGNE 1-2 - Col 3 : Miniature de l'image (rowspan 2) - À DROITE */}
-          <div style={{ gridColumn: 3, gridRow: '1 / 3', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start' }}>
-            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>
-              Image
-            </label>
-            {uploadedImages.length > 0 ? (
-              <ImageThumbnail
-                imagePath={uploadedImages[0].path || uploadedImages[0].url || ''}
-                isMain={true}
-                onSetMain={() => { }}
-                onCopyName={() => { }}
-                onDelete={async () => {
-                  const ok = await confirm({ title: 'Supprimer', message: 'Supprimer cette image ?', type: 'danger' });
-                  if (ok) removeImage(0);
-                }}
-                onChange={() => { }}
-              />
-            ) : (
-              <div style={{
-                width: '100%',
-                minHeight: '120px',
-                border: '2px dashed var(--border)',
-                borderRadius: 6,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'rgba(255,255,255,0.02)',
-                color: 'var(--muted)',
-                padding: '12px',
-                gap: '8px'
-              }}>
-                <div style={{ fontSize: 32 }}>🖼️</div>
-                <div style={{ fontSize: 11, textAlign: 'center' }}>Aucune image</div>
-              </div>
-            )}
+          {/* LIGNE 1-2 - Col 3 : Zone image (rowspan 2) - À DROITE — même taille avec ou sans image */}
+          <div style={{ gridColumn: 3, gridRow: '1 / 3', display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start' }}>
+            <div style={{
+              width: '100%',
+              minHeight: '160px',
+              border: `2px ${uploadedImages.length > 0 ? 'solid' : 'dashed'} var(--border)`,
+              borderRadius: 6,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(255,255,255,0.02)',
+              color: 'var(--muted)',
+              padding: '12px',
+              gap: '8px',
+              overflow: 'hidden',
+              position: 'relative'
+            }}>
+              {uploadedImages.length > 0 ? (
+                <FormImageDisplay
+                  imagePath={uploadedImages[0].path || uploadedImages[0].url || ''}
+                  onDelete={async () => {
+                    const ok = await confirm({ title: 'Supprimer', message: 'Supprimer cette image ?', type: 'danger' });
+                    if (ok) removeImage(0);
+                  }}
+                />
+              ) : (
+                <>
+                  <div style={{ fontSize: 32 }}>🖼️</div>
+                  <div style={{ fontSize: 11, textAlign: 'center' }}>Aucune image</div>
+                </>
+              )}
+            </div>
           </div>
 
           {/* LIGNE 2 - Col 1 : Nom du jeu */}

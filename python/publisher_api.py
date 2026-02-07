@@ -53,9 +53,10 @@ def _init_supabase():
     if not _SUPABASE_AVAILABLE:
         return None
     url = (os.getenv("SUPABASE_URL") or "").strip()
-    key = (os.getenv("SUPABASE_ANON_KEY") or "").strip()
+    # Service Role Key pour le serveur (bypass RLS) ; fallback sur Anon Key si absente
+    key = (os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY") or "").strip()
     if not url or not key:
-        logger.info("ℹ️ Supabase non configuré (SUPABASE_URL ou SUPABASE_ANON_KEY manquants)")
+        logger.info("ℹ️ Supabase non configuré (SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY/SUPABASE_ANON_KEY manquants)")
         return None
     try:
         _supabase_client = create_client(url, key)
@@ -171,7 +172,8 @@ class Config:
         self.PUBLISHER_API_KEY = os.getenv("PUBLISHER_API_KEY", "")
         self.ALLOWED_ORIGINS = os.getenv("PUBLISHER_ALLOWED_ORIGINS", "*")
         self.PORT = int(os.getenv("PORT", "8080"))
-        self.DISCORD_API_BASE = os.getenv("DISCORD_API_BASE", "https://api-proxy-koyeb.a-fergani91.workers.dev")
+        # API Discord officielle (https://discord.com/api/v10) — le serveur Oracle communique en direct
+        self.DISCORD_API_BASE = os.getenv("DISCORD_API_BASE", "https://discord.com/api/v10")
         
         # Salon unique "my" : forum qui reçoit les posts (publication + contrôle versions)
         self.FORUM_MY_ID = int(os.getenv("PUBLISHER_FORUM_TRAD_ID", "0")) if os.getenv("PUBLISHER_FORUM_TRAD_ID") else 0
@@ -350,7 +352,7 @@ class PublicationHistory:
                 json.dumps(history, ensure_ascii=False, indent=2),
                 encoding='utf-8'
             )
-            logger.info(f"✅ Post enregistré dans l'historique Koyeb: {post_data.get('title', 'N/A')}")
+            logger.info(f"✅ Post enregistré dans l'historique: {post_data.get('title', 'N/A')}")
         except Exception as e:
             logger.error(f"Erreur lors de l'enregistrement dans l'historique: {e}")
 
@@ -373,7 +375,7 @@ class PublicationHistory:
     
     def delete_post(self, thread_id: str = None, post_id: str = None) -> bool:
         """
-        Supprime un post de l'historique local (JSON Koyeb) par thread_id ou id.
+        Supprime un post de l'historique local (JSON) par thread_id ou id.
         ⚠️ Ne supprime PAS de Supabase (utilisez _delete_from_supabase_sync pour ça)
         Retourne True si un post a été supprimé, False sinon.
         """
@@ -402,7 +404,7 @@ class PublicationHistory:
                     json.dumps(history, ensure_ascii=False, indent=2),
                     encoding='utf-8'
                 )
-                logger.info(f"✅ {deleted_count} post(s) supprimé(s) de l'historique Koyeb (thread_id={thread_id}, id={post_id})")
+                logger.info(f"✅ {deleted_count} post(s) supprimé(s) de l'historique (thread_id={thread_id}, id={post_id})")
                 return True
             else:
                 logger.info(f"ℹ️ Aucun post trouvé dans l'historique avec thread_id={thread_id} ou id={post_id}")
@@ -2288,7 +2290,7 @@ async def forum_post_update(request):
         # Normaliser le payload (snake_case)
         final_payload = _normalize_history_row(final_payload)
         
-        # Sauvegarder dans l'historique Koyeb
+        # Sauvegarder dans l'historique
         history_manager.update_or_add_post(final_payload)
         
         # 🔥 SAUVEGARDER DANS SUPABASE (source de vérité)
@@ -2330,7 +2332,7 @@ async def forum_post_delete(request):
     """
     Supprime définitivement un post de TOUS les systèmes :
     1. Thread Discord (tous les messages)
-    2. Historique local Koyeb (JSON)
+    2. Historique local (JSON)
     3. Base de données Supabase
     """
     api_key = request.headers.get("X-API-KEY") or request.query.get("api_key")
@@ -2375,7 +2377,7 @@ async def forum_post_delete(request):
             logger.warning(f"⚠️ Échec suppression thread Discord: {thread_id} (status={status})")
             return _with_cors(request, web.json_response({"ok": False, "error": "Échec suppression du thread sur Discord"}, status=500))
         
-        # Supprimer de l'historique Koyeb
+        # Supprimer de l'historique
         history_manager.delete_post(thread_id=thread_id)
         
         # 🔥 SUPPRESSION SUPABASE

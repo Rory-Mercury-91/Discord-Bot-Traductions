@@ -16,6 +16,11 @@ python-embed/
 *_token.txt
 *_key.txt
 
+# Clés SSH (NE JAMAIS committer)
+*.key
+*.key.pub
+*.ppk
+
 # Documentation personnelle (non versionnée)
 docs_perso/
 *.example

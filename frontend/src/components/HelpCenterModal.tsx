@@ -539,7 +539,7 @@ function HistoryHelp() {
           📂 D'où viennent les données ?
         </h4>
         <p style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)', margin: '0 0 12px 0' }}>
-          Les publications sont enregistrées dans la base Supabase (<strong>published_posts</strong>) et, à l'ouverture de l'historique, l'app peut fusionner les posts venant de l'API Koyeb (<strong>/api/history</strong>) pour inclure les publications faites depuis un autre appareil. L'historique affiché est donc la réunion de vos données locales/Supabase et de celles du serveur de publication.
+          Les publications sont enregistrées dans la base Supabase (<strong>published_posts</strong>) et, à l'ouverture de l'historique, l'app peut fusionner les posts venant de l'API (<strong>/api/history</strong>) pour inclure les publications faites depuis un autre appareil. L'historique affiché est donc la réunion de vos données locales/Supabase et de celles du serveur de publication.
         </p>
         <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
           À chaque publication ou mise à jour depuis l'éditeur, l'entrée est ajoutée ou mise à jour dans l'historique et synchronisée avec Supabase.
@@ -863,7 +863,7 @@ function ConfigHelp() {
           🌐 Configuration (API)
         </h4>
         <ul style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--text)', margin: 0, paddingLeft: 20 }}>
-          <li><strong>URL de l'API (admin)</strong> : visible uniquement en mode admin. URL de base du service de publication (ex. https://votre-app.koyeb.app), sans /api. Les utilisateurs non-admin utilisent l’URL définie ici.</li>
+          <li><strong>URL de l'API (admin)</strong> : visible uniquement en mode admin. URL de base du service de publication (ex. http://138.2.182.125:8080), sans /api. Les utilisateurs non-admin utilisent l’URL définie ici.</li>
           <li><strong>Clé API</strong> : clé de sécurité pour publier. Chaque utilisateur saisit la sienne. Validez avec « 💾 Enregistrer ».</li>
         </ul>
       </section>

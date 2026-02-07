@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../state/appContext';
+
+// URL par défaut du serveur Oracle Cloud (aligné avec appContext)
+const DEFAULT_API_BASE = 'http://138.2.182.125:8080';
 
 // Possible states for the publisher connection.
 type Status = 'connected' | 'disconnected' | 'checking';
 
 /**
- * ApiStatusBadge displays a simple indicator showing whether the publisher
- * service is reachable on Koyeb.  It polls the `/api/publisher/health`
- * endpoint every 30 seconds (after an initial delay) and updates the
- * coloured badge accordingly.  When clicked, a dropdown reveals more
- * detailed information about the publisher.
+ * ApiStatusBadge affiche un indicateur indiquant si le service publisher
+ * est accessible. Il interroge `/api/publisher/health` toutes les 15 min
+ * et met à jour le badge. Au clic, un dropdown affiche les détails.
  */
 export default function ApiStatusBadge() {
   const { apiUrl } = useApp();
@@ -19,36 +20,30 @@ export default function ApiStatusBadge() {
   const dropdownRef = React.useRef<HTMLDivElement>(null);
 
   /**
-   * Compute the base URL from apiUrl.  We remove any `/api` suffix and
-   * trailing slash so that endpoints are built relative to the root of
-   * the service.  If apiUrl is undefined or malformed, we skip checks.
+   * Extrait l'URL de base (origine) depuis apiUrl ou utilise le défaut.
    */
-  const getBaseUrl = (url: string) => {
+  const getBaseUrl = (url: string | undefined): string => {
+    const toParse = (url || '').trim() || `${DEFAULT_API_BASE}/api/forum-post`;
     try {
-      const u = new URL(url);
+      const u = new URL(toParse);
       return u.origin;
     } catch {
-      return url.split('/api')[0] || url.replace(/\/$/, '');
+      return toParse.split('/api')[0]?.replace(/\/+$/, '') || DEFAULT_API_BASE;
     }
   };
 
   /**
-   * Poll the publisher health endpoint and update the status.  A value
-   * of `configured`, `ok` or `status === 'ok'` in the response is
-   * considered a successful connection.
+   * Interroge l'endpoint health du publisher et met à jour le statut.
+   * Réponse OK si `configured`, `ok` ou `status === 'ok'`.
    */
   const checkStatus = async () => {
-    if (!apiUrl) {
-      return;
-    }
-
     const base = getBaseUrl(apiUrl);
     const url = `${base}/api/publisher/health`;
     setStatus('checking');
     setLastCheck(Date.now());
 
     try {
-      const response = await fetch(url, { 
+      const response = await fetch(url, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
@@ -78,7 +73,7 @@ export default function ApiStatusBadge() {
     return () => {
       clearInterval(interval);
     };
-  }, [apiUrl]);
+  }, [apiUrl]); // Re-vérifier quand l'URL API change (config admin)
 
   // Close the dropdown when clicking outside of it.
   useEffect(() => {

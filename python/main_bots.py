@@ -360,9 +360,9 @@ async def start():
 
 if __name__ == "__main__":
     try:
-        # Force l'API officielle pour les bots (ne touche pas ton Publisher API)
+        # API Discord officielle pour tous les bots — le serveur Oracle communique en direct
         Route.BASE = "https://discord.com/api/v10"
-        logger.info("🛡️  Configuration : Bots en direct, Publisher via Proxy (inchangé).")
+        logger.info("🛡️  Configuration : Bots et API en direct vers Discord.")
 
         asyncio.run(start())
     except KeyboardInterrupt:

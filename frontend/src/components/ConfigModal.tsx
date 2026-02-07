@@ -41,7 +41,7 @@ export default function ConfigModal({ onClose, adminMode = false }: ConfigModalP
     clearAllAppData
   } = useApp();
   const { confirm, confirmState, handleConfirm, handleCancel } = useConfirm();
-  const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('apiUrl') || localStorage.getItem('apiBase') || '');
+  const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('apiUrl') || localStorage.getItem('apiBase') || 'http://138.2.182.125:8080');
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('apiKey') || '');
 
   // Droits d'édition : liste des profils et des éditeurs autorisés par l'utilisateur connecté
@@ -286,7 +286,7 @@ export default function ConfigModal({ onClose, adminMode = false }: ConfigModalP
 
       importFullConfig(data);
 
-      setApiUrl(localStorage.getItem('apiUrl') || localStorage.getItem('apiBase') || '');
+      setApiUrl(localStorage.getItem('apiUrl') || localStorage.getItem('apiBase') || 'http://138.2.182.125:8080');
       setApiKey(localStorage.getItem('apiKey') || '');
 
       // ✅ Restaurer l'état de fenêtre si présent
@@ -397,7 +397,7 @@ export default function ConfigModal({ onClose, adminMode = false }: ConfigModalP
                     type="text"
                     value={apiUrl}
                     onChange={(e) => setApiUrl(e.target.value)}
-                    placeholder="https://votre-app.koyeb.app"
+                    placeholder="http://138.2.182.125:8080"
                     style={{
                       width: '100%',
                       padding: '12px 14px',
@@ -515,7 +515,7 @@ export default function ConfigModal({ onClose, adminMode = false }: ConfigModalP
               </section>
             )}
 
-            </div>
+          </div>
 
           {/* Colonne droite : Fenêtre (tous les utilisateurs) + Sauvegarde (mode admin uniquement) */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
