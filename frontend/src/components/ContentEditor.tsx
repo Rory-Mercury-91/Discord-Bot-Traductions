@@ -1619,7 +1619,7 @@ export default function ContentEditor() {
                   message: editingPostId ? 'Modifier ce post sur Discord ?' : 'Envoyer ce nouveau post sur Discord ?'
                 });
                 if (ok) {
-                  const res = await publishPost(
+                  const res = await (publishPost as (authorDiscordId?: string, options?: { silentUpdate?: boolean }) => Promise<{ ok: boolean, data?: any, error?: string }>)(
                     profile?.discord_id,
                     { silentUpdate: editingPostId ? silentUpdateMode : false }
                   );

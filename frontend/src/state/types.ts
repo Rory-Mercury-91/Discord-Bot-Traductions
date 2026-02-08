@@ -172,12 +172,12 @@ export type AppContextValue = {
 
   additionalTranslationLinks: AdditionalTranslationLink[];
   addAdditionalTranslationLink: () => void;
-  updateAdditionalTranslationLink: (index: number, field: 'label' | 'link', value: string) => void;
+  updateAdditionalTranslationLink: (index: number, link: AdditionalTranslationLink) => void;
   deleteAdditionalTranslationLink: (index: number) => void;
 
   additionalModLinks: AdditionalTranslationLink[];
   addAdditionalModLink: () => void;
-  updateAdditionalModLink: (index: number, field: 'label' | 'link', value: string) => void;
+  updateAdditionalModLink: (index: number, link: AdditionalTranslationLink) => void;
   deleteAdditionalModLink: (index: number) => void;
 
   apiStatus: string;
